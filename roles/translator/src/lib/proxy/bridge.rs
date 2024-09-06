@@ -1,4 +1,7 @@
 use async_channel::{Receiver, Sender};
+use bitcoin::{bip32::{ChildNumber, DerivationPath}, key::Secp256k1};
+use cdk::{amount::{Amount, SplitTarget}, nuts::{CurrencyUnit, MintKeySet}, wallet::Wallet};
+use rand::Rng;
 use roles_logic_sv2::{
     channel_logic::channel_factory::{ExtendedChannelKind, ProxyExtendedChannelFactory, Share},
     mining_sv2::{
@@ -7,7 +10,7 @@ use roles_logic_sv2::{
     parsers::Mining,
     utils::{GroupId, Mutex},
 };
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokio::{sync::broadcast, task::AbortHandle};
 use v1::{client_to_server::Submit, server_to_client, utils::HexU32Be};
 
@@ -64,6 +67,7 @@ pub struct Bridge {
     target: Arc<Mutex<Vec<u8>>>,
     last_job_id: u32,
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
+    wallet: Arc<RwLock<Wallet>>,
 }
 
 impl Bridge {
@@ -81,6 +85,20 @@ impl Bridge {
         up_id: u32,
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
     ) -> Arc<Mutex<Self>> {
+        use std::sync::Arc;
+
+        use cdk::cdk_database::WalletMemoryDatabase;
+        use cdk::nuts::CurrencyUnit;
+        use cdk::wallet::Wallet;
+        use rand::Rng;
+    
+        let seed = rand::thread_rng().gen::<[u8; 32]>();
+        let mint_url = "https://testnut.cashu.space";
+        let unit = CurrencyUnit::Hash;
+    
+        let localstore = WalletMemoryDatabase::default();
+        let wallet = Arc::new(RwLock::new(Wallet::new(mint_url, unit, Arc::new(localstore), &seed, None)));
+
         let ids = Arc::new(Mutex::new(GroupId::new()));
         let share_per_min = 1.0;
         let upstream_target: [u8; 32] =
@@ -109,6 +127,7 @@ impl Bridge {
             target,
             last_job_id: 0,
             task_collector,
+            wallet,
         }))
     }
 
@@ -216,12 +235,13 @@ impl Bridge {
         self_: Arc<Mutex<Self>>,
         share: SubmitShareWithChannelId,
     ) -> ProxyResult<'static, ()> {
-        let (tx_sv2_submit_shares_ext, target_mutex, tx_status) = self_
+        let (tx_sv2_submit_shares_ext, target_mutex, tx_status, wallet) = self_
             .safe_lock(|s| {
                 (
                     s.tx_sv2_submit_shares_ext.clone(),
                     s.target.clone(),
                     s.tx_status.clone(),
+                    s.wallet.clone(),
                 )
             })
             .map_err(|_| PoisonLock)?;
@@ -254,13 +274,18 @@ impl Bridge {
                 info!("SHARE MEETS UPSTREAM TARGET");
                 match share {
                     Share::Extended(share) => {
+                        let premint_secret = self_
+                            .safe_lock(|s| s.create_blinded_secret())
+                            .map_err(|_| PoisonLock)?
+                            .unwrap();
+                        info!("Blinded secret: {:?}", premint_secret);
                         tx_sv2_submit_shares_ext.send(share).await?;
                     }
                     // We are in an extended channel shares are extended
                     Share::Standard(_) => unreachable!(),
                 }
             }
-            // We are in an extended channel this variant is group channle only
+            // We are in an extended channel this variant is group channel only
             Ok(Ok(OnNewShare::RelaySubmitShareUpstream)) => unreachable!(),
             Ok(Ok(OnNewShare::ShareMeetDownstreamTarget)) => {
                 debug!("SHARE MEETS DOWNSTREAM TARGET");
@@ -277,6 +302,44 @@ impl Bridge {
             }
         }
         Ok(())
+    }
+
+    fn create_blinded_secret(&self) -> Result<cdk::nuts::PreMintSecrets, cdk::wallet::error::Error> {
+        //============ fake the mint stuff for now ======================
+        // stolen from cdk derivation_path_from_unit
+        let derivation_path = DerivationPath::from(vec![
+            ChildNumber::from_hardened_idx(0).expect("0 is a valid index"),
+            ChildNumber::from_hardened_idx(CurrencyUnit::Hash.derivation_index()).expect("0 is a valid index"),
+            ChildNumber::from_hardened_idx(0).expect("0 is a valid index"),
+        ]);
+    
+        // TODO retrieve keyset from mint
+        let seed = "test_seed".as_bytes();
+        let keyset = MintKeySet::generate_from_seed(
+            &Secp256k1::new(),
+            seed,
+            2,
+            CurrencyUnit::Hash,
+            derivation_path,
+        );
+    
+        let keyset_id = keyset.id;
+        // use a random token count to avoid maintaining unnecessary state
+        let mut ehash_token_count: u32 = rand::thread_rng().gen_range(0..=2_147_483_647);
+        //============ end fake mint stuff ==============================
+
+        let premint_secret: Result<cdk::nuts::PreMintSecrets, cdk::wallet::error::Error> = {
+            let wallet = self.wallet.write().unwrap();
+            wallet.generate_premint_secrets(
+                keyset_id,
+                Amount::from(1),
+                &SplitTarget::None,
+                None,
+                ehash_token_count,
+            )
+        };
+
+        premint_secret
     }
 
     /// Translates a SV1 `mining.submit` message to a SV2 `SubmitSharesExtended` message.

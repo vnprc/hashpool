@@ -44,6 +44,8 @@ key-utils = { version = "^1.0.0", path = "../../utils/key-utils" }
 tokio-util = { version = "0.7.10", features = ["codec"] }
 async-compat = "0.2.1"
 rand = "0.8.4"
+cdk = { git = "https://github.com/vnprc/cdk", branch = "get_blinded_secrets" }
+bitcoin = "0.30"
 
 
 [dev-dependencies]
