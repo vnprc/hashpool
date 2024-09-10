@@ -36,6 +36,8 @@ async-recursion = "1.0.0"
 error_handling = { version = "1.0.0", path = "../../utils/error-handling" }
 nohash-hasher = "0.2.0"
 key-utils = { version = "^1.0.0", path = "../../utils/key-utils" }
+cdk = { git = "https://github.com/vnprc/cdk", branch = "get_blinded_secrets" }
+bip39 = { version = "2.0", features = ["rand"] }
 
 [dev-dependencies]
 hex = "0.4.3"
