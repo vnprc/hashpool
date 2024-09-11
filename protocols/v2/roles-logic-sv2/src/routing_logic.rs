@@ -366,6 +366,8 @@ impl<
             flags: upstream
                 .safe_lock(|u| u.get_flags())
                 .map_err(|e| Error::PoisonLock(e.to_string()))?,
+            // ¯\_(ツ)_/¯
+            keyset_id: 0_u64,
         };
         self.downstream_to_upstream_map
             .insert(downstream_data, vec![upstream]);

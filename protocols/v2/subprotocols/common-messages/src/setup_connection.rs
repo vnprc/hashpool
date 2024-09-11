@@ -248,6 +248,8 @@ pub struct SetupConnectionSuccess {
     /// Flags indicating optional protocol features the server supports. Each
     /// protocol from [`Protocol`] field has its own values/flags.
     pub flags: u32,
+    /// try to use an array of 8 bytes and all hell breaks loose
+    pub keyset_id: u64,
 }
 
 /// ## SetupConnection.Error (Server -> Client)

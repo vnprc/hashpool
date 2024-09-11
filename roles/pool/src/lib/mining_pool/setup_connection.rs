@@ -108,6 +108,8 @@ impl ParseDownstreamCommonMessages<NoRouting> for SetupConnectionHandler {
             CommonMessages::SetupConnectionSuccess(SetupConnectionSuccess {
                 flags: incoming.flags,
                 used_version: 2,
+                // TODO import keyset from pool
+                keyset_id: 0u64,
             }),
         ))
     }
