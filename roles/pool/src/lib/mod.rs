@@ -21,6 +21,7 @@ use bip39::Mnemonic;
 pub struct PoolSv2 {
     config: Configuration,
     mint: Option<Arc<Mint>>,
+    keyset_id: Option<u64>
 }
 
 impl PoolSv2 {
@@ -28,6 +29,7 @@ impl PoolSv2 {
         PoolSv2 {
             config,
             mint: None,
+            keyset_id: None,
         }
     }
 
@@ -61,6 +63,13 @@ impl PoolSv2 {
     
         let mint = Arc::new(self.create_mint().await);
         self.mint = Some(mint.clone());
+
+        let pubkeys = mint.pubkeys().await.unwrap();
+        if let Some(first_keyset) = pubkeys.keysets.first() {
+            self.keyset_id = Some(first_keyset.id.to_u64());
+        } else {
+            panic!("No keysets found");
+        }
 
         let pool = Pool::start(
             config.clone(),
@@ -121,23 +130,18 @@ impl PoolSv2 {
     }
 
     async fn create_mint(&self) -> Mint {
-        let nuts = Nuts::new()
-            .nut07(true)
-            .nut08(true)
-            .nut09(true)
-            .nut10(true)
-            .nut11(true)
-            .nut12(true)
-            .nut14(true);
+        let nuts = Nuts::new().nut07(true);
 
         let mint_info = MintInfo::new().nuts(nuts);
 
+        // TODO securely import mnemonic
         let mnemonic = Mnemonic::generate(12).unwrap();
 
         let mut supported_units = HashMap::new();
         supported_units.insert(CurrencyUnit::Hash, (0, 64));
 
         let mint = Mint::new(
+            // TODO is mint_url necessary?
             "http://localhost:8000",
             &mnemonic.to_seed_normalized(""),
             mint_info,
