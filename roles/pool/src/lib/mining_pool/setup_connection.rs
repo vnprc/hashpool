@@ -3,6 +3,7 @@ use super::super::{
     mining_pool::{EitherFrame, StdFrame},
 };
 use async_channel::{Receiver, Sender};
+use cdk::mint::Mint;
 use roles_logic_sv2::{
     common_messages_sv2::{
         has_requires_std_job, has_version_rolling, has_work_selection, SetupConnection,
@@ -20,17 +21,12 @@ use tracing::{debug, error};
 
 pub struct SetupConnectionHandler {
     header_only: Option<bool>,
-}
-
-impl Default for SetupConnectionHandler {
-    fn default() -> Self {
-        Self::new()
-    }
+    mint: Arc<Mutex<Mint>>,
 }
 
 impl SetupConnectionHandler {
-    pub fn new() -> Self {
-        Self { header_only: None }
+    pub fn new(mint: Arc<Mutex<Mint>>) -> Self {
+        Self { header_only: None, mint }
     }
     pub async fn setup(
         self_: Arc<Mutex<Self>>,
@@ -103,13 +99,18 @@ impl ParseDownstreamCommonMessages<NoRouting> for SetupConnectionHandler {
         let header_only = incoming.requires_standard_job();
         debug!("Handling setup connection: header_only: {}", header_only);
         self.header_only = Some(header_only);
+        let keyset_id = self.mint.safe_lock(|m| {
+            let pubkeys_future = m.pubkeys();
+            let pubkeys = tokio::runtime::Handle::current().block_on(pubkeys_future).unwrap();
+            pubkeys.keysets.first().unwrap().id.to_u64()
+        }).unwrap();
+        debug!("Keyset id: {}", keyset_id);
         Ok(SendTo::RelayNewMessageToRemote(
             Arc::new(Mutex::new(())),
             CommonMessages::SetupConnectionSuccess(SetupConnectionSuccess {
                 flags: incoming.flags,
                 used_version: 2,
-                // TODO import keyset from pool
-                keyset_id: 0u64,
+                keyset_id: keyset_id,
             }),
         ))
     }
