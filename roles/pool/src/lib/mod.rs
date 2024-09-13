@@ -3,12 +3,13 @@ pub mod mining_pool;
 pub mod status;
 pub mod template_receiver;
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use async_channel::{bounded, unbounded};
 
 use error::PoolError;
 use mining_pool::{get_coinbase_output, Configuration, Pool};
+use roles_logic_sv2::utils::Mutex;
 use template_receiver::TemplateRx;
 use tracing::{error, info, warn};
 
@@ -20,7 +21,7 @@ use bip39::Mnemonic;
 #[derive(Debug, Clone)]
 pub struct PoolSv2 {
     config: Configuration,
-    mint: Option<Arc<Mint>>,
+    mint: Option<Arc<Mutex<Mint>>>,
     keyset_id: Option<u64>
 }
 
@@ -43,6 +44,10 @@ impl PoolSv2 {
         let coinbase_output_result = get_coinbase_output(&config);
         let coinbase_output_len = coinbase_output_result?.len() as u32;
         let tp_authority_public_key = config.tp_authority_public_key;
+        let tp_address: SocketAddr = config.tp_address.parse().unwrap();
+        
+        // Debugging information
+        dbg!(&tp_address, &tp_authority_public_key, &coinbase_output_len);
 
         let template_rx_res = TemplateRx::connect(
             config.tp_address.parse().unwrap(),
@@ -61,15 +66,8 @@ impl PoolSv2 {
             return Err(e);
         }
     
-        let mint = Arc::new(self.create_mint().await);
+        let mint = Arc::new(Mutex::new(self.create_mint().await));
         self.mint = Some(mint.clone());
-
-        let pubkeys = mint.pubkeys().await.unwrap();
-        if let Some(first_keyset) = pubkeys.keysets.first() {
-            self.keyset_id = Some(first_keyset.id.to_u64());
-        } else {
-            panic!("No keysets found");
-        }
 
         let pool = Pool::start(
             config.clone(),
@@ -78,6 +76,7 @@ impl PoolSv2 {
             s_solution,
             s_message_recv_signal,
             status::Sender::DownstreamListener(status_tx),
+            mint.clone(),
         );
 
         // Start the error handling loop

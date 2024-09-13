@@ -486,6 +486,7 @@ impl JobDeclarator {
                                 let success_message = SetupConnectionSuccess {
                                     used_version: 2,
                                     flags: (setup_connection.flags & 1u32),
+                                    keyset_id: 0_u64,
                                 };
                                 info!("Sending success message for proxy");
                                 let sv2_frame: StdFrame = JdsMessages::Common(success_message.into())

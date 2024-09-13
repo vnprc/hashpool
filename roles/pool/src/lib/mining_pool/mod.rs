@@ -4,6 +4,7 @@ use super::{
 };
 use async_channel::{Receiver, Sender};
 use binary_sv2::U256;
+use cdk::mint::Mint;
 use codec_sv2::{HandshakeRole, Responder, StandardEitherFrame, StandardSv2Frame};
 use error_handling::handle_result;
 use key_utils::{Secp256k1PublicKey, Secp256k1SecretKey, SignatureService};
@@ -181,6 +182,7 @@ pub struct Downstream {
     downstream_data: CommonDownstreamData,
     solution_sender: Sender<SubmitSolution<'static>>,
     channel_factory: Arc<Mutex<PoolChannelFactory>>,
+    mint: Arc<Mutex<Mint>>,
 }
 
 /// Accept downstream connection
@@ -191,6 +193,7 @@ pub struct Pool {
     channel_factory: Arc<Mutex<PoolChannelFactory>>,
     last_prev_hash_template_id: u64,
     status_tx: status::Sender,
+    mint: Arc<Mutex<Mint>>,
 }
 
 impl Downstream {
@@ -204,7 +207,8 @@ impl Downstream {
         status_tx: status::Sender,
         address: SocketAddr,
     ) -> PoolResult<Arc<Mutex<Self>>> {
-        let setup_connection = Arc::new(Mutex::new(SetupConnectionHandler::new()));
+        let mint = pool.safe_lock(|p| p.mint.clone())?;
+        let setup_connection = Arc::new(Mutex::new(SetupConnectionHandler::new(mint)));
         let downstream_data =
             SetupConnectionHandler::setup(setup_connection, &mut receiver, &mut sender, address)
                 .await?;
@@ -214,6 +218,8 @@ impl Downstream {
             true => channel_factory.safe_lock(|c| c.new_standard_id_for_hom())?,
         };
 
+        let mint = pool.safe_lock(|p| p.mint.clone())?;
+
         let self_ = Arc::new(Mutex::new(Downstream {
             id,
             receiver,
@@ -221,6 +227,7 @@ impl Downstream {
             downstream_data,
             solution_sender,
             channel_factory,
+            mint,
         }));
 
         let cloned = self_.clone();
@@ -596,6 +603,7 @@ impl Pool {
         solution_sender: Sender<SubmitSolution<'static>>,
         sender_message_received_signal: Sender<()>,
         status_tx: status::Sender,
+        mint: Arc<Mutex<Mint>>,
     ) -> Arc<Mutex<Self>> {
         let extranonce_len = 32;
         let range_0 = std::ops::Range { start: 0, end: 0 };
@@ -627,6 +635,7 @@ impl Pool {
             channel_factory,
             last_prev_hash_template_id: 0,
             status_tx: status_tx.clone(),
+            mint: mint.clone(),
         }));
 
         let cloned = pool.clone();

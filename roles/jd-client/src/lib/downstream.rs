@@ -647,6 +647,7 @@ impl ParseDownstreamCommonMessages<roles_logic_sv2::routing_logic::NoRouting>
             used_version: 2,
             // require extended channels
             flags: 0b0000_0000_0000_0010,
+            keyset_id: 0_u64,
         };
         let data = CommonDownstreamData {
             header_only: false,
