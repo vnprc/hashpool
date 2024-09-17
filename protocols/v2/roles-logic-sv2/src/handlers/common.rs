@@ -7,7 +7,7 @@ use crate::{
     utils::Mutex,
 };
 use common_messages_sv2::{
-    ChannelEndpointChanged, SetupConnection, SetupConnectionError, SetupConnectionSuccess,
+    ChannelEndpointChanged, SetupConnection, SetupConnectionError, SetupConnectionSuccess, SetupConnectionSuccessMint,
 };
 use const_sv2::*;
 use core::convert::TryInto;
@@ -63,6 +63,15 @@ where
                     .safe_lock(|x| x.handle_setup_connection_success(m))
                     .map_err(|e| crate::Error::PoisonLock(e.to_string()))?
             }
+            Ok(CommonMessages::SetupConnectionSuccessMint(m)) => {
+                info!(
+                    "Received SetupConnectionSuccessMint: version={}, flags={:b}",
+                    m.used_version, m.flags
+                );
+                self_
+                    .safe_lock(|x| x.handle_setup_connection_success_mint(m))
+                    .map_err(|e| crate::Error::PoisonLock(e.to_string()))?
+            }
             Ok(CommonMessages::SetupConnectionError(m)) => {
                 error!(
                     "Received SetupConnectionError with error code {}",
@@ -94,6 +103,11 @@ where
         m: SetupConnectionSuccess,
     ) -> Result<SendTo, Error>;
 
+    fn handle_setup_connection_success_mint(
+        &mut self,
+        m: SetupConnectionSuccessMint,
+    ) -> Result<SendTo, Error>;
+
     /// Called by `Self::handle_message_common` when the `SetupConnectionError` message is received from the upstream node.
     fn handle_setup_connection_error(&mut self, m: SetupConnectionError) -> Result<SendTo, Error>;
 
@@ -116,6 +130,9 @@ where
             Ok(CommonMessages::SetupConnection(m)) => Ok(m),
             Ok(CommonMessages::SetupConnectionSuccess(_)) => Err(Error::UnexpectedMessage(
                 const_sv2::MESSAGE_TYPE_SETUP_CONNECTION_SUCCESS,
+            )),
+            Ok(CommonMessages::SetupConnectionSuccessMint(_)) => Err(Error::UnexpectedMessage(
+                const_sv2::MESSAGE_TYPE_SETUP_CONNECTION_SUCCESS_MINT,
             )),
             Ok(CommonMessages::SetupConnectionError(_)) => Err(Error::UnexpectedMessage(
                 const_sv2::MESSAGE_TYPE_SETUP_CONNECTION_ERROR,
@@ -181,6 +198,9 @@ where
             Ok(CommonMessages::SetupConnectionSuccess(_)) => Err(Error::UnexpectedMessage(
                 const_sv2::MESSAGE_TYPE_SETUP_CONNECTION_SUCCESS,
             )),
+            Ok(CommonMessages::SetupConnectionSuccessMint(_)) => Err(Error::UnexpectedMessage(
+                const_sv2::MESSAGE_TYPE_SETUP_CONNECTION_SUCCESS_MINT,
+            )),
             Ok(CommonMessages::SetupConnectionError(_)) => Err(Error::UnexpectedMessage(
                 const_sv2::MESSAGE_TYPE_SETUP_CONNECTION_ERROR,
             )),
@@ -196,5 +216,12 @@ where
         &mut self,
         m: SetupConnection,
         result: Option<Result<(CommonDownstreamData, SetupConnectionSuccess), Error>>,
+    ) -> Result<SendTo, Error>;
+
+    /// Called when a setup connection message is received by a pool running a cashu mint from the downstream node.
+    fn handle_setup_connection_mint(
+        &mut self,
+        m: SetupConnection,
+        result: Option<Result<(CommonDownstreamData, SetupConnectionSuccessMint), Error>>,
     ) -> Result<SendTo, Error>;
 }

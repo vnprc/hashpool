@@ -6,7 +6,7 @@ use super::{
 use async_channel::{Receiver, SendError, Sender};
 use roles_logic_sv2::{
     channel_logic::channel_factory::{OnNewShare, PoolChannelFactory, Share},
-    common_messages_sv2::{SetupConnection, SetupConnectionSuccess},
+    common_messages_sv2::{SetupConnection, SetupConnectionSuccess, SetupConnectionSuccessMint},
     common_properties::{CommonDownstreamData, IsDownstream, IsMiningDownstream},
     errors::Error,
     handlers::{
@@ -647,7 +647,6 @@ impl ParseDownstreamCommonMessages<roles_logic_sv2::routing_logic::NoRouting>
             used_version: 2,
             // require extended channels
             flags: 0b0000_0000_0000_0010,
-            keyset_id: 0_u64,
         };
         let data = CommonDownstreamData {
             header_only: false,
@@ -656,6 +655,14 @@ impl ParseDownstreamCommonMessages<roles_logic_sv2::routing_logic::NoRouting>
         };
         self.status.pair(data);
         Ok(SendToCommon::Respond(response.into()))
+    }
+
+    fn handle_setup_connection_mint(
+        &mut self,
+        _: SetupConnection,
+        _: Option<Result<(CommonDownstreamData, SetupConnectionSuccessMint), Error>>,
+    ) -> Result<roles_logic_sv2::handlers::common::SendTo, Error> {
+        unimplemented!("SetupConnectionSuccessMint not implemented");
     }
 }
 

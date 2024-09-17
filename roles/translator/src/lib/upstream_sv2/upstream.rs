@@ -619,6 +619,13 @@ impl ParseUpstreamCommonMessages<NoRouting> for Upstream {
     ) -> Result<SendToCommon, RolesLogicError> {
         Ok(SendToCommon::None(None))
     }
+    
+    fn handle_setup_connection_success_mint(
+        &mut self,
+        _: roles_logic_sv2::common_messages_sv2::SetupConnectionSuccessMint,
+    ) -> Result<SendToCommon, RolesLogicError> {
+        unimplemented!("SetupConnectionSuccessMint not implemented");
+    }
 
     fn handle_setup_connection_error(
         &mut self,

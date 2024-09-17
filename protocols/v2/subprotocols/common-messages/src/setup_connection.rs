@@ -248,6 +248,20 @@ pub struct SetupConnectionSuccess {
     /// Flags indicating optional protocol features the server supports. Each
     /// protocol from [`Protocol`] field has its own values/flags.
     pub flags: u32,
+}
+
+/// ## SetupConnection.SuccessMint (Server -> Client)
+/// Response to [`SetupConnection`] message if the server runs a cashu mint and accepts the connection.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Copy)]
+#[repr(C)]
+pub struct SetupConnectionSuccessMint {
+    /// Selected version proposed by the connecting node that the upstream
+    /// node supports. This version will be used on the connection for the rest
+    /// of its life.
+    pub used_version: u16,
+    /// Flags indicating optional protocol features the server supports. Each
+    /// protocol from [`Protocol`] field has its own values/flags.
+    pub flags: u32,
     /// try to use an array of 8 bytes and all hell breaks loose
     pub keyset_id: u64,
 }

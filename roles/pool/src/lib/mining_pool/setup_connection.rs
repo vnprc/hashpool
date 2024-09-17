@@ -8,6 +8,7 @@ use roles_logic_sv2::{
     common_messages_sv2::{
         has_requires_std_job, has_version_rolling, has_work_selection, SetupConnection,
         SetupConnectionSuccess,
+        SetupConnectionSuccessMint,
     },
     common_properties::CommonDownstreamData,
     errors::Error,
@@ -99,6 +100,24 @@ impl ParseDownstreamCommonMessages<NoRouting> for SetupConnectionHandler {
         let header_only = incoming.requires_standard_job();
         debug!("Handling setup connection: header_only: {}", header_only);
         self.header_only = Some(header_only);
+        Ok(SendTo::RelayNewMessageToRemote(
+            Arc::new(Mutex::new(())),
+            CommonMessages::SetupConnectionSuccess(SetupConnectionSuccess {
+                flags: incoming.flags,
+                used_version: 2
+            }),
+        ))
+    }
+
+    fn handle_setup_connection_mint(
+        &mut self,
+        incoming: SetupConnection,
+        _: Option<Result<(CommonDownstreamData, SetupConnectionSuccessMint), Error>>,
+    ) -> Result<roles_logic_sv2::handlers::common::SendTo, Error> {
+        use roles_logic_sv2::handlers::common::SendTo;
+        let header_only = incoming.requires_standard_job();
+        debug!("Handling setup connection: header_only: {}", header_only);
+        self.header_only = Some(header_only);
         let keyset_id = self.mint.safe_lock(|m| {
             let pubkeys_future = m.pubkeys();
             let pubkeys = tokio::runtime::Handle::current().block_on(pubkeys_future).unwrap();
@@ -107,7 +126,7 @@ impl ParseDownstreamCommonMessages<NoRouting> for SetupConnectionHandler {
         debug!("Keyset id: {}", keyset_id);
         Ok(SendTo::RelayNewMessageToRemote(
             Arc::new(Mutex::new(())),
-            CommonMessages::SetupConnectionSuccess(SetupConnectionSuccess {
+            CommonMessages::SetupConnectionSuccessMint(SetupConnectionSuccessMint {
                 flags: incoming.flags,
                 used_version: 2,
                 keyset_id: keyset_id,
