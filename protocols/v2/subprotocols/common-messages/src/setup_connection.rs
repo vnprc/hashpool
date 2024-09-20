@@ -140,6 +140,40 @@ impl<'decoder> SetupConnection<'decoder> {
     }
 }
 
+/// ## SetupConnectionMint (Client -> Server)
+/// Same as SetupConnection but used to connect to a pool running a cashu mint.
+/// Server MUST respond with either a [`SetupConnectionSuccessMint`] or
+/// [`SetupConnectionError`] message.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SetupConnectionMint<'decoder> {
+    // Reuse SetupConnection as a field
+    pub base: SetupConnection<'decoder>,
+    pub keyset_id: u64,
+}
+
+impl<'decoder> SetupConnectionMint<'decoder> {
+    // Delegate method to reuse logic from SetupConnection
+    pub fn requires_standard_job(&self) -> bool {
+        self.base.requires_standard_job()
+    }
+
+    pub fn set_requires_standard_job(&mut self) {
+        self.base.set_requires_standard_job()
+    }
+
+    pub fn check_flags(&self, available_flags: u32, required_flags: u32) -> bool {
+        SetupConnection::check_flags(self.base.protocol, available_flags, required_flags)
+    }
+
+    pub fn get_version(&self, min_version: u16, max_version: u16) -> Option<u16> {
+        self.base.get_version(min_version, max_version)
+    }
+
+    pub fn set_async_job_nogotiation(&mut self) {
+        self.base.set_async_job_nogotiation()
+    }
+}
+
 pub fn has_requires_std_job(flags: u32) -> bool {
     let flags = flags.reverse_bits();
     let flag = flags >> 31;

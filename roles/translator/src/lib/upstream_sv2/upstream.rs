@@ -16,7 +16,7 @@ use error_handling::handle_result;
 use key_utils::Secp256k1PublicKey;
 use network_helpers_sv2::Connection;
 use roles_logic_sv2::{
-    common_messages_sv2::{Protocol, SetupConnection},
+    common_messages_sv2::{Protocol, SetupConnection, SetupConnectionMint},
     common_properties::{IsMiningUpstream, IsUpstream},
     handlers::{
         common::{ParseUpstreamCommonMessages, SendTo as SendToCommon},
@@ -30,8 +30,7 @@ use roles_logic_sv2::{
     routing_logic::{CommonRoutingLogic, MiningRoutingLogic, NoRouting},
     selectors::NullDownstreamMiningSelector,
     utils::Mutex,
-    Error as RolesLogicError,
-    Error::NoUpstreamsConnected,
+    Error::{self as RolesLogicError, NoUpstreamsConnected},
 };
 use std::{
     net::SocketAddr,
@@ -186,13 +185,14 @@ impl Upstream {
         max_version: u16,
     ) -> ProxyResult<'static, ()> {
         // Get the `SetupConnection` message with Mining Device information (currently hard coded)
-        let setup_connection = Self::get_setup_connection_message(min_version, max_version, false)?;
+        let setup_connection_mint = Self::get_setup_connection_message(min_version, max_version, false)?;
+        println!("setup_connection_mint: {:?}", setup_connection_mint);
         let mut connection = self_
             .safe_lock(|s| s.connection.clone())
             .map_err(|_e| PoisonLock)?;
 
         // Put the `SetupConnection` message in a `StdFrame` to be sent over the wire
-        let sv2_frame: StdFrame = Message::Common(setup_connection.into()).try_into()?;
+        let sv2_frame: StdFrame = Message::Common(setup_connection_mint.into()).try_into()?;
         // Send the `SetupConnection` frame to the SV2 Upstream role
         // Only one Upstream role is supported, panics if multiple connections are encountered
         connection.send(sv2_frame).await?;
@@ -217,7 +217,6 @@ impl Upstream {
         };
         // Gets the message payload
         let payload = incoming.payload();
-
         // Handle the incoming message (should be either `SetupConnectionSuccess` or
         // `SetupConnectionError`)
         ParseUpstreamCommonMessages::handle_message_common(
@@ -533,15 +532,16 @@ impl Upstream {
         todo!()
     }
 
-    /// Creates the `SetupConnection` message to setup the connection with the SV2 Upstream role.
+    /// Creates the `SetupConnectionMint` message to setup the connection with the SV2 Upstream role.
     /// TODO: The Mining Device information is hard coded here, need to receive from Downstream
     /// instead.
     #[allow(clippy::result_large_err)]
+    // TODO rename to get_setup_connection_mint_message?
     fn get_setup_connection_message(
         min_version: u16,
         max_version: u16,
         is_work_selection_enabled: bool,
-    ) -> ProxyResult<'static, SetupConnection<'static>> {
+    ) -> ProxyResult<'static, SetupConnectionMint<'static>> {
         let endpoint_host = "0.0.0.0".to_string().into_bytes().try_into()?;
         let vendor = String::new().try_into()?;
         let hardware_version = String::new().try_into()?;
@@ -551,17 +551,21 @@ impl Upstream {
             false => 0b0000_0000_0000_0000_0000_0000_0000_0100,
             true => 0b0000_0000_0000_0000_0000_0000_0000_0110,
         };
-        Ok(SetupConnection {
-            protocol: Protocol::MiningProtocol,
-            min_version,
-            max_version,
-            flags,
-            endpoint_host,
-            endpoint_port: 50,
-            vendor,
-            hardware_version,
-            firmware,
-            device_id,
+        Ok(SetupConnectionMint {
+            base: SetupConnection {
+                protocol: Protocol::MiningProtocol,
+                min_version,
+                max_version,
+                flags,
+                endpoint_host,
+                endpoint_port: 50,
+                vendor,
+                hardware_version,
+                firmware,
+                device_id,
+            },
+            // TODO where to get keyset_id from?
+            keyset_id: 0,
         })
     }
 }
@@ -622,9 +626,11 @@ impl ParseUpstreamCommonMessages<NoRouting> for Upstream {
     
     fn handle_setup_connection_success_mint(
         &mut self,
-        _: roles_logic_sv2::common_messages_sv2::SetupConnectionSuccessMint,
+        setup_connection_success_mint: roles_logic_sv2::common_messages_sv2::SetupConnectionSuccessMint,
     ) -> Result<SendToCommon, RolesLogicError> {
-        unimplemented!("SetupConnectionSuccessMint not implemented");
+        // TODO remove debug logging or change to debug!()
+        println!("setup_connection_success_mint.keyset_id {:?}", setup_connection_success_mint.keyset_id);
+        Ok(SendToCommon::None(None))
     }
 
     fn handle_setup_connection_error(

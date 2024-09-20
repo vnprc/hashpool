@@ -29,7 +29,7 @@ use crate::{
     Error,
 };
 use common_messages_sv2::{
-    has_requires_std_job, Protocol, SetupConnection, SetupConnectionSuccess,
+    has_requires_std_job, Protocol, SetupConnection, SetupConnectionMint, SetupConnectionSuccess, SetupConnectionSuccessMint
 };
 use mining_sv2::{OpenStandardMiningChannel, OpenStandardMiningChannelSuccess};
 use std::{collections::HashMap, fmt::Debug as D, marker::PhantomData, sync::Arc};
@@ -42,6 +42,16 @@ pub trait CommonRouter: std::fmt::Debug {
         &mut self,
         message: &SetupConnection,
     ) -> Result<(CommonDownstreamData, SetupConnectionSuccess), Error>;
+}
+
+/// The CommonRouter trait defines a router needed by
+/// [`crate::handlers::common::ParseUpstreamCommonMessages`] and
+/// [`crate::handlers::common::ParseDownstreamCommonMessages`]
+pub trait CommonRouterMint: std::fmt::Debug {
+    fn on_setup_connection_mint(
+        &mut self,
+        message: &SetupConnectionMint,
+    ) -> Result<(CommonDownstreamData, SetupConnectionSuccessMint), Error>;
 }
 
 /// The MiningRouter trait defines a router needed by
@@ -106,10 +116,19 @@ impl<
     }
 }
 
+impl CommonRouterMint for NoRouting {
+    fn on_setup_connection_mint(
+        &mut self,
+        _: &SetupConnectionMint,
+    ) -> Result<(CommonDownstreamData, SetupConnectionSuccessMint), Error> {
+        unreachable!()
+    }
+}
+
 /// Enum that contains the possible routing logic is usually contructed before calling
 /// handle_message_..()
 #[derive(Debug)]
-pub enum CommonRoutingLogic<Router: 'static + CommonRouter> {
+pub enum CommonRoutingLogic<Router: 'static + CommonRouter + CommonRouterMint> {
     Proxy(&'static Mutex<Router>),
     None,
 }
@@ -128,7 +147,7 @@ pub enum MiningRoutingLogic<
     _P(PhantomData<(Down, Up, Sel)>),
 }
 
-impl<Router: CommonRouter> Clone for CommonRoutingLogic<Router> {
+impl<Router: CommonRouter + CommonRouterMint> Clone for CommonRoutingLogic<Router> {
     fn clone(&self) -> Self {
         match self {
             Self::None => Self::None,

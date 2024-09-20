@@ -15,7 +15,7 @@ use quickcheck::{Arbitrary, Gen};
 
 pub use channel_endpoint_changed::ChannelEndpointChanged;
 pub use setup_connection::{
-    has_requires_std_job, has_version_rolling, has_work_selection, Protocol, SetupConnection,
+    has_requires_std_job, has_version_rolling, has_work_selection, Protocol, SetupConnection, SetupConnectionMint,
     SetupConnectionError, SetupConnectionSuccess, SetupConnectionSuccessMint,
 };
 #[cfg(not(feature = "with_serde"))]
