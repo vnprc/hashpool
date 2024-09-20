@@ -3,11 +3,11 @@ use crate::{
     common_properties::CommonDownstreamData,
     errors::Error,
     parsers::CommonMessages,
-    routing_logic::{CommonRouter, CommonRoutingLogic},
+    routing_logic::{CommonRouter, CommonRouterMint, CommonRoutingLogic},
     utils::Mutex,
 };
 use common_messages_sv2::{
-    ChannelEndpointChanged, SetupConnection, SetupConnectionError, SetupConnectionSuccess, SetupConnectionSuccessMint,
+    ChannelEndpointChanged, SetupConnection, SetupConnectionMint, SetupConnectionError, SetupConnectionSuccess, SetupConnectionSuccessMint,
 };
 use const_sv2::*;
 use core::convert::TryInto;
@@ -17,9 +17,9 @@ use tracing::{debug, error, info, trace};
 /// see [`SendTo_`]
 pub type SendTo = SendTo_<CommonMessages<'static>, ()>;
 
-/// A trait that is implemented by the downstream. It should be used to parse the common messages
-/// that are sent from the upstream to the downstream.
-pub trait ParseUpstreamCommonMessages<Router: CommonRouter>
+/// A trait that is implemented by the downstream. It should be used to parse the common messages that
+/// are sent from the upstream to the downstream.
+pub trait ParseUpstreamCommonMessages<Router: CommonRouter + CommonRouterMint>
 where
     Self: Sized,
 {
@@ -91,6 +91,9 @@ where
             Ok(CommonMessages::SetupConnection(_)) => {
                 Err(Error::UnexpectedMessage(MESSAGE_TYPE_SETUP_CONNECTION))
             }
+            Ok(CommonMessages::SetupConnectionMint(_)) => {
+                Err(Error::UnexpectedMessage(MESSAGE_TYPE_SETUP_CONNECTION_MINT))
+            }
             Err(e) => Err(e),
         }
     }
@@ -118,10 +121,10 @@ where
     ) -> Result<SendTo, Error>;
 }
 
-/// A trait that is implemented by the upstream node, and is used to handle
-/// [`crate::parsers::CommonMessages::SetupConnection`] messages sent by the downstream to the
-/// upstream
-pub trait ParseDownstreamCommonMessages<Router: CommonRouter>
+/// A trait that is implemented by the upstream node, and is used to handle 
+/// [`crate::parsers::CommonMessages::SetupConnection`]
+/// messages sent by the downstream to the upstream
+pub trait ParseDownstreamCommonMessages<Router: CommonRouter+ CommonRouterMint>
 where
     Self: Sized,
 {
@@ -130,6 +133,9 @@ where
     fn parse_message(message_type: u8, payload: &mut [u8]) -> Result<SetupConnection, Error> {
         match (message_type, payload).try_into() {
             Ok(CommonMessages::SetupConnection(m)) => Ok(m),
+            Ok(CommonMessages::SetupConnectionMint(m)) => Err(Error::UnexpectedMessage(
+                const_sv2::MESSAGE_TYPE_SETUP_CONNECTION_MINT,
+            )),
             Ok(CommonMessages::SetupConnectionSuccess(_)) => Err(Error::UnexpectedMessage(
                 const_sv2::MESSAGE_TYPE_SETUP_CONNECTION_SUCCESS,
             )),
@@ -195,6 +201,27 @@ where
                         .map_err(|e| crate::Error::PoisonLock(e.to_string()))?,
                 }
             }
+            Ok(CommonMessages::SetupConnectionMint(m)) => {
+                info!(
+                    "Received SetupConnectionMint: version={}, flags={:b}",
+                    m.base.min_version, m.base.flags
+                );
+                debug!("Setup connection mint message: {:?}", m);
+                match routing_logic {
+                    CommonRoutingLogic::Proxy(r_logic) => {
+                        trace!("On SetupConnectionMint r_logic is {:?}", r_logic);
+                        let result = r_logic
+                            .safe_lock(|r_logic| r_logic.on_setup_connection_mint(&m))
+                            .map_err(|e| crate::Error::PoisonLock(e.to_string()))?;
+                        self_
+                            .safe_lock(|x| x.handle_setup_connection_mint(m, Some(result)))
+                            .map_err(|e| crate::Error::PoisonLock(e.to_string()))?
+                    }
+                    CommonRoutingLogic::None => self_
+                        .safe_lock(|x| x.handle_setup_connection_mint(m, None))
+                        .map_err(|e| crate::Error::PoisonLock(e.to_string()))?,
+                }
+            }
             Ok(CommonMessages::SetupConnectionSuccess(_)) => Err(Error::UnexpectedMessage(
                 const_sv2::MESSAGE_TYPE_SETUP_CONNECTION_SUCCESS,
             )),
@@ -222,7 +249,7 @@ where
     /// Called when a setup connection message is received by a pool running a cashu mint from the downstream node.
     fn handle_setup_connection_mint(
         &mut self,
-        m: SetupConnection,
+        m: SetupConnectionMint,
         result: Option<Result<(CommonDownstreamData, SetupConnectionSuccessMint), Error>>,
     ) -> Result<SendTo, Error>;
 }

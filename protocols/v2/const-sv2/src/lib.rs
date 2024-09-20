@@ -142,6 +142,7 @@ pub const MESSAGE_TYPE_SETUP_CONNECTION_SUCCESS: u8 = 0x1;
 pub const MESSAGE_TYPE_SETUP_CONNECTION_ERROR: u8 = 0x2;
 pub const MESSAGE_TYPE_CHANNEL_ENDPOINT_CHANGED: u8 = 0x3;
 pub const MESSAGE_TYPE_SETUP_CONNECTION_SUCCESS_MINT: u8 = 0x4;
+pub const MESSAGE_TYPE_SETUP_CONNECTION_MINT: u8 = 0x5;
 
 // Mining Protocol message types.
 pub const MESSAGE_TYPE_OPEN_STANDARD_MINING_CHANNEL: u8 = 0x10;
@@ -199,6 +200,7 @@ pub const MESSAGE_TYPE_SUBMIT_SOLUTION: u8 = 0x76;
 // Template Distribution protocols, the `channel_msg` bit is always unset.
 
 pub const CHANNEL_BIT_SETUP_CONNECTION: bool = false;
+pub const CHANNEL_BIT_SETUP_CONNECTION_MINT: bool = false;
 pub const CHANNEL_BIT_SETUP_CONNECTION_SUCCESS: bool = false;
 pub const CHANNEL_BIT_SETUP_CONNECTION_ERROR: bool = false;
 pub const CHANNEL_BIT_CHANNEL_ENDPOINT_CHANGED: bool = true;

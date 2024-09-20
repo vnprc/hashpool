@@ -6,7 +6,7 @@ use super::{
 use async_channel::{Receiver, SendError, Sender};
 use roles_logic_sv2::{
     channel_logic::channel_factory::{OnNewShare, PoolChannelFactory, Share},
-    common_messages_sv2::{SetupConnection, SetupConnectionSuccess, SetupConnectionSuccessMint},
+    common_messages_sv2::{SetupConnection, SetupConnectionMint, SetupConnectionSuccess, SetupConnectionSuccessMint},
     common_properties::{CommonDownstreamData, IsDownstream, IsMiningDownstream},
     errors::Error,
     handlers::{
@@ -49,6 +49,7 @@ pub struct DownstreamMiningNode {
     // used to retreive the job id of the share that we send upstream
     last_template_id: u64,
     pub jd: Option<Arc<Mutex<JobDeclarator>>>,
+    keyset_id: Arc<RwLock<Option<u64>>>,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -149,7 +150,7 @@ impl DownstreamMiningNodeStatus {
 }
 
 use core::convert::TryInto;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 impl DownstreamMiningNode {
     #[allow(clippy::too_many_arguments)]
@@ -163,6 +164,7 @@ impl DownstreamMiningNode {
         tx_status: status::Sender,
         miner_coinbase_output: Vec<TxOut>,
         jd: Option<Arc<Mutex<JobDeclarator>>>,
+        keyset_id: Arc<RwLock<Option<u64>>>
     ) -> Self {
         Self {
             receiver,
@@ -179,6 +181,7 @@ impl DownstreamMiningNode {
             // Is upated in the message handler that si called earlier in the main loop.
             last_template_id: 0,
             jd,
+            keyset_id,
         }
     }
 
@@ -198,6 +201,47 @@ impl DownstreamMiningNode {
                 DownstreamMiningNode::send(
                     self_mutex,
                     setup_connection_success.try_into().unwrap(),
+                )
+                .await
+                .unwrap();
+            }
+            let receiver = self_mutex
+                .safe_lock(|self_| self_.receiver.clone())
+                .unwrap();
+            Self::set_channel_factory(self_mutex.clone());
+
+            while let Ok(message) = receiver.recv().await {
+                let incoming: StdFrame = message.try_into().unwrap();
+                Self::next(self_mutex, incoming).await;
+            }
+            let tx_status = self_mutex.safe_lock(|s| s.tx_status.clone()).unwrap();
+            let err = Error::DownstreamDown;
+            let status = status::Status {
+                state: State::DownstreamShutdown(err.into()),
+            };
+            tx_status.send(status).await.unwrap();
+        } else {
+            panic!()
+        }
+    }
+    
+    // TODO refactor SetupConnectionSuccess and SetupConnectionSuccessMint into an enum and use it instead of duplicating this function definition
+    /// Send SetupConnectionSuccessMint to downstream and start processing new messages coming from
+    /// downstream
+    pub async fn start_mint(
+        self_mutex: &Arc<Mutex<Self>>,
+        setup_connection_success_mint: SetupConnectionSuccessMint,
+    ) {
+        if self_mutex
+            .safe_lock(|self_| self_.status.is_paired())
+            .unwrap()
+        {
+            let setup_connection_success_mint: MiningDeviceMessages = setup_connection_success_mint.into();
+
+            {
+                DownstreamMiningNode::send(
+                    self_mutex,
+                    setup_connection_success_mint.try_into().unwrap(),
                 )
                 .await
                 .unwrap();
@@ -659,10 +703,24 @@ impl ParseDownstreamCommonMessages<roles_logic_sv2::routing_logic::NoRouting>
 
     fn handle_setup_connection_mint(
         &mut self,
-        _: SetupConnection,
+        setup_connection_mint: SetupConnectionMint,
         _: Option<Result<(CommonDownstreamData, SetupConnectionSuccessMint), Error>>,
     ) -> Result<roles_logic_sv2::handlers::common::SendTo, Error> {
-        unimplemented!("SetupConnectionSuccessMint not implemented");
+        self.keyset_id.write().unwrap().replace(setup_connection_mint.keyset_id);
+
+        let response = SetupConnectionSuccessMint {
+            used_version: 2,
+            // require extended channels
+            flags: 0b0000_0000_0000_0010,
+            keyset_id: self.keyset_id.read().unwrap().unwrap(),
+        };
+        let data = CommonDownstreamData {
+            header_only: false,
+            work_selection: false,
+            version_rolling: true,
+        };
+        self.status.pair(data);
+        Ok(SendToCommon::Respond(response.into()))
     }
 }
 
@@ -688,6 +746,7 @@ pub async fn listen_for_downstream_mining(
     tx_status: status::Sender,
     miner_coinbase_output: Vec<TxOut>,
     jd: Option<Arc<Mutex<JobDeclarator>>>,
+    keyset_id: Arc<RwLock<Option<u64>>>,
 ) -> Result<Arc<Mutex<DownstreamMiningNode>>, Error> {
     info!("Listening for downstream mining connections on {}", address);
     let listner = TcpListener::bind(address).await.unwrap();
@@ -713,6 +772,7 @@ pub async fn listen_for_downstream_mining(
             tx_status,
             miner_coinbase_output,
             jd,
+            keyset_id.clone(),
         );
 
         let mut incoming: StdFrame = node.receiver.recv().await.unwrap().try_into().unwrap();
@@ -734,30 +794,58 @@ pub async fn listen_for_downstream_mining(
             routing_logic,
         ) {
             Ok(SendToCommon::Respond(message)) => {
-                let message = match message {
-                    roles_logic_sv2::parsers::CommonMessages::SetupConnectionSuccess(m) => m,
-                    _ => panic!(),
-                };
-                let main_task = tokio::task::spawn({
-                    let node = node.clone();
-                    async move {
-                        DownstreamMiningNode::start(&node, message).await;
-                    }
-                });
-                node.safe_lock(|n| {
-                    n.task_collector
-                        .safe_lock(|c| {
-                            c.push(main_task.abort_handle());
-                            c.push(recv_task_abort_handler);
-                            c.push(send_task_abort_handler);
+                match message {
+                    roles_logic_sv2::parsers::CommonMessages::SetupConnectionSuccess(m) => {
+                        let main_task = tokio::task::spawn({
+                            let node = node.clone();
+                            async move {
+                                DownstreamMiningNode::start(&node, m).await;
+                            }
+                        });
+                        node.safe_lock(|n| {
+                            n.task_collector
+                                .safe_lock(|c| {
+                                    c.push(main_task.abort_handle());
+                                    c.push(recv_task_abort_handler);
+                                    c.push(send_task_abort_handler);
+                                })
+                                .unwrap()
                         })
-                        .unwrap()
-                })
-                .unwrap();
-                Ok(node)
+                        .unwrap();
+                        Ok(node)
+                    },
+                    roles_logic_sv2::parsers::CommonMessages::SetupConnectionSuccessMint(m) => {
+                        let main_task = tokio::task::spawn({
+                            let node = node.clone();
+                            async move {
+                                DownstreamMiningNode::start_mint(&node, m).await;
+                            }
+                        });
+                        node.safe_lock(|n| {
+                            n.task_collector
+                                .safe_lock(|c| {
+                                    c.push(main_task.abort_handle());
+                                    c.push(recv_task_abort_handler);
+                                    c.push(send_task_abort_handler);
+                                })
+                                .unwrap()
+                        })
+                        .unwrap();
+
+                        node.safe_lock(|n| {
+                            let mut keyset_id_lock = n.keyset_id.write().unwrap();
+                            keyset_id_lock.replace(m.keyset_id);
+                        }).unwrap();
+
+                        Ok(node)
+                    },
+                    _ => panic!(),
+                }
             }
             Ok(_) => todo!(),
-            Err(e) => Err(e),
+            Err(e) => {
+                Err(e)
+            }
         }
     } else {
         todo!()
