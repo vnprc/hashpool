@@ -18,3 +18,12 @@ cobertura.xml
 /roles/*/*-config.toml
 /examples/*/Cargo.lock
 /scripts/sv2.h
+# Devenv
+.devenv*
+devenv.local.nix
+
+# direnv
+.direnv
+
+# pre-commit
+.pre-commit-config.yaml
