@@ -1,0 +1,8 @@
+inputs:
+  cdk:
+    url: github:cashubtc/cdk
+    inputs:
+      nixpkgs:
+        follows: nixpkgs
+  nixpkgs:
+    url: github:cachix/devenv-nixpkgs/rolling
