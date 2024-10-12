@@ -12,14 +12,13 @@ in pkgs.stdenv.mkDerivation {
   buildInputs = [ pkgs.autoconf pkgs.automake pkgs.curl ];
   configurePhase = ''
     ./autogen.sh
-    ./configure CFLAGS="-O3"
+    ./configure CFLAGS="-O3" --disable-assembly
   '';
    buildPhase = ''
       make
    '';
    installPhase = ''
      mkdir -p $out/bin
-     ls minerd
      cp minerd $out/bin
    '';
 }
