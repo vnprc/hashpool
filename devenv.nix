@@ -31,11 +31,11 @@ in {
 
   # https://devenv.sh/processes/
   processes = {
-     run-local-pool.exec = "cargo -C roles/pool -Z unstable-options run -- -c roles/pool/config-examples/pool-config-local-tp-example.toml";
-     run-job-server.exec = "cargo -C roles/jd-server -Z unstable-options run -- -c roles/jd-server/config-examples/jds-config-local-example.toml";
-     run-job-client.exec = "cargo -C roles/jd-client -Z unstable-options run -- -c roles/jd-client/config-examples/jds-config-local-example.toml";
-     run-translator-proxy.exec = "cargo -C roles/translator -Z unstable-options run -- -c roles/translator/config-examples/tproxy-config-local-jdc-example.toml";
-     bitcoind-testnet.exec = "bitcoind -testnet4 -sv2 -sv2port=8442 -debug=sv2";
+     run-local-pool.exec = "cargo -C roles/pool -Z unstable-options run -- -c $(pwd)/roles/pool/config-examples/pool-config-local-tp-example.toml";
+     run-job-server.exec = "cargo -C roles/jd-server -Z unstable-options run -- -c $(pwd)/roles/jd-server/config-examples/jds-config-local-example.toml";
+     run-job-client.exec = "cargo -C roles/jd-client -Z unstable-options run -- -c $(pwd)/roles/jd-client/config-examples/jdc-config-local-example.toml";
+     run-translator-proxy.exec = "cargo -C roles/translator -Z unstable-options run -- -c $(pwd)/roles/translator/config-examples/tproxy-config-local-jdc-example.toml";
+     bitcoind-testnet.exec = "bitcoind -testnet4 -sv2 -sv2port=8442 -debug=sv2 -conf=$(pwd)/bitcoin.conf";
      run-minerd.exec = "minerd -a sha256d -o stratum+tcp://localhost:34255 -q -D -P";
   };
 
