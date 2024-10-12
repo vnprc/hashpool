@@ -24,13 +24,26 @@ let
   });
 in {
   # https://devenv.sh/packages/
-  packages = [ bitcoind minerd pkgs.darwin.apple_sdk.frameworks.Security ];
+  packages = [ bitcoind minerd ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [ pkgs.darwin.apple_sdk.frameworks.Security ];
 
   # https://devenv.sh/languages/
   languages.rust.enable = true;
 
   # https://devenv.sh/processes/
   processes = {
+     run-local-pool.exec = "run-local-pool";
+     run-job-server.exec = "run-job-server";
+     run-job-client.exec = "run-job-client";
+     run-translator-proxy.exec = "run-translator-proxy";
+     bitcoind-testnet.exec = "bitcoind-testnet";
+     run-minerd.exec = "run-minerd";
+  };
+
+  # https://devenv.sh/basics/
+  # https://devenv.sh/services/
+  # services.postgres.enable = true;
+  # https://devenv.sh/scripts/
+  scripts = {
      run-local-pool.exec = "cargo -C roles/pool -Z unstable-options run -- -c $(pwd)/roles/pool/config-examples/pool-config-local-tp-example.toml";
      run-job-server.exec = "cargo -C roles/jd-server -Z unstable-options run -- -c $(pwd)/roles/jd-server/config-examples/jds-config-local-example.toml";
      run-job-client.exec = "cargo -C roles/jd-client -Z unstable-options run -- -c $(pwd)/roles/jd-client/config-examples/jdc-config-local-example.toml";
@@ -39,10 +52,6 @@ in {
      run-minerd.exec = "minerd -a sha256d -o stratum+tcp://localhost:34255 -q -D -P";
   };
 
-  # https://devenv.sh/basics/
-  # https://devenv.sh/services/
-  # services.postgres.enable = true;
-  # https://devenv.sh/scripts/
   # https://devenv.sh/tasks/
   # https://devenv.sh/tests/
   # https://devenv.sh/pre-commit-hooks/
