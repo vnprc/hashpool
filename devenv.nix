@@ -3,6 +3,7 @@ let
   minerd = import ./cpuminer.nix {inherit pkgs;};
   # override bitcoin's src attribute to get version 28
   bitcoind = pkgs.bitcoind.overrideAttrs (oldAttrs: {
+  name = "bitcoind-sv2";
   src = pkgs.fetchFromGitHub {
     owner = "Sjors";
     repo = "bitcoin";
