@@ -1,6 +1,6 @@
 { pkgs, lib, config, inputs, ... }:
 let
-  minerd = import ./cpuminer.nix {inherit pkgs;};
+  minerd = import ./cpuminer.nix {pkgs=pkgs;};
   bitcoind = import ./bitcoind.nix {pkgs=pkgs; lib=lib;};
 in {
 
