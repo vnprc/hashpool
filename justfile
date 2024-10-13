@@ -1,0 +1,2 @@
+formatnix:
+	alejandra .

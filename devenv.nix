@@ -14,7 +14,9 @@ in {
   env.BITCOIND_DATADIR = config.devenv.root + "/.devenv/state/bitcoind";
 
   # https://devenv.sh/packages/
-  packages = [bitcoind minerd] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [pkgs.darwin.apple_sdk.frameworks.Security];
+  packages =
+    [bitcoind minerd pkgs.just]
+    ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [pkgs.darwin.apple_sdk.frameworks.Security];
 
   # https://devenv.sh/languages/
   languages.rust.enable = true;
