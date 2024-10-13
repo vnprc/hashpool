@@ -1,28 +1,7 @@
 { pkgs, lib, config, inputs, ... }:
 let
   minerd = import ./cpuminer.nix {inherit pkgs;};
-  # override bitcoin's src attribute to get version 28
-  bitcoind = pkgs.bitcoind.overrideAttrs (oldAttrs: {
-  name = "bitcoind-sv2";
-  src = pkgs.fetchFromGitHub {
-    owner = "Sjors";
-    repo = "bitcoin";
-    rev = "sv2";
-    hash = "sha256-iPVtR06DdheYRfZ/Edm1hu3JLoXAu5obddTQ38cqljs=";
-  };
-  # ugly, drops autoconfHook as first list item
-  nativeBuildInputs = lib.lists.drop 1 oldAttrs.nativeBuildInputs ++ [pkgs.cmake];
-  # doCheck = false;
-  postInstall = "";
-  cmakeFlags = [
-    (lib.cmakeBool "WITH_SV2" true)
-    (lib.cmakeBool "BUILD_BENCH" true)
-    (lib.cmakeBool "BUILD_TESTS" true)
-    (lib.cmakeBool "ENABLE_WALLET" false)
-    (lib.cmakeBool "BUILD_GUI" false)
-    (lib.cmakeBool "BUILD_GUI_TESTS" false)
-  ];
-  });
+  bitcoind = import ./bitcoind.nix {pkgs=pkgs; lib=lib;};
 in {
 
   env.BITCOIND_DATADIR = config.devenv.root + "/.devenv/state/bitcoind";

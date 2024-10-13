@@ -8,7 +8,7 @@ let
   };
 in pkgs.stdenv.mkDerivation {
   name = "cpuminer";
-  inherit src;
+  src = src;
   buildInputs = [ pkgs.autoconf pkgs.automake pkgs.curl ];
   configurePhase = ''
     ./autogen.sh
