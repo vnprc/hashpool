@@ -34,7 +34,7 @@ impl PoolSv2 {
         }
     }
 
-    pub async fn start(mut self) -> Result<(), PoolError> {
+    pub async fn start(&mut self) -> Result<(), PoolError> {
         let config = self.config.clone();
         let (status_tx, status_rx) = unbounded();
         let (s_new_t, r_new_t) = bounded(10);
