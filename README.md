@@ -15,6 +15,8 @@ devenv shell
 devenv up
 ```
 
+![Screenshot 2024-11-02 at 11 37 31 AM](https://github.com/user-attachments/assets/76b116b1-3aeb-4383-b67a-193740fc1b4b)
+
 ## Development Environment Setup
 
 The development environment initializes a containerized system with the following components:
