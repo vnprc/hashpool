@@ -1,6 +1,6 @@
-# Hashpool - Stratum V2 Reference Implementation Fork
+# Hashpool
 
-This project is a fork of the Stratum V2 Reference Implementation (SRI) that replaces traditional share accounting with an ecash mint. For each mining share accepted by the pool, Hashpool generates "ehash", an ecash token backed by proof of work. Miners can hold choose to hold these tokens to maturity or trade them.
+This project is a fork of the Stratum V2 Reference Implementation (SRI) that replaces traditional share accounting with an ecash mint. For each mining share accepted by the pool, Hashpool generates "ehash", an ecash token backed by proof of work, and returns it to the miner. Miners can hold choose to hold these tokens to maturity or trade them.
 
 You can access the original SRI README [here](https://github.com/stratum-mining/stratum/blob/main/README.md).
 
