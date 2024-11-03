@@ -24,22 +24,34 @@ The development environment initializes a containerized system with the followin
 ### Components Overview
 
 1. **SV2 Mining Pool**
-   - Coordinates mining tasks, distributes workloads among miners, and aggregates results for potential block creation.
+   - coordinates mining tasks and distributes workloads to miners
+   - issues an ecash token for each share accepted
+   - manages an internal cashu mint
+      - receives a blinded message for each mining share
+      - signs it and returns a blinded signature to the proxy/wallet
 
 2. **SV2 Translator Proxy**
-   - Translates between Stratum V1 and Stratum V2 protocols, allowing miners with different protocol versions to work with the pool.
+   - talks stratum v1 to downstream miners and stratum v2 to the upstream pool
+   - manages the cashu wallet
+      - bundles a blinded message with each share sent upstream to the pool
+      - receives the blinded signature for each blinded message
+      - stores each unblinded message with it's unblinded signature (this is an ecash token)
 
 3. **SV2 Job Declarator Client**
-   - Initiates job negotiations with the Job Negotiator Server, enabling mining jobs to follow the Stratum V2 protocol.
+   - talks to bitcoind miner side
+   - retrieves block templates
+   - negotiates work with upstream pool
 
 4. **SV2 Job Declarator Server**
-   - Manages incoming job negotiation requests from clients and assigns appropriate mining jobs.
+   - talks to bitcoind pool side
+   - negotiates work with downstream proxy
 
-5. **Bitcoind (Sjors' SV2 Fork)**
-   - A modified Bitcoin node supporting Stratum V2, serving as the blockchain backend for the mining pool.
+5. **bitcoind (Sjors' SV2 Fork)**
+   - modified bitcoind supporting stratum v2
+   - check the [PR](https://github.com/bitcoin/bitcoin/pull/29432) for more information
 
-6. **CPUMiner**
-   - A CPU-based miner connecting to the SV2 Mining Pool to perform simulated mining operations.
+6. **cpuminer**
+   - find shares to submit upstream to the proxy
 
 ---
 
