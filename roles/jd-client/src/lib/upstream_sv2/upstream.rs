@@ -126,7 +126,6 @@ pub struct Upstream {
     channel_factory: Option<PoolChannelFactory>,
     template_to_job_id: TemplateToJobId,
     req_ids: Id,
-    keyset_id: u64,
 }
 
 impl Upstream {
@@ -199,7 +198,6 @@ impl Upstream {
             channel_factory: None,
             template_to_job_id: TemplateToJobId::new(),
             req_ids: Id::new(),
-            keyset_id: 0,
         })))
     }
 
@@ -514,10 +512,9 @@ impl ParseUpstreamCommonMessages<NoRouting> for Upstream {
 
     fn handle_setup_connection_success_mint(
         &mut self,
-        setup_connection_success_mint: roles_logic_sv2::common_messages_sv2::SetupConnectionSuccessMint,
+        _: roles_logic_sv2::common_messages_sv2::SetupConnectionSuccessMint,
     ) -> Result<SendToCommon, RolesLogicError> {
-        self.keyset_id = setup_connection_success_mint.keyset_id;
-        Ok(SendToCommon::None(None))
+        unimplemented!("SetupConnectionSuccessMint not implemented");
     }
 
     fn handle_setup_connection_error(

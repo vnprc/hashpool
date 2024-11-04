@@ -6,11 +6,10 @@ pub mod status;
 pub mod template_receiver;
 pub mod upstream_sv2;
 
-use std::{sync::{atomic::AtomicBool, RwLock}, time::Duration};
+use std::{sync::atomic::AtomicBool, time::Duration};
 
 use job_declarator::JobDeclarator;
 use proxy_config::ProxyConfig;
-use stratum_common::bitcoin::util::key;
 use template_receiver::TemplateRx;
 
 use async_channel::{bounded, unbounded};
@@ -58,12 +57,11 @@ pub static IS_NEW_TEMPLATE_HANDLED: AtomicBool = AtomicBool::new(true);
 pub struct JobDeclaratorClient {
     /// Configuration of the proxy server [`JobDeclaratorClient`] is connected to.
     config: ProxyConfig,
-    keyset_id: Arc<RwLock<Option<u64>>>,
 }
 
 impl JobDeclaratorClient {
     pub fn new(config: ProxyConfig) -> Self {
-        Self { config, keyset_id: Arc::new(RwLock::new(None)) }
+        Self { config }
     }
 
     pub async fn start(self) {
@@ -188,7 +186,6 @@ impl JobDeclaratorClient {
             status::Sender::Downstream(tx_status.clone()),
             miner_tx_out.clone(),
             None,
-            self.keyset_id.clone(),
         )
         .await
         .unwrap();
@@ -331,7 +328,6 @@ impl JobDeclaratorClient {
             status::Sender::Downstream(tx_status.clone()),
             vec![],
             Some(jd.clone()),
-            self.keyset_id.clone(),
         )
         .await
         .unwrap();
