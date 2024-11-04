@@ -6,7 +6,9 @@ use async_channel::{Receiver, Sender};
 use cdk::mint::Mint;
 use roles_logic_sv2::{
     common_messages_sv2::{
-        has_requires_std_job, has_version_rolling, has_work_selection, SetupConnection, SetupConnectionMint, SetupConnectionSuccess, SetupConnectionSuccessMint
+        has_requires_std_job, has_version_rolling, has_work_selection, SetupConnection,
+        SetupConnectionSuccess,
+        SetupConnectionSuccessMint,
     },
     common_properties::CommonDownstreamData,
     errors::Error,
@@ -15,8 +17,7 @@ use roles_logic_sv2::{
     routing_logic::{CommonRoutingLogic, NoRouting},
     utils::Mutex,
 };
-use tokio::{sync::mpsc, task};
-use std::{convert::TryInto, net::SocketAddr, sync::{Arc}};
+use std::{convert::TryInto, net::SocketAddr, sync::Arc};
 use tracing::{debug, error};
 
 pub struct SetupConnectionHandler {
@@ -84,14 +85,6 @@ impl SetupConnectionHandler {
                     version_rolling: has_version_rolling(m.flags),
                 })
             }
-            CommonMessages::SetupConnectionSuccessMint(m) => {
-                debug!("Sent back SetupConnectionSuccessMint: {:?}", m);
-                Ok(CommonDownstreamData {
-                    header_only: has_requires_std_job(m.flags),
-                    work_selection: has_work_selection(m.flags),
-                    version_rolling: has_version_rolling(m.flags),
-                })
-            }
             _ => panic!(),
         }
     }
@@ -100,7 +93,7 @@ impl SetupConnectionHandler {
 impl ParseDownstreamCommonMessages<NoRouting> for SetupConnectionHandler {
     fn handle_setup_connection(
         &mut self,
-        incoming: SetupConnection<'_>,
+        incoming: SetupConnection,
         _: Option<Result<(CommonDownstreamData, SetupConnectionSuccess), Error>>,
     ) -> Result<roles_logic_sv2::handlers::common::SendTo, Error> {
         use roles_logic_sv2::handlers::common::SendTo;
@@ -111,40 +104,30 @@ impl ParseDownstreamCommonMessages<NoRouting> for SetupConnectionHandler {
             Arc::new(Mutex::new(())),
             CommonMessages::SetupConnectionSuccess(SetupConnectionSuccess {
                 flags: incoming.flags,
-                used_version: 2,
+                used_version: 2
             }),
         ))
     }
 
     fn handle_setup_connection_mint(
         &mut self,
-        incoming: SetupConnectionMint,
+        incoming: SetupConnection,
         _: Option<Result<(CommonDownstreamData, SetupConnectionSuccessMint), Error>>,
     ) -> Result<roles_logic_sv2::handlers::common::SendTo, Error> {
         use roles_logic_sv2::handlers::common::SendTo;
         let header_only = incoming.requires_standard_job();
-        print!("Handling setup connection mint: header_only: {}", header_only);
+        debug!("Handling setup connection: header_only: {}", header_only);
         self.header_only = Some(header_only);
-
-        // Clone `mint` to move into the blocking task
-        let mint_clone = Arc::clone(&self.mint);
-
-        // We need to run this blocking operation asynchronously
-        let keyset_id = tokio::task::block_in_place(move || {
-            let keyset_id_result = mint_clone.safe_lock(|m| {
-                let pubkeys_future = m.pubkeys();
-                // We use block_on here safely because it's within a block_in_place, which is allowed to block.
-                let pubkeys = tokio::runtime::Handle::current().block_on(pubkeys_future).unwrap();
-                pubkeys.keysets.first().unwrap().id.to_u64()
-            });
-
-            keyset_id_result.unwrap() // Handle the result of safe_lock
-        });
-
+        let keyset_id = self.mint.safe_lock(|m| {
+            let pubkeys_future = m.pubkeys();
+            let pubkeys = tokio::runtime::Handle::current().block_on(pubkeys_future).unwrap();
+            pubkeys.keysets.first().unwrap().id.to_u64()
+        }).unwrap();
+        debug!("Keyset id: {}", keyset_id);
         Ok(SendTo::RelayNewMessageToRemote(
             Arc::new(Mutex::new(())),
             CommonMessages::SetupConnectionSuccessMint(SetupConnectionSuccessMint {
-                flags: incoming.base.flags,
+                flags: incoming.flags,
                 used_version: 2,
                 keyset_id: keyset_id,
             }),
