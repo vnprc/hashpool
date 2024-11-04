@@ -99,18 +99,29 @@ impl ParseDownstreamCommonMessages<NoRouting> for SetupConnectionHandler {
         let header_only = incoming.requires_standard_job();
         debug!("Handling setup connection: header_only: {}", header_only);
         self.header_only = Some(header_only);
-        let keyset_id = self.mint.safe_lock(|m| {
-            let pubkeys_future = m.pubkeys();
-            let pubkeys = tokio::runtime::Handle::current().block_on(pubkeys_future).unwrap();
-            pubkeys.keysets.first().unwrap().id.to_u64()
-        }).unwrap();
-        debug!("Keyset id: {}", keyset_id);
+
+        // Clone `mint` to move into the blocking task
+        let mint_clone = Arc::clone(&self.mint);
+
+        // We need to run this blocking operation asynchronously
+        let keyset_id = tokio::task::block_in_place(move || {
+            let keyset_id_result = mint_clone.safe_lock(|m| {
+                let pubkeys_future = m.pubkeys();
+                // We use block_on here safely because it's within a block_in_place, which is allowed to block.
+                let pubkeys = tokio::runtime::Handle::current().block_on(pubkeys_future).unwrap();
+                pubkeys.keysets.first().unwrap().id.to_u64()
+            });
+
+            keyset_id_result.unwrap() // Handle the result of safe_lock
+        });
+        print!("keyset_id: {}", keyset_id);
+
         Ok(SendTo::RelayNewMessageToRemote(
             Arc::new(Mutex::new(())),
             CommonMessages::SetupConnectionSuccess(SetupConnectionSuccess {
                 flags: incoming.flags,
                 used_version: 2,
-                keyset_id: keyset_id,
+                // keyset_id: keyset_id,
             }),
         ))
     }
