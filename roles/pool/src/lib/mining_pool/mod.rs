@@ -3,7 +3,7 @@ use super::{
     status,
 };
 use async_channel::{Receiver, Sender};
-use binary_sv2::U256;
+use binary_sv2::{PubKey, U256};
 use cdk::mint::Mint;
 use codec_sv2::{HandshakeRole, Responder, StandardEitherFrame, StandardSv2Frame};
 use error_handling::handle_result;
@@ -619,6 +619,32 @@ impl Pool {
         let creator = JobsCreators::new(extranonce_len as u8);
         let share_per_min = 1.0;
         let kind = roles_logic_sv2::channel_logic::channel_factory::ExtendedChannelKind::Pool;
+
+        // Clone `mint` to move into the blocking task
+        let mint_clone = Arc::clone(&mint);
+
+        // We need to run this blocking operation asynchronously
+        let first_pubkey = tokio::task::block_in_place(move || {
+            let keyset_result = mint_clone.safe_lock(|m| {
+                let pubkeys_future = m.pubkeys();
+                // We use block_on here safely because it's within a block_in_place, which is allowed to block.
+                let pubkeys = tokio::runtime::Handle::current()
+                    .block_on(pubkeys_future)
+                    .unwrap();
+                let first_keyset = pubkeys.keysets.first().unwrap();
+                let first_key = first_keyset.keys.iter().next().unwrap().1;
+                first_key.clone()
+            });
+
+            keyset_result.unwrap() // Handle the result of safe_lock
+        });
+        // println!("amount_str: {}", first_pubkey.0);
+        println!("first_pubkey: {}", first_pubkey);
+        let compressed_pubkey: [u8; 33] = first_pubkey.to_bytes();
+        // in case we need to reconstruct this key later? idk...¯\_(ツ)_/¯
+        let prefix_byte = compressed_pubkey[0];
+        let x_coordinate: [u8; 32] = compressed_pubkey[1..].try_into().expect("Slice with incorrect length");
+
         let channel_factory = Arc::new(Mutex::new(PoolChannelFactory::new(
             ids,
             extranonces,
@@ -627,6 +653,7 @@ impl Pool {
             kind,
             pool_coinbase_outputs.expect("Invalid coinbase output in config"),
             config.pool_signature.clone(),
+            PubKey::from(x_coordinate),
         )));
         let pool = Arc::new(Mutex::new(Pool {
             downstreams: HashMap::with_hasher(BuildNoHashHasher::default()),

@@ -7,6 +7,7 @@ use crate::{
     Error,
 };
 
+use binary_sv2::PubKey;
 use mining_sv2::{
     ExtendedExtranonce, NewExtendedMiningJob, NewMiningJob, OpenExtendedMiningChannelSuccess,
     OpenMiningChannelError, OpenStandardMiningChannelSuccess, SetCustomMiningJob,
@@ -215,6 +216,7 @@ struct ChannelFactory {
     job_ids: Id,
     channel_to_group_id: HashMap<u32, u32, BuildNoHashHasher<u32>>,
     future_templates: HashMap<u32, NewTemplate<'static>, BuildNoHashHasher<u32>>,
+    mint_pubkey: Option<PubKey<'static>>,
 }
 
 impl ChannelFactory {
@@ -238,11 +240,10 @@ impl ChannelFactory {
     }
     /// Called when a `OpenExtendedMiningChannel` message is received.
     /// Here we save the downstream's target (based on hashrate) and the
-    /// channel's extranonce details before returning the relevant SV2 mining messages
-    /// to be sent downstream. For the mining messages, we will first return an
-    /// `OpenExtendedMiningChannelSuccess` if the channel is successfully opened. Then we add
-    /// the `NewExtendedMiningJob` and `SetNewPrevHash` messages if the relevant data is
-    /// available. If the channel opening fails, we return `OpenExtenedMiningChannelError`.
+    /// channel's extranonce details before returning the relevant SV2 mining messages and mint keyset
+    /// to be sent downstream. For the mining messages, we will first return an `OpenExtendedMiningChannelSuccess`
+    /// if the channel is successfully opened. Then we add the `NewExtendedMiningJob` and `SetNewPrevHash` messages if
+    /// the relevant data is available. If the channel opening fails, we return `OpenExtendedMiningChannelError`.
     pub fn new_extended_channel(
         &mut self,
         request_id: u32,
@@ -280,33 +281,41 @@ impl ChannelFactory {
             let extranonce_prefix = extranonce
                 .into_prefix(self.extranonces.get_prefix_len())
                 .unwrap();
-            let success = OpenExtendedMiningChannelSuccess {
-                request_id,
-                channel_id,
-                target,
-                extranonce_size: max_extranonce_size,
-                extranonce_prefix,
-            };
-            self.extended_channels.insert(channel_id, success.clone());
-            let mut result = vec![Mining::OpenExtendedMiningChannelSuccess(success)];
-            if let Some((job, _)) = &self.last_valid_job {
-                let mut job = job.clone();
-                job.set_future();
-                let j_id = job.job_id;
-                result.push(Mining::NewExtendedMiningJob(job));
-                if let Some((new_prev_hash, _)) = &self.last_prev_hash {
-                    let mut new_prev_hash = new_prev_hash.into_set_p_hash(channel_id, None);
-                    new_prev_hash.job_id = j_id;
+
+            if let Some(mint_pubkey) = &self.mint_pubkey {
+                let success = OpenExtendedMiningChannelSuccess {
+                    request_id,
+                    channel_id,
+                    target,
+                    extranonce_size: max_extranonce_size,
+                    extranonce_prefix,
+                    mint_pubkey: mint_pubkey.clone(),
+                };
+                self.extended_channels.insert(channel_id, success.clone());
+                let mut result = vec![Mining::OpenExtendedMiningChannelSuccess(success)];
+                if let Some((job, _)) = &self.last_valid_job {
+                    let mut job = job.clone();
+                    job.set_future();
+                    let j_id = job.job_id;
+                    result.push(Mining::NewExtendedMiningJob(job));
+                    if let Some((new_prev_hash, _)) = &self.last_prev_hash {
+                        let mut new_prev_hash = new_prev_hash.into_set_p_hash(channel_id, None);
+                        new_prev_hash.job_id = j_id;
+                        result.push(Mining::SetNewPrevHash(new_prev_hash.clone()))
+                    };
+                } else if let Some((new_prev_hash, _)) = &self.last_prev_hash {
+                    let new_prev_hash = new_prev_hash.into_set_p_hash(channel_id, None);
                     result.push(Mining::SetNewPrevHash(new_prev_hash.clone()))
                 };
-            } else if let Some((new_prev_hash, _)) = &self.last_prev_hash {
-                let new_prev_hash = new_prev_hash.into_set_p_hash(channel_id, None);
-                result.push(Mining::SetNewPrevHash(new_prev_hash.clone()))
-            };
-            for (job, _) in &self.future_jobs {
-                result.push(Mining::NewExtendedMiningJob(job.clone()))
+                for (job, _) in &self.future_jobs {
+                    result.push(Mining::NewExtendedMiningJob(job.clone()))
+                }
+                Ok(result)
+            } else {
+                Ok(vec![Mining::OpenMiningChannelError(
+                    OpenMiningChannelError::no_mint_keyset(request_id),
+                )])
             }
-            Ok(result)
         } else {
             Ok(vec![Mining::OpenMiningChannelError(
                 OpenMiningChannelError::unsupported_extranonce_size(request_id),
@@ -331,6 +340,7 @@ impl ChannelFactory {
             target,
             extranonce_size,
             extranonce_prefix,
+            mint_pubkey: self.mint_pubkey.clone().unwrap(),
         };
         self.extended_channels.insert(channel_id, success.clone());
         Some(())
@@ -978,6 +988,7 @@ pub struct PoolChannelFactory {
     pool_signature: String,
     // extedned_channel_id -> SetCustomMiningJob
     negotiated_jobs: HashMap<u32, SetCustomMiningJob<'static>, BuildNoHashHasher<u32>>,
+    mint_pubkey: PubKey<'static>,
 }
 
 impl PoolChannelFactory {
@@ -989,6 +1000,7 @@ impl PoolChannelFactory {
         kind: ExtendedChannelKind,
         pool_coinbase_outputs: Vec<TxOut>,
         pool_signature: String,
+        mint_pubkey: PubKey<'static>,
     ) -> Self {
         let inner = ChannelFactory {
             ids,
@@ -1009,6 +1021,7 @@ impl PoolChannelFactory {
             job_ids: Id::new(),
             channel_to_group_id: HashMap::with_hasher(BuildNoHashHasher::default()),
             future_templates: HashMap::with_hasher(BuildNoHashHasher::default()),
+            mint_pubkey: Some(mint_pubkey.clone()),
         };
 
         Self {
@@ -1017,6 +1030,7 @@ impl PoolChannelFactory {
             pool_coinbase_outputs,
             pool_signature,
             negotiated_jobs: HashMap::with_hasher(BuildNoHashHasher::default()),
+            mint_pubkey: mint_pubkey.clone(),
         }
     }
     /// Calls [`ChannelFactory::add_standard_channel`]
@@ -1298,6 +1312,7 @@ pub struct ProxyExtendedChannelFactory {
     pool_signature: String,
     // Id assigned to the extended channel by upstream
     extended_channel_id: u32,
+    mint_pubkey: Option<PubKey<'static>>,
 }
 
 impl ProxyExtendedChannelFactory {
@@ -1311,6 +1326,7 @@ impl ProxyExtendedChannelFactory {
         pool_coinbase_outputs: Option<Vec<TxOut>>,
         pool_signature: String,
         extended_channel_id: u32,
+        mint_pubkey: Option<PubKey<'static>>,
     ) -> Self {
         match &kind {
             ExtendedChannelKind::Proxy { .. } => {
@@ -1344,6 +1360,7 @@ impl ProxyExtendedChannelFactory {
             job_ids: Id::new(),
             channel_to_group_id: HashMap::with_hasher(BuildNoHashHasher::default()),
             future_templates: HashMap::with_hasher(BuildNoHashHasher::default()),
+            mint_pubkey: mint_pubkey.clone(),
         };
         ProxyExtendedChannelFactory {
             inner,
@@ -1351,6 +1368,7 @@ impl ProxyExtendedChannelFactory {
             pool_coinbase_outputs,
             pool_signature,
             extended_channel_id,
+            mint_pubkey: mint_pubkey.clone(),
         }
     }
     /// Calls [`ChannelFactory::add_standard_channel`]
@@ -1873,6 +1891,8 @@ mod test {
         let mut inner = coinbase_extranonce.clone();
         inner[6] = 0;
         let extranonces = ExtendedExtranonce::new_with_inner_only_test(0..0, 0..0, 0..7, inner);
+        // ? i dunno
+        let mint_pubkey : PubKey = PubKey::Owned([0u8; 32].into());
 
         let ids = Arc::new(Mutex::new(GroupId::new()));
         let channel_kind = ExtendedChannelKind::Pool;
@@ -1884,6 +1904,7 @@ mod test {
             channel_kind,
             vec![out],
             pool_signature,
+            Some(mint_pubkey),
         );
 
         // Build a NewTemplate

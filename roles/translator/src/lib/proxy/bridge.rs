@@ -121,6 +121,7 @@ impl Bridge {
                 None,
                 String::from(""),
                 up_id,
+                None,
             ),
             future_jobs: vec![],
             last_p_hash: None,
