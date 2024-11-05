@@ -585,6 +585,7 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
             channel_kind,
             vec![],
             pool_signature,
+            m.mint_pubkey.into_static(),
         );
         let extranonce: Extranonce = m
             .extranonce_prefix

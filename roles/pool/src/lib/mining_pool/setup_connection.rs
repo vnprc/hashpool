@@ -114,7 +114,7 @@ impl ParseDownstreamCommonMessages<NoRouting> for SetupConnectionHandler {
 
             keyset_id_result.unwrap() // Handle the result of safe_lock
         });
-        print!("keyset_id: {}", keyset_id);
+        println!("keyset_id: {}", keyset_id);
 
         Ok(SendTo::RelayNewMessageToRemote(
             Arc::new(Mutex::new(())),

@@ -3,7 +3,7 @@ use alloc::string::ToString;
 use alloc::vec::Vec;
 #[cfg(not(feature = "with_serde"))]
 use binary_sv2::{binary_codec_sv2, U32AsRef};
-use binary_sv2::{Deserialize, Serialize, Str0255, B032, U256};
+use binary_sv2::{Deserialize, PubKey, Serialize, Str0255, B032, U256};
 #[cfg(not(feature = "with_serde"))]
 use core::convert::TryInto;
 #[cfg(feature = "with_serde")]
@@ -188,6 +188,8 @@ pub struct OpenExtendedMiningChannelSuccess<'decoder> {
     /// Bytes used as implicit first part of extranonce
     #[cfg_attr(feature = "with_serde", serde(borrow))]
     pub extranonce_prefix: B032<'decoder>,
+    /// Compress keyset into single key for simplification
+    pub mint_pubkey: PubKey<'decoder>,
 }
 
 /// # OpenMiningChannel.Error (Server -> Client)
@@ -223,6 +225,15 @@ impl<'a> OpenMiningChannelError<'a> {
         Self {
             request_id,
             error_code: "unknown-user".to_string().try_into().unwrap(),
+        }
+    }
+    pub fn no_mint_keyset(request_id: u32) -> Self {
+        Self {
+            request_id,
+            error_code: "no-mint-keyset"
+                .to_string()
+                .try_into()
+                .unwrap(),
         }
     }
 }

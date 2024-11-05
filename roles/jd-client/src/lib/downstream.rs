@@ -4,6 +4,7 @@ use super::{
     upstream_sv2::Upstream as UpstreamMiningNode,
 };
 use async_channel::{Receiver, SendError, Sender};
+use binary_sv2::PubKey;
 use roles_logic_sv2::{
     channel_logic::channel_factory::{OnNewShare, PoolChannelFactory, Share},
     common_messages_sv2::{SetupConnection, SetupConnectionSuccess},
@@ -493,6 +494,8 @@ impl
                 kind,
                 coinbase_outputs,
                 "SOLO".to_string(),
+                // not used, fake it
+    PubKey::Owned([0u8; 32].into()),
             );
             self.status.set_channel(channel_factory);
 
