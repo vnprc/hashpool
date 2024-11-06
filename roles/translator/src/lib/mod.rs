@@ -1,4 +1,5 @@
 use async_channel::{bounded, unbounded};
+use binary_sv2::PubKey;
 use futures::FutureExt;
 use rand::Rng;
 pub use roles_logic_sv2::utils::Mutex;
@@ -32,15 +33,18 @@ pub mod utils;
 pub struct TranslatorSv2 {
     config: ProxyConfig,
     reconnect_wait_time: u64,
+    mint_pubkey: Arc<Mutex<Option<PubKey<'static>>>>,
 }
 
 impl TranslatorSv2 {
     pub fn new(config: ProxyConfig) -> Self {
         let mut rng = rand::thread_rng();
         let wait_time = rng.gen_range(0..=3000);
+        let mint_pubkey = Arc::new(Mutex::new(None));
         Self {
             config,
             reconnect_wait_time: wait_time,
+            mint_pubkey,
         }
     }
 
@@ -184,6 +188,7 @@ impl TranslatorSv2 {
             target.clone(),
             diff_config.clone(),
             task_collector_upstream,
+            self.mint_pubkey.clone(),
         )
         .await
         {
@@ -194,6 +199,7 @@ impl TranslatorSv2 {
             }
         };
         let task_collector_init_task = task_collector.clone();
+        let mint_pubkey = self.mint_pubkey.clone();
         // Spawn a task to do all of this init work so that the main thread
         // can listen for signals and failures on the status channel. This
         // allows for the tproxy to fail gracefully if any of these init tasks
@@ -251,6 +257,7 @@ impl TranslatorSv2 {
                 target,
                 up_id,
                 task_collector_bridge,
+                mint_pubkey,
             );
             proxy::Bridge::start(b.clone());
 

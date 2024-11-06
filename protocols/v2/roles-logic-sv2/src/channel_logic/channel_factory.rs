@@ -7,7 +7,7 @@ use crate::{
     Error,
 };
 
-use binary_sv2::PubKey;
+use binary_sv2::{Decodable, PubKey};
 use mining_sv2::{
     ExtendedExtranonce, NewExtendedMiningJob, NewMiningJob, OpenExtendedMiningChannelSuccess,
     OpenMiningChannelError, OpenStandardMiningChannelSuccess, SetCustomMiningJob,
@@ -215,7 +215,7 @@ struct ChannelFactory {
     job_ids: Id,
     channel_to_group_id: HashMap<u32, u32, BuildNoHashHasher<u32>>,
     future_templates: HashMap<u32, NewTemplate<'static>, BuildNoHashHasher<u32>>,
-    mint_pubkey: Option<PubKey<'static>>,
+    mint_pubkey: Arc<Mutex<Option<PubKey<'static>>>>,
 }
 
 impl ChannelFactory {
@@ -281,7 +281,11 @@ impl ChannelFactory {
                 .into_prefix(self.extranonces.get_prefix_len())
                 .unwrap();
 
-            if let Some(mint_pubkey) = &self.mint_pubkey {
+            let mint_pubkey = self.mint_pubkey.safe_lock(|mint_pubkey| {
+                mint_pubkey.clone()
+            }).map_err(|e| Error::PoisonLock(e.to_string()))?;
+
+            if let Some(mint_pubkey) = mint_pubkey {
                 let success = OpenExtendedMiningChannelSuccess {
                     request_id,
                     channel_id,
@@ -339,7 +343,8 @@ impl ChannelFactory {
             target,
             extranonce_size,
             extranonce_prefix,
-            mint_pubkey: self.mint_pubkey.clone().unwrap(),
+            // only called from the jd client, use a fake pubkey
+            mint_pubkey: PubKey::from([0_u8; 32]),
         };
         self.extended_channels.insert(channel_id, success.clone());
         Some(())
@@ -984,7 +989,7 @@ pub struct PoolChannelFactory {
     pool_signature: String,
     // extedned_channel_id -> SetCustomMiningJob
     negotiated_jobs: HashMap<u32, SetCustomMiningJob<'static>, BuildNoHashHasher<u32>>,
-    mint_pubkey: PubKey<'static>,
+    mint_pubkey: Arc<Mutex<Option<PubKey<'static>>>>,
 }
 
 impl PoolChannelFactory {
@@ -996,7 +1001,7 @@ impl PoolChannelFactory {
         kind: ExtendedChannelKind,
         pool_coinbase_outputs: Vec<TxOut>,
         pool_signature: String,
-        mint_pubkey: PubKey<'static>,
+        mint_pubkey: Arc<Mutex<Option<PubKey<'static>>>>,
     ) -> Self {
         let inner = ChannelFactory {
             ids,
@@ -1017,7 +1022,7 @@ impl PoolChannelFactory {
             job_ids: Id::new(),
             channel_to_group_id: HashMap::with_hasher(BuildNoHashHasher::default()),
             future_templates: HashMap::with_hasher(BuildNoHashHasher::default()),
-            mint_pubkey: Some(mint_pubkey.clone()),
+            mint_pubkey: mint_pubkey.clone(),
         };
 
         Self {
@@ -1026,7 +1031,7 @@ impl PoolChannelFactory {
             pool_coinbase_outputs,
             pool_signature,
             negotiated_jobs: HashMap::with_hasher(BuildNoHashHasher::default()),
-            mint_pubkey: mint_pubkey.clone(),
+            mint_pubkey,
         }
     }
     /// Calls [`ChannelFactory::add_standard_channel`]
@@ -1307,7 +1312,7 @@ pub struct ProxyExtendedChannelFactory {
     pool_signature: String,
     // Id assigned to the extended channel by upstream
     extended_channel_id: u32,
-    mint_pubkey: Option<PubKey<'static>>,
+    mint_pubkey: Arc<Mutex<Option<PubKey<'static>>>>,
 }
 
 impl ProxyExtendedChannelFactory {
@@ -1321,7 +1326,7 @@ impl ProxyExtendedChannelFactory {
         pool_coinbase_outputs: Option<Vec<TxOut>>,
         pool_signature: String,
         extended_channel_id: u32,
-        mint_pubkey: Option<PubKey<'static>>,
+        mint_pubkey: Arc<Mutex<Option<PubKey<'static>>>>,
     ) -> Self {
         match &kind {
             ExtendedChannelKind::Proxy { .. } => {
@@ -1896,7 +1901,7 @@ mod test {
             channel_kind,
             vec![out],
             pool_signature,
-            Some(mint_pubkey),
+            Arc::new(Mutex::new(Some(mint_pubkey))),
         );
 
         // Build a NewTemplate

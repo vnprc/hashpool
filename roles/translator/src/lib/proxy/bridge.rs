@@ -1,4 +1,5 @@
 use async_channel::{Receiver, Sender};
+use binary_sv2::PubKey;
 use bitcoin::{bip32::{ChildNumber, DerivationPath}, key::Secp256k1};
 use cdk::{amount::{Amount, SplitTarget}, nuts::{CurrencyUnit, MintKeySet}, wallet::Wallet};
 use rand::Rng;
@@ -68,6 +69,7 @@ pub struct Bridge {
     last_job_id: u32,
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
     wallet: Arc<RwLock<Wallet>>,
+    mint_pubkey: Arc<Mutex<Option<PubKey<'static>>>>,
 }
 
 impl Bridge {
@@ -84,6 +86,7 @@ impl Bridge {
         target: Arc<Mutex<Vec<u8>>>,
         up_id: u32,
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
+        mint_pubkey: Arc<Mutex<Option<PubKey<'static>>>>,
     ) -> Arc<Mutex<Self>> {
         use std::sync::Arc;
 
@@ -121,7 +124,7 @@ impl Bridge {
                 None,
                 String::from(""),
                 up_id,
-                None,
+                mint_pubkey.clone(),
             ),
             future_jobs: vec![],
             last_p_hash: None,
@@ -129,6 +132,7 @@ impl Bridge {
             last_job_id: 0,
             task_collector,
             wallet,
+            mint_pubkey,
         }))
     }
 
@@ -306,6 +310,11 @@ impl Bridge {
     }
 
     fn create_blinded_secret(&self) -> Result<cdk::nuts::PreMintSecrets, cdk::wallet::error::Error> {
+        let mint_pubkey = self.mint_pubkey.safe_lock(|k| k.clone()).unwrap();
+        if mint_pubkey.is_some() {
+            println!("mint_pubkey: {:?}", mint_pubkey);
+        }
+
         //============ fake the mint stuff for now ======================
         // stolen from cdk derivation_path_from_unit
         let derivation_path = DerivationPath::from(vec![
@@ -646,6 +655,8 @@ mod test {
                 Arc::new(Mutex::new(upstream_target)),
                 1,
                 task_collector,
+                // TODO test ecash stuff
+                Arc::new(Mutex::new(None)),
             );
             (b, interface)
         }

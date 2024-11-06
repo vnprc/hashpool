@@ -10,7 +10,7 @@ use crate::{
 };
 use async_channel::{Receiver, Sender};
 use async_std::net::TcpStream;
-use binary_sv2::u256_from_int;
+use binary_sv2::{u256_from_int, PubKey};
 use codec_sv2::{HandshakeRole, Initiator};
 use error_handling::handle_result;
 use key_utils::Secp256k1PublicKey;
@@ -101,6 +101,7 @@ pub struct Upstream {
     // than the configured percentage
     pub(super) difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
+    mint_pubkey: Arc<Mutex<Option<PubKey<'static>>>>,
 }
 
 impl PartialEq for Upstream {
@@ -128,6 +129,7 @@ impl Upstream {
         target: Arc<Mutex<Vec<u8>>>,
         difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
+        mint_pubkey: Arc<Mutex<Option<PubKey<'static>>>>,
     ) -> ProxyResult<'static, Arc<Mutex<Self>>> {
         // Connect to the SV2 Upstream role retry connection every 5 seconds.
         let socket = loop {
@@ -176,6 +178,7 @@ impl Upstream {
             target,
             difficulty_config,
             task_collector,
+            mint_pubkey,
         })))
     }
 
@@ -663,8 +666,9 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
 
     /// Handles the SV2 `OpenExtendedMiningChannelSuccess` message which provides important
     /// parameters including the `target` which is sent to the Downstream role in a SV1
-    /// `mining.set_difficulty` message, and the extranonce values which is sent to the Downstream
-    /// role in a SV1 `mining.subscribe` message response.
+    /// `mining.set_difficulty` message, the extranonce values which is sent to the Downstream
+    /// role in a SV1 `mining.subscribe` message response, and the mint keyset that will be
+    /// used to generate blinded secrets upon share submission.
     fn handle_open_extended_mining_channel_success(
         &mut self,
         m: roles_logic_sv2::mining_sv2::OpenExtendedMiningChannelSuccess,
@@ -686,7 +690,16 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
         info!("Up: Successfully Opened Extended Mining Channel");
         self.channel_id = Some(m.channel_id);
         self.extranonce_prefix = Some(m.extranonce_prefix.to_vec());
-        let m = Mining::OpenExtendedMiningChannelSuccess(m.into_static());
+
+        let m_static = m.into_static();
+
+        self.mint_pubkey
+            .safe_lock(|mint_pubkey| {
+                *mint_pubkey = Some(m_static.mint_pubkey.clone());
+            })
+            .map_err(|e| RolesLogicError::PoisonLock(e.to_string()))?;
+
+        let m = Mining::OpenExtendedMiningChannelSuccess(m_static);
         Ok(SendTo::None(Some(m)))
     }
 
