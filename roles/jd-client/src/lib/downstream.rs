@@ -495,7 +495,7 @@ impl
                 coinbase_outputs,
                 "SOLO".to_string(),
                 // not used, fake it
-    Arc::new(Mutex::new(Some(PubKey::Owned([0u8; 32].into())))),
+    Arc::new(Mutex::new(Some(0_u64))),
             );
             self.status.set_channel(channel_factory);
 

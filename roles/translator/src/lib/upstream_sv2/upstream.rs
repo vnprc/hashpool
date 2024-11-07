@@ -101,7 +101,7 @@ pub struct Upstream {
     // than the configured percentage
     pub(super) difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
-    mint_pubkey: Arc<Mutex<Option<PubKey<'static>>>>,
+    keyset_id: Arc<Mutex<Option<u64>>>,
 }
 
 impl PartialEq for Upstream {
@@ -129,7 +129,7 @@ impl Upstream {
         target: Arc<Mutex<Vec<u8>>>,
         difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
-        mint_pubkey: Arc<Mutex<Option<PubKey<'static>>>>,
+        keyset_id: Arc<Mutex<Option<u64>>>,
     ) -> ProxyResult<'static, Arc<Mutex<Self>>> {
         // Connect to the SV2 Upstream role retry connection every 5 seconds.
         let socket = loop {
@@ -178,7 +178,7 @@ impl Upstream {
             target,
             difficulty_config,
             task_collector,
-            mint_pubkey,
+            keyset_id,
         })))
     }
 
@@ -693,9 +693,9 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
 
         let m_static = m.into_static();
 
-        self.mint_pubkey
-            .safe_lock(|mint_pubkey| {
-                *mint_pubkey = Some(m_static.mint_pubkey.clone());
+        self.keyset_id
+            .safe_lock(|keyset_id| {
+                *keyset_id = Some(m_static.keyset_id.clone());
             })
             .map_err(|e| RolesLogicError::PoisonLock(e.to_string()))?;
 

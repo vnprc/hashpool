@@ -189,7 +189,7 @@ pub struct OpenExtendedMiningChannelSuccess<'decoder> {
     #[cfg_attr(feature = "with_serde", serde(borrow))]
     pub extranonce_prefix: B032<'decoder>,
     /// Compress keyset into single key for simplification
-    pub mint_pubkey: PubKey<'decoder>,
+    pub keyset_id: u64,
 }
 
 /// # OpenMiningChannel.Error (Server -> Client)
