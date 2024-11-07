@@ -588,7 +588,7 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
             vec![],
             pool_signature,
             // jd doesn't care about ecash, use a dummy value
-            Arc::new(Mutex::new(None/*Some(m.mint_pubkey.into_static())*/)),
+            Arc::new(Mutex::new(None)),
         );
         let extranonce: Extranonce = m
             .extranonce_prefix

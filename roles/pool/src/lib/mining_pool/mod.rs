@@ -624,7 +624,7 @@ impl Pool {
         let mint_clone = Arc::clone(&mint);
 
         // We need to run this blocking operation asynchronously
-        let first_pubkey = tokio::task::block_in_place(move || {
+        let keyset_id = tokio::task::block_in_place(move || {
             let keyset_result = mint_clone.safe_lock(|m| {
                 let pubkeys_future = m.pubkeys();
                 // We use block_on here safely because it's within a block_in_place, which is allowed to block.
@@ -632,18 +632,13 @@ impl Pool {
                     .block_on(pubkeys_future)
                     .unwrap();
                 let first_keyset = pubkeys.keysets.first().unwrap();
-                let first_key = first_keyset.keys.iter().next().unwrap().1;
-                first_key.clone()
+                first_keyset.id.to_u64()
             });
 
             keyset_result.unwrap() // Handle the result of safe_lock
         });
         // println!("amount_str: {}", first_pubkey.0);
-        println!("first_pubkey: {}", first_pubkey);
-        let compressed_pubkey: [u8; 33] = first_pubkey.to_bytes();
-        // in case we need to reconstruct this key later? idk...¯\_(ツ)_/¯
-        let prefix_byte = compressed_pubkey[0];
-        let x_coordinate: [u8; 32] = compressed_pubkey[1..].try_into().expect("Slice with incorrect length");
+        println!("keyset_id: {}", keyset_id);
 
         let channel_factory = Arc::new(Mutex::new(PoolChannelFactory::new(
             ids,
@@ -653,7 +648,7 @@ impl Pool {
             kind,
             pool_coinbase_outputs.expect("Invalid coinbase output in config"),
             config.pool_signature.clone(),
-            Arc::new(Mutex::new(Some(PubKey::from(x_coordinate)))),
+            Arc::new(Mutex::new(Some(keyset_id))),
         )));
         let pool = Arc::new(Mutex::new(Pool {
             downstreams: HashMap::with_hasher(BuildNoHashHasher::default()),
