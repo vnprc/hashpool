@@ -119,11 +119,11 @@ impl<'a> fmt::Display for Error<'a> {
             Sv1MessageTooLong => {
                 write!(f, "Received an sv1 message that is longer than max len")
             }
-            // TODO evaluate mint errors
-            KeysetNotFound => todo!(),
-            InvalidKeysetId(error) => todo!(),
-            WalletError(error) => todo!(),
-            TokenCountOverflow => todo!(),
+            // Mint errors
+            KeysetNotFound => write!(f, "Keyset not found"),
+            InvalidKeysetId(ref e) => write!(f, "Invalid Keyset ID: `{:?}`", e),
+            WalletError(ref e) => write!(f, "Wallet error: `{:?}`", e),
+            TokenCountOverflow => write!(f, "Token count overflow"),
         }
     }
 }
