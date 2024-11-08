@@ -76,6 +76,10 @@ pub enum Error<'a> {
     #[allow(clippy::enum_variant_names)]
     TargetError(roles_logic_sv2::errors::Error),
     Sv1MessageTooLong,
+    // TODO evaluate mint errors
+    KeysetNotFound,
+    InvalidKeysetId(cdk::nuts::nut02::Error),
+    WalletError(cdk::wallet::error::Error),
 }
 
 impl<'a> fmt::Display for Error<'a> {
@@ -114,6 +118,10 @@ impl<'a> fmt::Display for Error<'a> {
             Sv1MessageTooLong => {
                 write!(f, "Received an sv1 message that is longer than max len")
             }
+            // TODO evaluate mint errors
+            KeysetNotFound => todo!(),
+            InvalidKeysetId(error) => todo!(),
+            WalletError(error) => todo!(),
         }
     }
 }

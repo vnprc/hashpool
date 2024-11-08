@@ -1,6 +1,6 @@
 use async_channel::{Receiver, Sender};
 use bitcoin::{bip32::{ChildNumber, DerivationPath}, key::Secp256k1};
-use cdk::{amount::{Amount, SplitTarget}, nuts::{CurrencyUnit, MintKeySet}, wallet::Wallet};
+use cdk::{amount::{Amount, SplitTarget}, nuts::{CurrencyUnit, Id, MintKeySet}, wallet::Wallet};
 use rand::Rng;
 use roles_logic_sv2::{
     channel_logic::channel_factory::{ExtendedChannelKind, ProxyExtendedChannelFactory, Share},
@@ -278,14 +278,23 @@ impl Bridge {
                 info!("SHARE MEETS UPSTREAM TARGET");
                 match share {
                     Share::Extended(share) => {
-                        let premint_secret = self_
-                            .safe_lock(|s| s.create_blinded_secret())
-                            .map_err(|_| PoisonLock)?
-                            .unwrap();
+                        let (keyset_id_option, wallet) = self_
+                            .safe_lock(|s| (s.keyset_id.clone(), s.wallet.clone()))
+                            .map_err(|_| PoisonLock)?;
+    
+                        let keyset_id_u64 = match keyset_id_option.safe_lock(|k| k.clone()).unwrap() {
+                            Some(id) => id,
+                            None => return Err(Error::KeysetNotFound.into()),
+                        };
+    
+                        let premint_secret = self_.safe_lock(|s| {
+                            s.create_blinded_secret(keyset_id_u64, wallet.clone())
+                        })??;
+    
                         info!("Blinded secret: {:?}", premint_secret);
                         tx_sv2_submit_shares_ext.send(share).await?;
                     }
-                    // We are in an extended channel shares are extended
+                    // We are in an extended channel; shares are extended
                     Share::Standard(_) => unreachable!(),
                 }
             }
@@ -308,47 +317,30 @@ impl Bridge {
         Ok(())
     }
 
-    fn create_blinded_secret(&self) -> Result<cdk::nuts::PreMintSecrets, cdk::wallet::error::Error> {
-        let keyset_id = self.keyset_id.safe_lock(|k| k.clone()).unwrap();
-        if keyset_id.is_some() {
-            println!("keyset_id: {:?}", keyset_id);
-        }
+    fn create_blinded_secret(
+        &self,
+        keyset_id: u64,
+        wallet: Arc<RwLock<Wallet>>,
+    ) -> Result<cdk::nuts::PreMintSecrets, Error<'static>> {
+        let keyset_id = Id::from_u64(keyset_id).map_err(Error::InvalidKeysetId)?;
 
-        //============ fake the mint stuff for now ======================
-        // stolen from cdk derivation_path_from_unit
-        let derivation_path = DerivationPath::from(vec![
-            ChildNumber::from_hardened_idx(0).expect("0 is a valid index"),
-            ChildNumber::from_hardened_idx(CurrencyUnit::Hash.derivation_index()).expect("0 is a valid index"),
-            ChildNumber::from_hardened_idx(0).expect("0 is a valid index"),
-        ]);
-    
-        // TODO retrieve keyset from mint
-        let seed = "test_seed".as_bytes();
-        let keyset = MintKeySet::generate_from_seed(
-            &Secp256k1::new(),
-            seed,
-            2,
-            CurrencyUnit::Hash,
-            derivation_path,
-        );
-    
-        let keyset_id = keyset.id;
-        // use a random token count to avoid maintaining unnecessary state
-        let mut ehash_token_count: u32 = rand::thread_rng().gen_range(0..=2_147_483_647);
-        //============ end fake mint stuff ==============================
+        // TODO implement token counter
+        let ehash_token_count: u32 = rand::thread_rng().gen_range(0..=2_147_483_647);
 
-        let premint_secret: Result<cdk::nuts::PreMintSecrets, cdk::wallet::error::Error> = {
-            let wallet = self.wallet.write().unwrap();
-            wallet.generate_premint_secrets(
+        // Acquire a write lock on the wallet
+        let mut wallet_guard = wallet.write().map_err(|_| Error::PoisonLock)?;
+
+        let premint_secret = wallet_guard
+            .generate_premint_secrets(
                 keyset_id,
                 Amount::from(1),
                 &SplitTarget::None,
                 None,
                 ehash_token_count,
             )
-        };
+            .map_err(Error::WalletError)?;
 
-        premint_secret
+        Ok(premint_secret)
     }
 
     /// Translates a SV1 `mining.submit` message to a SV2 `SubmitSharesExtended` message.

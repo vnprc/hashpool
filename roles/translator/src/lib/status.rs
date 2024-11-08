@@ -186,5 +186,9 @@ pub async fn handle_error(
         Error::Sv1MessageTooLong => {
             send_status(sender, e, error_handling::ErrorBranch::Break).await
         }
+        // TODO reevaluate these errors
+        Error::KeysetNotFound => todo!(),
+        Error::InvalidKeysetId(error) => todo!(),
+        Error::WalletError(error) => todo!(),
     }
 }
