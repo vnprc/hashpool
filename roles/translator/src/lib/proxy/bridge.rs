@@ -69,6 +69,8 @@ pub struct Bridge {
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
     wallet: Arc<RwLock<Wallet>>,
     keyset_id: Arc<Mutex<Option<u64>>>,
+    /// Keeps track of the number of issued tokens in each epoch
+    ehash_token_count: Arc<Mutex<u32>>,
 }
 
 impl Bridge {
@@ -132,6 +134,7 @@ impl Bridge {
             task_collector,
             wallet,
             keyset_id,
+            ehash_token_count: Arc::new(Mutex::new(0)),
         }))
     }
 
@@ -324,11 +327,17 @@ impl Bridge {
     ) -> Result<cdk::nuts::PreMintSecrets, Error<'static>> {
         let keyset_id = Id::from_u64(keyset_id).map_err(Error::InvalidKeysetId)?;
 
-        // TODO implement token counter
-        let ehash_token_count: u32 = rand::thread_rng().gen_range(0..=2_147_483_647);
+        // Increment the counter before generating blinded secret.
+        // This enables greater performance and readability
+        // at the cost of potential gaps in the token counter sequence.
+        let ehash_token_count = self.ehash_token_count.safe_lock(|count| -> Result<u32, Error<'static>> {
+            let current_count = *count;
+            *count = current_count.checked_add(1).ok_or(Error::TokenCountOverflow)?;
+            Ok(current_count)
+        }).map_err(|_| Error::PoisonLock)??;
 
         // Acquire a write lock on the wallet
-        let mut wallet_guard = wallet.write().map_err(|_| Error::PoisonLock)?;
+        let wallet_guard = wallet.write().map_err(|_| Error::PoisonLock)?;
 
         let premint_secret = wallet_guard
             .generate_premint_secrets(
