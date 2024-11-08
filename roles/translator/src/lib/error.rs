@@ -80,6 +80,7 @@ pub enum Error<'a> {
     KeysetNotFound,
     InvalidKeysetId(cdk::nuts::nut02::Error),
     WalletError(cdk::wallet::error::Error),
+    TokenCountOverflow,
 }
 
 impl<'a> fmt::Display for Error<'a> {
@@ -122,6 +123,7 @@ impl<'a> fmt::Display for Error<'a> {
             KeysetNotFound => todo!(),
             InvalidKeysetId(error) => todo!(),
             WalletError(error) => todo!(),
+            TokenCountOverflow => todo!(),
         }
     }
 }
