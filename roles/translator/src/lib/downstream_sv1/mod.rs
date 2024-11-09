@@ -1,5 +1,6 @@
 use roles_logic_sv2::mining_sv2::Target;
 use v1::{client_to_server::Submit, utils::HexU32Be};
+use cdk::nuts::PreMintSecrets;
 pub mod diff_management;
 pub mod downstream;
 pub use downstream::Downstream;
@@ -24,6 +25,7 @@ pub enum DownstreamMessages {
 pub struct SubmitShareWithChannelId {
     pub channel_id: u32,
     pub share: Submit<'static>,
+    pub premint_secret: Option<PreMintSecrets>,
     pub extranonce: Vec<u8>,
     pub extranonce2_len: usize,
     pub version_rolling_mask: Option<HexU32Be>,

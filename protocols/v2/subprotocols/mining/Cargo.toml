@@ -17,7 +17,9 @@ keywords = ["stratum", "mining", "bitcoin", "protocol"]
 [dependencies]
 serde = { version = "1.0.89", default-features = false, optional= true }
 binary_sv2 = {version = "^1.0.0", path = "../../../../protocols/v2/binary-sv2/binary-sv2" }
+derive_codec_sv2 = {version = "^1.0.0", path = "../../../../protocols/v2/binary-sv2/no-serde-sv2/derive_codec", optional = true}
 const_sv2 = {version = "^2.0.0", path = "../../../../protocols/v2/const-sv2"}
+cdk = { git = "https://github.com/vnprc/cdk", branch = "get_blinded_secrets" }
 
 [dev-dependencies]
 quickcheck = "1.0.3"
