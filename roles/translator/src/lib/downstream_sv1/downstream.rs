@@ -550,6 +550,7 @@ impl IsServer<'static> for Downstream {
                 extranonce: self.extranonce1.clone(),
                 extranonce2_len: self.extranonce2_len,
                 version_rolling_mask: self.version_rolling_mask.clone(),
+                premint_secret: None,
             };
 
             self.tx_sv1_bridge

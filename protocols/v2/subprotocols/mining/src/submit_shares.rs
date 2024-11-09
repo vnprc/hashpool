@@ -5,6 +5,7 @@ use binary_sv2::binary_codec_sv2;
 use binary_sv2::{Deserialize, Serialize, Str0255, B032};
 #[cfg(not(feature = "with_serde"))]
 use core::convert::TryInto;
+use crate::Sv2BlindedMessage;
 
 /// Message used by downstream to send result of its hashing work to an upstream.
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -65,6 +66,9 @@ pub struct SubmitSharesExtended<'decoder> {
     /// channel opening flow.
     #[cfg_attr(feature = "with_serde", serde(borrow))]
     pub extranonce: B032<'decoder>,
+    // TODO implement Serialize and Deserialize for Sv2BlindedMessage
+    // Premint secrets
+    // pub blinded_message: Sv2BlindedMessage<'decoder>,
 }
 
 /// Message used by upstream to accept [`SubmitSharesStandard`] or [`SubmitSharesExtended`].

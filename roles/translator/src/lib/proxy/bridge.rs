@@ -25,6 +25,7 @@ use super::super::{
 use error_handling::handle_result;
 use roles_logic_sv2::{channel_logic::channel_factory::OnNewShare, Error as RolesLogicError};
 use tracing::{debug, error, info, warn};
+use cdk::nuts::PreMintSecrets;
 
 /// Bridge between the SV2 `Upstream` and SV1 `Downstream` responsible for the following messaging
 /// translation:
@@ -294,6 +295,7 @@ impl Bridge {
                             s.create_blinded_secret(keyset_id_u64, wallet.clone())
                         })??;
     
+                        // TODO send secrets upstream to the pool to be signed
                         info!("Blinded secret: {:?}", premint_secret);
                         tx_sv2_submit_shares_ext.send(share).await?;
                     }

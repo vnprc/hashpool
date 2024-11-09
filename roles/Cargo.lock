@@ -2109,6 +2109,7 @@ name = "mining_sv2"
 version = "2.0.0"
 dependencies = [
  "binary_sv2",
+ "cdk",
  "const_sv2",
 ]
 
