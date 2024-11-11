@@ -191,5 +191,6 @@ pub async fn handle_error(
         Error::InvalidKeysetId(error) => todo!(),
         Error::WalletError(error) => todo!(),
         Error::TokenCountOverflow => todo!(),
+        Error::InvalidInput(_) => todo!(),
     }
 }
