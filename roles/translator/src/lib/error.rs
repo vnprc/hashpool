@@ -81,6 +81,7 @@ pub enum Error<'a> {
     InvalidKeysetId(cdk::nuts::nut02::Error),
     WalletError(cdk::wallet::error::Error),
     TokenCountOverflow,
+    InvalidInput(String),
 }
 
 impl<'a> fmt::Display for Error<'a> {
@@ -124,6 +125,8 @@ impl<'a> fmt::Display for Error<'a> {
             InvalidKeysetId(ref e) => write!(f, "Invalid Keyset ID: `{:?}`", e),
             WalletError(ref e) => write!(f, "Wallet error: `{:?}`", e),
             TokenCountOverflow => write!(f, "Token count overflow"),
+            // TODO this error sucks, make it not suck
+            InvalidInput(ref e) => write!(f, "Invalid input: `{:?}`", e),
         }
     }
 }

@@ -136,6 +136,9 @@
 //! the hashing space correctly for its clients and can provide new jobs quickly enough.
 
 use binary_sv2::{PubKey, B032, U256};
+use cdk::nuts::{Id, BlindedMessage};
+use cdk::Amount;
+use std::convert::TryFrom;
 #[cfg(not(feature = "with_serde"))]
 pub use binary_codec_sv2::{self, Decodable as Deserialize, Encodable as Serialize, *};
 #[cfg(not(feature = "with_serde"))]
@@ -698,6 +701,36 @@ pub struct Sv2BlindedMessage<'decoder> {
     pub blinded_secret: PubKey<'decoder>,
 }
 
+impl Sv2BlindedMessage<'_> {
+    /// Creates a new Sv2BlindedMessage from a BlindedMessage
+    pub fn from_blinded_message(msg: &BlindedMessage) -> Self {
+        Self {
+            amount: u64::from(msg.amount),
+            keyset_id: msg.keyset_id.to_u64(),
+            // TODO is this the right way to convert 33 byte keys to 32 byte keys?
+            // how do we reconstruct the compressed flag?
+            blinded_secret: PubKey::from(<[u8; 32]>::try_from(&msg.blinded_secret.to_bytes()[1..]).unwrap()),
+        }
+    }
+
+    /// Converts this Sv2BlindedMessage back to a BlindedMessage
+    pub fn to_blinded_message(&self) -> BlindedMessage {
+        // Create a 33-byte array with first byte set to 0
+        // TODO how to find the right value of the first byte?
+        let mut pubkey_bytes = [0u8; 33];
+        pubkey_bytes[1..].copy_from_slice(&self.blinded_secret.inner_as_ref());
+        
+        BlindedMessage {
+            amount: Amount::from(self.amount),
+            // TODO: handle error
+            keyset_id: Id::from_u64(self.keyset_id).unwrap(),
+            blinded_secret: cdk::nuts::PublicKey::from_slice(&pubkey_bytes).unwrap(),
+            witness: None,
+        }
+    }
+}
+
+// used for initialization
 impl<'decoder> Default for Sv2BlindedMessage<'decoder> {
     fn default() -> Self {
         Self {

@@ -279,7 +279,7 @@ impl Bridge {
             Ok(Ok(OnNewShare::SendSubmitShareUpstream((share, _)))) => {
                 info!("SHARE MEETS UPSTREAM TARGET");
                 match share {
-                    Share::Extended(share) => {
+                    Share::Extended(mut share) => {
                         let (keyset_id_option, wallet) = self_
                             .safe_lock(|s| (s.keyset_id.clone(), s.wallet.clone()))
                             .map_err(|_| PoisonLock)?;
@@ -293,7 +293,14 @@ impl Bridge {
                             s.create_blinded_secret(keyset_id_u64, wallet.clone())
                         })??;
 
-                        // TODO convert premint_secret to Sv2BlindedMessage and save it to share.blinded_message
+                        let secrets_len = premint_secret.secrets.len();
+                        if secrets_len != 1 {
+                            return Err(Error::InvalidInput(format!("Expected exactly one PremintSecret, got {}", secrets_len)));
+                        }
+
+                        let first_premint = premint_secret.secrets.first()
+                            .ok_or_else(|| Error::InvalidInput("No PremintSecret found".into()))?;
+                        share.blinded_message = Sv2BlindedMessage::from_blinded_message(&first_premint.blinded_message);
     
                         // TODO send secrets upstream to the pool to be signed
                         info!("premint_secret: {:?}", premint_secret);
