@@ -60,7 +60,7 @@ pub struct SubmitSharesExtended<'decoder> {
     pub extranonce: B032<'decoder>,
     // TODO implement Serialize and Deserialize for Sv2BlindedMessage
     // Premint secrets
-    // pub blinded_message: Sv2BlindedMessage<'decoder>,
+    pub blinded_message: Sv2BlindedMessage<'decoder>,
 }
 
 /// # SubmitShares.Success (Server -> Client)
