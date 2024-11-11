@@ -1,7 +1,5 @@
 use async_channel::{Receiver, Sender};
-use bitcoin::{bip32::{ChildNumber, DerivationPath}, key::Secp256k1};
-use cdk::{amount::{Amount, SplitTarget}, nuts::{CurrencyUnit, Id, MintKeySet}, wallet::Wallet};
-use rand::Rng;
+use cdk::{amount::{Amount, SplitTarget}, nuts::Id, wallet::Wallet};
 use roles_logic_sv2::{
     channel_logic::channel_factory::{ExtendedChannelKind, ProxyExtendedChannelFactory, Share},
     mining_sv2::{
@@ -25,7 +23,7 @@ use super::super::{
 use error_handling::handle_result;
 use roles_logic_sv2::{channel_logic::channel_factory::OnNewShare, Error as RolesLogicError};
 use tracing::{debug, error, info, warn};
-use cdk::nuts::PreMintSecrets;
+use mining_sv2::Sv2BlindedMessage;
 
 /// Bridge between the SV2 `Upstream` and SV1 `Downstream` responsible for the following messaging
 /// translation:
@@ -294,9 +292,12 @@ impl Bridge {
                         let premint_secret = self_.safe_lock(|s| {
                             s.create_blinded_secret(keyset_id_u64, wallet.clone())
                         })??;
+
+                        // TODO convert premint_secret to Sv2BlindedMessage and save it to share.blinded_message
     
                         // TODO send secrets upstream to the pool to be signed
-                        info!("Blinded secret: {:?}", premint_secret);
+                        info!("premint_secret: {:?}", premint_secret);
+                        info!("share.blinded_message: {:?}", share.blinded_message);
                         tx_sv2_submit_shares_ext.send(share).await?;
                     }
                     // We are in an extended channel; shares are extended
@@ -383,6 +384,8 @@ impl Bridge {
             ntime: sv1_submit.time.0,
             version,
             extranonce: extranonce2.try_into()?,
+            // initialize to all zeros, will be updated later
+            blinded_message: Sv2BlindedMessage::default(),
         })
     }
 

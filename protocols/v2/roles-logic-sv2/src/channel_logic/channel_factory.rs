@@ -90,7 +90,7 @@ impl OnNewShare {
                         version: share.version,
                         extranonce: extranonce.try_into().unwrap(),
                         // use a fake blinded message?
-                        // blinded_message: Sv2BlindedMessage::default(),
+                        blinded_message: Sv2BlindedMessage::default(),
                     };
                     *self = Self::SendSubmitShareUpstream((Share::Extended(share), *template_id));
                 }
@@ -108,7 +108,7 @@ impl OnNewShare {
                         version: share.version,
                         extranonce: extranonce.try_into().unwrap(),
                         // use a fake blinded message?
-                        // blinded_message: Sv2BlindedMessage::default(),
+                        blinded_message: Sv2BlindedMessage::default(),
                     };
                     *self = Self::ShareMeetBitcoinTarget((
                         Share::Extended(share),

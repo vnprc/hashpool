@@ -136,10 +136,10 @@
 //! the hashing space correctly for its clients and can provide new jobs quickly enough.
 
 use binary_sv2::{PubKey, B032, U256};
-// TODO how to import Serialize and Deserialize?
-// #[cfg(not(feature = "with_serde"))]
-// pub use derive_codec_sv2::{Decodable as Deserialize, Encodable as Serialize};
-
+#[cfg(not(feature = "with_serde"))]
+pub use binary_codec_sv2::{self, Decodable as Deserialize, Encodable as Serialize, *};
+#[cfg(not(feature = "with_serde"))]
+pub use derive_codec_sv2::{Decodable as Deserialize, Encodable as Serialize};
 use core::{
     cmp::{Ord, PartialOrd},
     convert::TryInto,
@@ -689,8 +689,8 @@ fn increment_bytes_be(bs: &mut [u8]) -> Result<(), ()> {
     Err(())
 }
 
-//TODO how to implement Serialize and Deserialize?
-#[derive(Debug, Clone)]
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sv2BlindedMessage<'decoder> {
     pub amount: u64,
     pub keyset_id: u64,

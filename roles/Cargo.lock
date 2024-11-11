@@ -2108,9 +2108,11 @@ dependencies = [
 name = "mining_sv2"
 version = "2.0.0"
 dependencies = [
+ "binary_codec_sv2",
  "binary_sv2",
  "cdk",
  "const_sv2",
+ "derive_codec_sv2",
 ]
 
 [[package]]
@@ -3541,6 +3543,7 @@ dependencies = [
  "framing_sv2",
  "futures",
  "key-utils",
+ "mining_sv2",
  "network_helpers_sv2",
  "once_cell",
  "rand",
