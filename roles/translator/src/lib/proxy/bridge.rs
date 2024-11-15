@@ -300,7 +300,7 @@ impl Bridge {
 
                         let first_premint = premint_secret.secrets.first()
                             .ok_or_else(|| Error::InvalidInput("No PremintSecret found".into()))?;
-                        share.blinded_message = Sv2BlindedMessage::from_blinded_message(&first_premint.blinded_message);
+                        share.blinded_message = Sv2BlindedMessage::from(first_premint.blinded_message.clone());
     
                         // TODO send secrets upstream to the pool to be signed
                         info!("premint_secret: {:?}", premint_secret);
