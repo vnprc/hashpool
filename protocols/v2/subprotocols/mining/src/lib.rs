@@ -697,27 +697,28 @@ fn increment_bytes_be(bs: &mut [u8]) -> Result<(), ()> {
 pub struct Sv2BlindedMessage<'decoder> {
     pub amount: u64,
     pub keyset_id: u64,
-    // #[cfg_attr(feature = "with_serde", serde(borrow))]
+    pub parity_bit: bool,
     pub blinded_secret: PubKey<'decoder>,
 }
 
 impl Sv2BlindedMessage<'_> {
     /// Creates a new Sv2BlindedMessage from a BlindedMessage
     pub fn from_blinded_message(msg: &BlindedMessage) -> Self {
+        let blinded_secret_bytes = msg.blinded_secret.to_bytes();
         Self {
             amount: u64::from(msg.amount),
             keyset_id: msg.keyset_id.to_u64(),
-            // TODO is this the right way to convert 33 byte keys to 32 byte keys?
-            // how do we reconstruct the compressed flag?
-            blinded_secret: PubKey::from(<[u8; 32]>::try_from(&msg.blinded_secret.to_bytes()[1..]).unwrap()),
+            parity_bit: blinded_secret_bytes[0] == 0x03,
+            // unwrap is safe because blinded_secret is 33 bytes
+            blinded_secret: PubKey::from(<[u8; 32]>::try_from(&blinded_secret_bytes[1..]).unwrap()),
         }
     }
 
     /// Converts this Sv2BlindedMessage back to a BlindedMessage
     pub fn to_blinded_message(&self) -> BlindedMessage {
-        // Create a 33-byte array with first byte set to 0
-        // TODO how to find the right value of the first byte?
         let mut pubkey_bytes = [0u8; 33];
+        pubkey_bytes[0] = if self.parity_bit { 0x03 } else { 0x02 };
+        // copy_from_slice is safe because blinded_secret is 32 bytes
         pubkey_bytes[1..].copy_from_slice(&self.blinded_secret.inner_as_ref());
         
         BlindedMessage {
@@ -736,6 +737,7 @@ impl<'decoder> Default for Sv2BlindedMessage<'decoder> {
         Self {
             amount: 0,
             keyset_id: 0,
+            parity_bit: 0,
             blinded_secret: PubKey::from([0u8; 32]),
         }
     }
