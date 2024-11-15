@@ -701,30 +701,29 @@ pub struct Sv2BlindedMessage<'decoder> {
     pub blinded_secret: PubKey<'decoder>,
 }
 
-impl Sv2BlindedMessage<'_> {
-    /// Creates a new Sv2BlindedMessage from a BlindedMessage
-    pub fn from_blinded_message(msg: &BlindedMessage) -> Self {
+impl From<BlindedMessage> for Sv2BlindedMessage<'_> {
+    fn from(msg: BlindedMessage) -> Self {
         let blinded_secret_bytes = msg.blinded_secret.to_bytes();
         Self {
-            amount: u64::from(msg.amount),
+            amount: msg.amount.into(),
             keyset_id: msg.keyset_id.to_u64(),
             parity_bit: blinded_secret_bytes[0] == 0x03,
-            // unwrap is safe because blinded_secret is 33 bytes
+            // unwrap is safe because blinded_secret is guaranteed to be 33 bytes
             blinded_secret: PubKey::from(<[u8; 32]>::try_from(&blinded_secret_bytes[1..]).unwrap()),
         }
     }
+}
 
-    /// Converts this Sv2BlindedMessage back to a BlindedMessage
-    pub fn to_blinded_message(&self) -> BlindedMessage {
+impl From<Sv2BlindedMessage<'_>> for BlindedMessage {
+    fn from(msg: Sv2BlindedMessage) -> Self {
         let mut pubkey_bytes = [0u8; 33];
-        pubkey_bytes[0] = if self.parity_bit { 0x03 } else { 0x02 };
-        // copy_from_slice is safe because blinded_secret is 32 bytes
-        pubkey_bytes[1..].copy_from_slice(&self.blinded_secret.inner_as_ref());
-        
+        pubkey_bytes[0] = if msg.parity_bit { 0x03 } else { 0x02 };
+        // copy_from_slice is safe because blinded_secret is guaranteed to be 32 bytes
+        pubkey_bytes[1..].copy_from_slice(&msg.blinded_secret.inner_as_ref());
+
         BlindedMessage {
-            amount: Amount::from(self.amount),
-            // TODO: handle error
-            keyset_id: Id::from_u64(self.keyset_id).unwrap(),
+            amount: msg.amount.into(),
+            keyset_id: Id::from_u64(msg.keyset_id).unwrap(),
             blinded_secret: cdk::nuts::PublicKey::from_slice(&pubkey_bytes).unwrap(),
             witness: None,
         }
@@ -737,7 +736,7 @@ impl<'decoder> Default for Sv2BlindedMessage<'decoder> {
         Self {
             amount: 0,
             keyset_id: 0,
-            parity_bit: 0,
+            parity_bit: false,
             blinded_secret: PubKey::from([0u8; 32]),
         }
     }
