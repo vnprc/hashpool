@@ -109,7 +109,9 @@ impl ParseDownstreamCommonMessages<NoRouting> for SetupConnectionHandler {
                 let pubkeys_future = m.pubkeys();
                 // We use block_on here safely because it's within a block_in_place, which is allowed to block.
                 let pubkeys = tokio::runtime::Handle::current().block_on(pubkeys_future).unwrap();
-                pubkeys.keysets.first().unwrap().id.to_u64()
+                // TODO is unwrap safe here?
+                let keyset_id: u64 = mining_sv2::KeysetId(pubkeys.keysets.first().unwrap().id).into();
+                keyset_id
             });
 
             keyset_id_result.unwrap() // Handle the result of safe_lock
