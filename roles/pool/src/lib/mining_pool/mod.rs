@@ -40,6 +40,7 @@ pub mod setup_connection;
 use setup_connection::SetupConnectionHandler;
 
 pub mod message_handler;
+use mining_sv2::KeysetId;
 
 pub type Message = PoolMessages<'static>;
 pub type StdFrame = StandardSv2Frame<Message>;
@@ -632,7 +633,7 @@ impl Pool {
                     .block_on(pubkeys_future)
                     .unwrap();
                 let first_keyset = pubkeys.keysets.first().unwrap();
-                first_keyset.id.to_u64()
+                KeysetId(first_keyset.id).into()
             });
 
             keyset_result.unwrap() // Handle the result of safe_lock

@@ -663,6 +663,34 @@ fn increment_bytes_be(bs: &mut [u8]) -> Result<(), ()> {
     Err(())
 }
 
+//TODO find a better location for this
+pub struct KeysetId(pub cdk::nuts::nut02::Id);
+
+impl From<KeysetId> for u64 {
+    fn from(id: KeysetId) -> Self {
+        let bytes = id.0.to_bytes();
+        let mut array = [0u8; 8];
+        array[..bytes.len()].copy_from_slice(&bytes);
+        u64::from_be_bytes(array)
+    }
+}
+
+impl TryFrom<u64> for KeysetId {
+    type Error = cdk::nuts::nut02::Error;
+    
+    fn try_from(value: u64) -> Result<Self, Self::Error> {
+        let bytes = value.to_be_bytes();
+        cdk::nuts::nut02::Id::from_bytes(&bytes).map(KeysetId)
+    }
+}
+
+impl std::ops::Deref for KeysetId {
+    type Target = cdk::nuts::nut02::Id;
+    
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sv2BlindedMessage<'decoder> {
@@ -677,7 +705,7 @@ impl From<BlindedMessage> for Sv2BlindedMessage<'_> {
         let blinded_secret_bytes = msg.blinded_secret.to_bytes();
         Self {
             amount: msg.amount.into(),
-            keyset_id: msg.keyset_id.to_u64(),
+            keyset_id: KeysetId(msg.keyset_id).into(),
             parity_bit: blinded_secret_bytes[0] == 0x03,
             // unwrap is safe because blinded_secret is guaranteed to be 33 bytes
             blinded_secret: PubKey::from(<[u8; 32]>::try_from(&blinded_secret_bytes[1..]).unwrap()),
@@ -694,7 +722,7 @@ impl From<Sv2BlindedMessage<'_>> for BlindedMessage {
 
         BlindedMessage {
             amount: msg.amount.into(),
-            keyset_id: Id::from_u64(msg.keyset_id).unwrap(),
+            keyset_id: *KeysetId::try_from(msg.keyset_id).unwrap(),
             blinded_secret: cdk::nuts::PublicKey::from_slice(&pubkey_bytes).unwrap(),
             witness: None,
         }

@@ -23,7 +23,7 @@ use super::super::{
 use error_handling::handle_result;
 use roles_logic_sv2::{channel_logic::channel_factory::OnNewShare, Error as RolesLogicError};
 use tracing::{debug, error, info, warn};
-use mining_sv2::Sv2BlindedMessage;
+use mining_sv2::{Sv2BlindedMessage, KeysetId};
 
 /// Bridge between the SV2 `Upstream` and SV1 `Downstream` responsible for the following messaging
 /// translation:
@@ -335,7 +335,7 @@ impl Bridge {
         keyset_id: u64,
         wallet: Arc<RwLock<Wallet>>,
     ) -> Result<cdk::nuts::PreMintSecrets, Error<'static>> {
-        let keyset_id = Id::from_u64(keyset_id).map_err(Error::InvalidKeysetId)?;
+        let keyset_id = *KeysetId::try_from(keyset_id).map_err(Error::InvalidKeysetId)?;
 
         // Increment the counter before generating blinded secret.
         // This enables greater performance and readability

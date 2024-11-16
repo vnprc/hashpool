@@ -2243,6 +2243,7 @@ dependencies = [
  "error_handling",
  "hex",
  "key-utils",
+ "mining_sv2",
  "network_helpers_sv2",
  "nohash-hasher",
  "noise_sv2",
