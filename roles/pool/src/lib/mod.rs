@@ -18,11 +18,22 @@ use cdk::{cdk_database::mint_memory::MintMemoryDatabase, nuts::{CurrencyUnit, Mi
 use bip39::Mnemonic;
 
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PoolSv2 {
     config: Configuration,
     mint: Option<Arc<Mutex<Mint>>>,
     keyset_id: Option<u64>
+}
+
+// TODO remove after porting mint to use Sv2 data types
+impl std::fmt::Debug for PoolSv2 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PoolSv2")
+            .field("config", &self.config)
+            .field("keyset_id", &self.keyset_id)
+            .field("mint", &"debug not implemented")
+            .finish()
+    }
 }
 
 impl PoolSv2 {
