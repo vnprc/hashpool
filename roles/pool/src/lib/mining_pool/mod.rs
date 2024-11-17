@@ -174,7 +174,6 @@ impl Configuration {
     }
 }
 
-#[derive(Debug)]
 pub struct Downstream {
     // Either group or channel id
     id: u32,
@@ -184,6 +183,20 @@ pub struct Downstream {
     solution_sender: Sender<SubmitSolution<'static>>,
     channel_factory: Arc<Mutex<PoolChannelFactory>>,
     mint: Arc<Mutex<Mint>>,
+}
+
+// TODO remove after porting mint to use Sv2 data types
+impl std::fmt::Debug for Downstream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Downstream")
+            .field("id", &self.id)
+            .field("receiver", &self.receiver)
+            .field("sender", &self.sender)
+            .field("downstream_data", &self.downstream_data)
+            .field("channel_factory", &self.channel_factory)
+            .field("mint", &"debug not implemented")
+            .finish()
+    }
 }
 
 /// Accept downstream connection
