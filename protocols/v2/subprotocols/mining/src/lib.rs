@@ -136,8 +136,7 @@
 //! the hashing space correctly for its clients and can provide new jobs quickly enough.
 
 use binary_sv2::{PubKey, B032, U256};
-use cdk::nuts::{Id, BlindedMessage};
-use cdk::Amount;
+use cdk::nuts::BlindedMessage;
 use std::convert::TryFrom;
 #[cfg(not(feature = "with_serde"))]
 pub use binary_codec_sv2::{self, Decodable as Deserialize, Encodable as Serialize, *};
