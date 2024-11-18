@@ -1,5 +1,5 @@
 use async_channel::{Receiver, Sender};
-use cdk::{amount::{Amount, SplitTarget}, nuts::Id, wallet::Wallet};
+use cdk::{amount::{Amount, SplitTarget}, wallet::Wallet};
 use roles_logic_sv2::{
     channel_logic::channel_factory::{ExtendedChannelKind, ProxyExtendedChannelFactory, Share},
     mining_sv2::{
@@ -24,6 +24,11 @@ use error_handling::handle_result;
 use roles_logic_sv2::{channel_logic::channel_factory::OnNewShare, Error as RolesLogicError};
 use tracing::{debug, error, info, warn};
 use mining_sv2::{Sv2BlindedMessage, KeysetId};
+use cdk::nuts::CurrencyUnit;
+
+// TODO consolidate these constants with the same constants in roles/pool/src/lib/mod.rs
+pub const HASH_CURRENCY_UNIT: &str = "HASH";
+pub const HASH_DERIVATION_PATH: u32 = 1337;
 
 /// Bridge between the SV2 `Upstream` and SV1 `Downstream` responsible for the following messaging
 /// translation:
@@ -91,16 +96,14 @@ impl Bridge {
         use std::sync::Arc;
 
         use cdk::cdk_database::WalletMemoryDatabase;
-        use cdk::nuts::CurrencyUnit;
         use cdk::wallet::Wallet;
         use rand::Rng;
     
         let seed = rand::thread_rng().gen::<[u8; 32]>();
         let mint_url = "https://testnut.cashu.space";
-        let unit = CurrencyUnit::Hash;
     
         let localstore = WalletMemoryDatabase::default();
-        let wallet = Arc::new(RwLock::new(Wallet::new(mint_url, unit, Arc::new(localstore), &seed, None)));
+        let wallet = Arc::new(RwLock::new(Wallet::new(mint_url, CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string(), HASH_DERIVATION_PATH), Arc::new(localstore), &seed, None).unwrap()));
 
         let ids = Arc::new(Mutex::new(GroupId::new()));
         let share_per_min = 1.0;

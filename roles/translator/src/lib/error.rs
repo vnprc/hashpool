@@ -79,7 +79,7 @@ pub enum Error<'a> {
     // TODO evaluate mint errors
     KeysetNotFound,
     InvalidKeysetId(cdk::nuts::nut02::Error),
-    WalletError(cdk::wallet::error::Error),
+    WalletError(cdk::error::Error),
     TokenCountOverflow,
     InvalidInput(String),
 }

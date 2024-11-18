@@ -14,9 +14,12 @@ use template_receiver::TemplateRx;
 use tracing::{error, info, warn};
 
 use tokio::select;
-use cdk::{cdk_database::mint_memory::MintMemoryDatabase, nuts::{CurrencyUnit, MintInfo, Nuts}, Mint};
+use cdk::{cdk_database::mint_memory::MintMemoryDatabase, nuts::{CurrencyUnit, MintInfo, Nuts}, Mint, types::QuoteTTL};
 use bip39::Mnemonic;
 
+// TODO consolidate these constants with the same constants in roles/pool/src/lib/mod.rs
+pub const HASH_CURRENCY_UNIT: &str = "HASH";
+pub const HASH_DERIVATION_PATH: u32 = 1337;
 
 #[derive(Clone)]
 pub struct PoolSv2 {
@@ -148,15 +151,18 @@ impl PoolSv2 {
         let mnemonic = Mnemonic::generate(12).unwrap();
 
         let mut supported_units = HashMap::new();
-        supported_units.insert(CurrencyUnit::Hash, (0, 64));
+        supported_units.insert(CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string(), HASH_DERIVATION_PATH), (0, 64));
 
         let mint = Mint::new(
             // TODO is mint_url necessary?
             "http://localhost:8000",
             &mnemonic.to_seed_normalized(""),
             mint_info,
+            QuoteTTL::new(1000, 1000),
             Arc::new(MintMemoryDatabase::default()),
+            HashMap::new(),
             supported_units,
+            HashMap::new(),
         )
         .await.unwrap();
 
