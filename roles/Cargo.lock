@@ -141,6 +141,9 @@ name = "anyhow"
 version = "1.0.89"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "86fdf8605db99b54d3cd748a44c6d04df638eb5dafb219b135d0149bd0db01f6"
+dependencies = [
+ "backtrace",
+]
 
 [[package]]
 name = "arrayvec"
@@ -438,7 +441,6 @@ dependencies = [
  "bitcoin_hashes 0.12.0",
  "hex_lit",
  "secp256k1 0.27.0",
- "serde",
 ]
 
 [[package]]
@@ -448,6 +450,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0032b0e8ead7074cda7fc4f034409607e3f03a6f71d66ade8a307f79b4d99e73"
 dependencies = [
  "base58ck",
+ "base64 0.21.7",
  "bech32 0.11.0",
  "bitcoin-internals 0.3.0",
  "bitcoin-io",
@@ -518,7 +521,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d7066118b13d4b20b23645932dfb3a81ce7e29f95726c2036fa33cd7b092501"
 dependencies = [
  "bitcoin-private",
- "serde",
 ]
 
 [[package]]
@@ -629,6 +631,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bs58"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf88ba1141d185c399bee5288d850d63b8369520c1eafc32a0430b5b6c287bf4"
+dependencies = [
+ "tinyvec",
+]
+
+[[package]]
 name = "buffer_sv2"
 version = "1.1.0"
 dependencies = [
@@ -655,6 +666,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "428d9aa8fbc0670b7b8d6030a7fadd0f86151cae55e4dbbece15f3780a3dfaf3"
 
 [[package]]
+name = "cbor-diag"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc245b6ecd09b23901a4fbad1ad975701fd5061ceaef6afa93a2d70605a64429"
+dependencies = [
+ "bs58 0.5.1",
+ "chrono",
+ "data-encoding",
+ "half",
+ "nom",
+ "num-bigint",
+ "num-rational",
+ "num-traits",
+ "separator",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "cc"
 version = "1.1.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -665,13 +695,14 @@ dependencies = [
 
 [[package]]
 name = "cdk"
-version = "0.3.0"
-source = "git+https://github.com/vnprc/cdk?branch=get_blinded_secrets#df467876da56d7aab95355721c63da4c40822473"
+version = "0.4.0"
+source = "git+https://github.com/vnprc/cdk?branch=hashpool#e899153f6f3bfbd656ea0be0e392a85cc93b54a0"
 dependencies = [
  "anyhow",
  "async-trait",
- "base64 0.22.1",
- "bitcoin 0.30.2",
+ "bech32 0.9.1",
+ "bitcoin 0.32.3",
+ "cbor-diag",
  "ciborium",
  "futures",
  "getrandom",
@@ -683,6 +714,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
+ "sync_wrapper 0.1.2",
  "thiserror",
  "tokio",
  "tracing",
@@ -1006,6 +1038,12 @@ dependencies = [
  "quote",
  "syn 2.0.79",
 ]
+
+[[package]]
+name = "data-encoding"
+version = "2.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8566979429cf69b49a5c740c60791108e86440e8be149bbea4fe54d2c32d6e2"
 
 [[package]]
 name = "deranged"
@@ -1744,7 +1782,7 @@ dependencies = [
 name = "key-utils"
 version = "1.1.0"
 dependencies = [
- "bs58",
+ "bs58 0.4.0",
  "secp256k1 0.28.2",
  "serde",
 ]
@@ -1782,26 +1820,26 @@ dependencies = [
 ]
 
 [[package]]
-name = "lightning"
-version = "0.0.123"
+name = "lightning-invoice"
+version = "0.32.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fd92d4aa159374be430c7590e169b4a6c0fb79018f5bc4ea1bffde536384db3"
+checksum = "90ab9f6ea77e20e3129235e62a2e6bd64ed932363df104e864ee65ccffb54a8f"
 dependencies = [
- "bitcoin 0.30.2",
- "hex-conservative 0.1.2",
+ "bech32 0.9.1",
+ "bitcoin 0.32.3",
+ "lightning-types",
+ "serde",
 ]
 
 [[package]]
-name = "lightning-invoice"
-version = "0.31.0"
+name = "lightning-types"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26d07d01cf197bf2184b929b7dc94aa70d935aac6df896c256a3a9475b7e9d40"
+checksum = "1083b8d9137000edf3bfcb1ff011c0d25e0cdd2feb98cc21d6765e64a494148f"
 dependencies = [
  "bech32 0.9.1",
- "bitcoin 0.30.2",
- "lightning",
- "secp256k1 0.27.0",
- "serde",
+ "bitcoin 0.32.3",
+ "hex-conservative 0.2.1",
 ]
 
 [[package]]
@@ -2026,6 +2064,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-rational"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f83d14da390562dca69fc84082e73e548e1ad308d24accdedd2720017cb37824"
+dependencies = [
+ "num-bigint",
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
 name = "num-traits"
 version = "0.2.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2235,6 +2284,7 @@ dependencies = [
  "async-recursion 1.1.1",
  "binary_sv2",
  "bip39",
+ "bitcoin 0.32.3",
  "buffer_sv2",
  "cdk",
  "codec_sv2",
@@ -2443,7 +2493,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_urlencoded",
- "sync_wrapper",
+ "sync_wrapper 1.0.1",
  "tokio",
  "tokio-rustls",
  "tokio-socks",
@@ -2673,9 +2723,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "25996b82292a7a57ed3508f052cfff8640d38d32018784acd714758b43da9c8f"
 dependencies = [
  "bitcoin_hashes 0.12.0",
- "rand",
  "secp256k1-sys 0.8.1",
- "serde",
 ]
 
 [[package]]
@@ -2759,6 +2807,12 @@ dependencies = [
  "core-foundation-sys",
  "libc",
 ]
+
+[[package]]
+name = "separator"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f97841a747eef040fcd2e7b3b9a220a7205926e60488e673d9e4926d27772ce5"
 
 [[package]]
 name = "serde"
@@ -3005,6 +3059,12 @@ dependencies = [
  "quote",
  "unicode-ident",
 ]
+
+[[package]]
+name = "sync_wrapper"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2047c6ded9c721764247e62cd3b03c09ffc529b2ba5b10ec482ae507a4a70160"
 
 [[package]]
 name = "sync_wrapper"
