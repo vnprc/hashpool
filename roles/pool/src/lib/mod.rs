@@ -16,6 +16,7 @@ use tracing::{error, info, warn};
 use tokio::select;
 use cdk::{cdk_database::mint_memory::MintMemoryDatabase, nuts::{CurrencyUnit, MintInfo, Nuts}, Mint, types::QuoteTTL};
 use bip39::Mnemonic;
+use bitcoin::bip32::{ChildNumber, DerivationPath};
 
 // TODO consolidate these constants with the same constants in roles/pool/src/lib/mod.rs
 pub const HASH_CURRENCY_UNIT: &str = "HASH";
@@ -150,8 +151,17 @@ impl PoolSv2 {
         // TODO securely import mnemonic
         let mnemonic = Mnemonic::generate(12).unwrap();
 
-        let mut supported_units = HashMap::new();
-        supported_units.insert(CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string(), HASH_DERIVATION_PATH), (0, 64));
+        let hash_currency_unit = CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string());
+
+        let mut currency_units = HashMap::new();
+        currency_units.insert(hash_currency_unit.clone(), (0, 64));
+
+        let mut derivation_paths = HashMap::new();
+        derivation_paths.insert(hash_currency_unit, DerivationPath::from(vec![
+            ChildNumber::from_hardened_idx(0).expect("Failed to create purpose index 0"),
+            ChildNumber::from_hardened_idx(HASH_DERIVATION_PATH).expect(&format!("Failed to create coin type index {}", HASH_DERIVATION_PATH)),
+            ChildNumber::from_hardened_idx(0).expect("Failed to create account index 0"),
+        ]));
 
         let mint = Mint::new(
             // TODO is mint_url necessary?
@@ -161,8 +171,8 @@ impl PoolSv2 {
             QuoteTTL::new(1000, 1000),
             Arc::new(MintMemoryDatabase::default()),
             HashMap::new(),
-            supported_units,
-            HashMap::new(),
+            currency_units,
+            derivation_paths,
         )
         .await.unwrap();
 
