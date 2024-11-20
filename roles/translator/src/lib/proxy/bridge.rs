@@ -103,7 +103,7 @@ impl Bridge {
         let mint_url = "https://testnut.cashu.space";
     
         let localstore = WalletMemoryDatabase::default();
-        let wallet = Arc::new(RwLock::new(Wallet::new(mint_url, CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string(), HASH_DERIVATION_PATH), Arc::new(localstore), &seed, None).unwrap()));
+        let wallet = Arc::new(RwLock::new(Wallet::new(mint_url, CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string()), Arc::new(localstore), &seed, None).unwrap()));
 
         let ids = Arc::new(Mutex::new(GroupId::new()));
         let share_per_min = 1.0;
