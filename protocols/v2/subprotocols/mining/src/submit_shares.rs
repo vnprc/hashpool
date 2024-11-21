@@ -5,7 +5,7 @@ use binary_sv2::binary_codec_sv2;
 use binary_sv2::{Deserialize, Serialize, Str0255, B032};
 #[cfg(not(feature = "with_serde"))]
 use core::convert::TryInto;
-use crate::Sv2BlindedMessage;
+use crate::{Sv2BlindSignature, Sv2BlindedMessage};
 
 /// Message used by downstream to send result of its hashing work to an upstream.
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -80,7 +80,7 @@ pub struct SubmitSharesExtended<'decoder> {
 /// actually increasing. It can use the last one received when sending a response. It is the
 /// downstream’s responsibility to keep the sequence numbers correct/useful.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SubmitSharesSuccess {
+pub struct SubmitSharesSuccess<'decoder> {
     /// Channel identifier.
     pub channel_id: u32,
     /// Most recent sequence number with a correct result.
@@ -89,7 +89,9 @@ pub struct SubmitSharesSuccess {
     pub new_submits_accepted_count: u32,
     /// Sum of shares acknowledged within this batch.
     pub new_shares_sum: u64,
-    // TODO add blinded signature
+    // TODO we can't aggregate success messages without including all the blinded signatures
+    /// blind signature
+    pub blind_signature: Sv2BlindSignature<'decoder>,
 }
 
 /// Message used by upstream to reject [`SubmitSharesStandard`] or [`SubmitSharesExtended`].
