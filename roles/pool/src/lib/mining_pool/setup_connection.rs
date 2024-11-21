@@ -100,6 +100,7 @@ impl ParseDownstreamCommonMessages<NoRouting> for SetupConnectionHandler {
         debug!("Handling setup connection: header_only: {}", header_only);
         self.header_only = Some(header_only);
 
+        // TODO do we need keyset_id here? Delete this code if not
         // Clone `mint` to move into the blocking task
         let mint_clone = Arc::clone(&self.mint);
 
