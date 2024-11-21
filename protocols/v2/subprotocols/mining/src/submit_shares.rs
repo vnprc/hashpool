@@ -82,6 +82,7 @@ pub struct SubmitSharesSuccess {
     pub new_submits_accepted_count: u32,
     /// Sum of shares acknowledged within this batch.
     pub new_shares_sum: u64,
+    // TODO add blinded signature
 }
 
 /// # SubmitShares.Error (Server -> Client)

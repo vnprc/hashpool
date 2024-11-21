@@ -1,4 +1,5 @@
 use super::super::mining_pool::Downstream;
+use cdk::{mint::Mint, nuts::{BlindSignature, BlindedMessage}};
 use roles_logic_sv2::{
     errors::Error,
     handlers::mining::{ParseDownstreamMiningMessages, SendTo, SupportedChannelTypes},
@@ -186,6 +187,26 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
 
                 },
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetDownstreamTarget => {
+
+                let blinded_message: BlindedMessage = m.blinded_message.into();
+
+                // Clone `mint` to move into the blocking task
+                let mint_clone = Arc::clone(&self.mint);
+
+                // We need to run this blocking operation asynchronously
+                let blinded_signature = tokio::task::block_in_place(move || {
+                    let blinded_sig_result = mint_clone.safe_lock(|mint| {
+                        let blinded_sig_future = mint.blind_sign(&blinded_message);
+                        // We use block_on here safely because it's within a block_in_place, which is allowed to block.
+                        let blinded_signature = tokio::runtime::Handle::current().block_on(blinded_sig_future).unwrap();
+                        blinded_signature
+                    });
+
+                    blinded_sig_result.unwrap() // Handle the result of safe_lock
+                });
+                println!("blinded_signature: {:?}", blinded_signature);
+
+                // TODO add signature to SubmitSharesSuccess
                 let success = SubmitSharesSuccess {
                         channel_id: m.channel_id,
                         last_sequence_number: m.sequence_number,
