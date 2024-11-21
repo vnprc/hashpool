@@ -5,7 +5,7 @@ use binary_sv2::binary_codec_sv2;
 use binary_sv2::{Deserialize, Serialize, Str0255, B032};
 #[cfg(not(feature = "with_serde"))]
 use core::convert::TryInto;
-use crate::Sv2BlindedMessage;
+use crate::{Sv2BlindSignature, Sv2BlindedMessage};
 
 /// # SubmitSharesStandard (Client -> Server)
 ///
@@ -73,7 +73,7 @@ pub struct SubmitSharesExtended<'decoder> {
 /// actually increasing. It can simply use the last one received when sending a response. It is the
 /// client’s responsibility to keep the sequence numbers correct/useful.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SubmitSharesSuccess {
+pub struct SubmitSharesSuccess<'decoder> {
     /// Channel identifier.
     pub channel_id: u32,
     /// Most recent sequence number with a correct result.
@@ -82,7 +82,9 @@ pub struct SubmitSharesSuccess {
     pub new_submits_accepted_count: u32,
     /// Sum of shares acknowledged within this batch.
     pub new_shares_sum: u64,
-    // TODO add blinded signature
+    // TODO we can't aggregate success messages without including all the blinded signatures
+    /// blind signature
+    pub blind_signature: Sv2BlindSignature<'decoder>,
 }
 
 /// # SubmitShares.Error (Server -> Client)

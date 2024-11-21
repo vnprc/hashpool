@@ -107,7 +107,7 @@
 //! the hashing space correctly for its clients and can provide new jobs quickly enough.
 
 use binary_sv2::{PubKey, B032, U256};
-use cdk::nuts::BlindedMessage;
+use cdk::nuts::{BlindSignature, BlindedMessage};
 use std::convert::TryFrom;
 #[cfg(not(feature = "with_serde"))]
 pub use binary_codec_sv2::{self, Decodable as Deserialize, Encodable as Serialize, *};
@@ -697,6 +697,8 @@ pub struct Sv2BlindedMessage<'decoder> {
     pub keyset_id: u64,
     pub parity_bit: bool,
     pub blinded_secret: PubKey<'decoder>,
+    // optional field, skip for now
+    // pub witness: Option<Witness>,
 }
 
 impl From<BlindedMessage> for Sv2BlindedMessage<'_> {
@@ -736,6 +738,57 @@ impl<'decoder> Default for Sv2BlindedMessage<'decoder> {
             keyset_id: 0,
             parity_bit: false,
             blinded_secret: PubKey::from([0u8; 32]),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Sv2BlindSignature<'decoder> {
+    pub amount: u64,
+    pub keyset_id: u64,
+    pub parity_bit: bool,
+    pub blind_signature: PubKey<'decoder>,
+    // optional field, skip for now
+    // pub dleq: Option<BlindSignatureDleq>,
+}
+
+impl From<BlindSignature> for Sv2BlindSignature<'_> {
+    fn from(msg: BlindSignature) -> Self {
+        let blind_sig_bytes = msg.c.to_bytes();
+        Self {
+            amount: msg.amount.into(),
+            keyset_id: KeysetId(msg.keyset_id).into(),
+            parity_bit: blind_sig_bytes[0] == 0x03,
+            // unwrap is safe because blind_sig_bytes is guaranteed to be 33 bytes
+            blind_signature: PubKey::from(<[u8; 32]>::try_from(&blind_sig_bytes[1..]).unwrap()),
+        }
+    }
+}
+
+impl From<Sv2BlindSignature<'_>> for BlindSignature {
+    fn from(msg: Sv2BlindSignature) -> Self {
+        let mut pubkey_bytes = [0u8; 33];
+        pubkey_bytes[0] = if msg.parity_bit { 0x03 } else { 0x02 };
+        // copy_from_slice is safe because blinded_secret is guaranteed to be 32 bytes
+        pubkey_bytes[1..].copy_from_slice(&msg.blind_signature.inner_as_ref());
+
+        BlindSignature {
+            amount: msg.amount.into(),
+            keyset_id: *KeysetId::try_from(msg.keyset_id).unwrap(),
+            c: cdk::nuts::PublicKey::from_slice(&pubkey_bytes).unwrap(),
+            dleq: None,
+        }
+    }
+}
+
+// placeholder for now
+impl<'decoder> Default for Sv2BlindSignature<'decoder> {
+    fn default() -> Self {
+        Self {
+            amount: 0,
+            keyset_id: 0,
+            parity_bit: false,
+            blind_signature: PubKey::from([0u8; 32]),
         }
     }
 }
