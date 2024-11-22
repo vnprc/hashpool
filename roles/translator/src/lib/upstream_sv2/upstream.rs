@@ -10,7 +10,8 @@ use crate::{
 };
 use async_channel::{Receiver, Sender};
 use async_std::net::TcpStream;
-use binary_sv2::{u256_from_int, PubKey};
+use binary_sv2::u256_from_int;
+use cdk::wallet::Wallet;
 use codec_sv2::{HandshakeRole, Initiator};
 use error_handling::handle_result;
 use key_utils::Secp256k1PublicKey;
@@ -103,6 +104,7 @@ pub struct Upstream {
     pub(super) difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
     keyset_id: Arc<Mutex<Option<u64>>>,
+    wallet: Arc<Mutex<Wallet>>,
 }
 
 impl PartialEq for Upstream {
@@ -131,6 +133,7 @@ impl Upstream {
         difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
         keyset_id: Arc<Mutex<Option<u64>>>,
+        wallet: Arc<Mutex<Wallet>>,
     ) -> ProxyResult<'static, Arc<Mutex<Self>>> {
         // Connect to the SV2 Upstream role retry connection every 5 seconds.
         let socket = loop {
@@ -181,6 +184,7 @@ impl Upstream {
             difficulty_config,
             task_collector,
             keyset_id,
+            wallet,
         })))
     }
 
@@ -745,8 +749,13 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
     /// Handles the SV2 `SubmitSharesSuccess` message.
     fn handle_submit_shares_success(
         &mut self,
-        _m: roles_logic_sv2::mining_sv2::SubmitSharesSuccess,
+        m: roles_logic_sv2::mining_sv2::SubmitSharesSuccess,
     ) -> Result<roles_logic_sv2::handlers::mining::SendTo<Downstream>, RolesLogicError> {
+        let wallet = self.wallet.safe_lock(|w| w.clone()).map_err(|e| RolesLogicError::PoisonLock(e.to_string()))?;
+        let blind_signature = m.blind_signature;
+        println!("blind_signature: {:?}", blind_signature);
+        // TODO convert blind_message and blind_signature to proof and store it
+        // TODO where to get blind_message?
         Ok(SendTo::None(None))
     }
 

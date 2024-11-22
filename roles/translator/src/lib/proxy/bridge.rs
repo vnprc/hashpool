@@ -1,5 +1,5 @@
 use async_channel::{Receiver, Sender};
-use cdk::{amount::{Amount, SplitTarget}, wallet::Wallet};
+use cdk::{amount::{Amount, SplitTarget}, nuts::PreMintSecrets, wallet::Wallet};
 use roles_logic_sv2::{
     channel_logic::channel_factory::{ExtendedChannelKind, ProxyExtendedChannelFactory, Share},
     mining_sv2::{
@@ -8,7 +8,7 @@ use roles_logic_sv2::{
     parsers::Mining,
     utils::{GroupId, Mutex},
 };
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use tokio::{sync::broadcast, task::AbortHandle};
 use v1::{client_to_server::Submit, server_to_client, utils::HexU32Be};
 
@@ -24,7 +24,6 @@ use error_handling::handle_result;
 use roles_logic_sv2::{channel_logic::channel_factory::OnNewShare, Error as RolesLogicError};
 use tracing::{debug, error, info, warn};
 use mining_sv2::{Sv2BlindedMessage, KeysetId};
-use cdk::nuts::CurrencyUnit;
 
 // TODO consolidate these constants with the same constants in roles/pool/src/lib/mod.rs
 pub const HASH_CURRENCY_UNIT: &str = "HASH";
@@ -71,7 +70,7 @@ pub struct Bridge {
     target: Arc<Mutex<Vec<u8>>>,
     last_job_id: u32,
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
-    wallet: Arc<RwLock<Wallet>>,
+    wallet: Arc<Mutex<Wallet>>,
     keyset_id: Arc<Mutex<Option<u64>>>,
     /// Keeps track of the number of issued tokens in each epoch
     ehash_token_count: Arc<Mutex<u32>>,
@@ -92,19 +91,8 @@ impl Bridge {
         up_id: u32,
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
         keyset_id: Arc<Mutex<Option<u64>>>,
+        wallet: Arc<Mutex<Wallet>>,
     ) -> Arc<Mutex<Self>> {
-        use std::sync::Arc;
-
-        use cdk::cdk_database::WalletMemoryDatabase;
-        use cdk::wallet::Wallet;
-        use rand::Rng;
-    
-        let seed = rand::thread_rng().gen::<[u8; 32]>();
-        let mint_url = "https://testnut.cashu.space";
-    
-        let localstore = WalletMemoryDatabase::default();
-        let wallet = Arc::new(RwLock::new(Wallet::new(mint_url, CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string()), Arc::new(localstore), &seed, None).unwrap()));
-
         let ids = Arc::new(Mutex::new(GroupId::new()));
         let share_per_min = 1.0;
         let upstream_target: [u8; 32] =
@@ -293,7 +281,7 @@ impl Bridge {
                         };
     
                         let premint_secret = self_.safe_lock(|s| {
-                            s.create_blinded_secret(keyset_id_u64, wallet.clone())
+                            s.create_blinded_secret(keyset_id_u64)
                         })??;
 
                         let secrets_len = premint_secret.secrets.len();
@@ -336,7 +324,6 @@ impl Bridge {
     fn create_blinded_secret(
         &self,
         keyset_id: u64,
-        wallet: Arc<RwLock<Wallet>>,
     ) -> Result<cdk::nuts::PreMintSecrets, Error<'static>> {
         let keyset_id = *KeysetId::try_from(keyset_id).map_err(Error::InvalidKeysetId)?;
 
@@ -349,11 +336,8 @@ impl Bridge {
             Ok(current_count)
         }).map_err(|_| Error::PoisonLock)??;
 
-        // Acquire a write lock on the wallet
-        let wallet_guard = wallet.write().map_err(|_| Error::PoisonLock)?;
-
-        let premint_secret = wallet_guard
-            .generate_premint_secrets(
+        let premint_secrets = self.wallet.safe_lock(|wallet| -> Result<PreMintSecrets, Error<'static>> {
+            let premint_secrets = wallet.generate_premint_secrets(
                 keyset_id,
                 Amount::from(1),
                 &SplitTarget::None,
@@ -361,8 +345,9 @@ impl Bridge {
                 ehash_token_count,
             )
             .map_err(Error::WalletError)?;
-
-        Ok(premint_secret)
+            Ok(premint_secrets)
+        }).map_err(|_| Error::PoisonLock)?;
+        premint_secrets
     }
 
     /// Translates a SV1 `mining.submit` message to a SV2 `SubmitSharesExtended` message.
@@ -627,6 +612,8 @@ mod test {
     use stratum_common::bitcoin::util::psbt::serialize::Serialize;
 
     pub mod test_utils {
+        use crate::create_wallet;
+
         use super::*;
 
         #[allow(dead_code)]
@@ -673,6 +660,7 @@ mod test {
                 task_collector,
                 // TODO test ecash stuff
                 Arc::new(Mutex::new(None)),
+                create_wallet(),
             );
             (b, interface)
         }
