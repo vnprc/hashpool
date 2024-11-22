@@ -11,10 +11,11 @@ use crate::{
 use async_channel::{Receiver, Sender};
 use async_std::net::TcpStream;
 use binary_sv2::u256_from_int;
-use cdk::wallet::Wallet;
+use cdk::{dhke, nuts::{BlindSignature, Keys, PreMintSecrets}, wallet::Wallet};
 use codec_sv2::{HandshakeRole, Initiator};
 use error_handling::handle_result;
 use key_utils::Secp256k1PublicKey;
+use mining_sv2::KeysetId;
 use network_helpers_sv2::Connection;
 use roles_logic_sv2::{
     common_messages_sv2::{Protocol, SetupConnection},
@@ -35,8 +36,7 @@ use roles_logic_sv2::{
     Error::NoUpstreamsConnected,
 };
 use std::{
-    net::SocketAddr,
-    sync::{atomic::AtomicBool, Arc},
+    collections::BTreeMap, net::SocketAddr, sync::{atomic::AtomicBool, Arc}
 };
 use tokio::{
     task::AbortHandle,
@@ -105,6 +105,7 @@ pub struct Upstream {
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
     keyset_id: Arc<Mutex<Option<u64>>>,
     wallet: Arc<Mutex<Wallet>>,
+    premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
 }
 
 impl PartialEq for Upstream {
@@ -134,6 +135,7 @@ impl Upstream {
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
         keyset_id: Arc<Mutex<Option<u64>>>,
         wallet: Arc<Mutex<Wallet>>,
+        premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
     ) -> ProxyResult<'static, Arc<Mutex<Self>>> {
         // Connect to the SV2 Upstream role retry connection every 5 seconds.
         let socket = loop {
@@ -185,6 +187,7 @@ impl Upstream {
             task_collector,
             keyset_id,
             wallet,
+            premint_secrets,
         })))
     }
 
@@ -753,9 +756,20 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
     ) -> Result<roles_logic_sv2::handlers::mining::SendTo<Downstream>, RolesLogicError> {
         let wallet = self.wallet.safe_lock(|w| w.clone()).map_err(|e| RolesLogicError::PoisonLock(e.to_string()))?;
         let blind_signature = m.blind_signature;
-        println!("blind_signature: {:?}", blind_signature);
-        // TODO convert blind_message and blind_signature to proof and store it
-        // TODO where to get blind_message?
+        let premint_secrets = self.premint_secrets.safe_lock(|p| p.clone()).map_err(|e| RolesLogicError::PoisonLock(e.to_string()))?.unwrap();
+        
+        let promises: Vec<BlindSignature> = vec![blind_signature.into()];
+
+        let proofs = match dhke::construct_proofs(promises, premint_secrets.rs(), premint_secrets.secrets(), &self.get_keys()) {
+            Ok(p) => p,
+            Err(e) => {
+                println!("Failed to construct proofs: {}", e);
+                return Ok(SendTo::None(None));
+            }
+        };
+        
+        println!("proofs: {:?}", proofs);
+
         Ok(SendTo::None(None))
     }
 
@@ -852,5 +866,30 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
         _m: roles_logic_sv2::mining_sv2::Reconnect,
     ) -> Result<roles_logic_sv2::handlers::mining::SendTo<Downstream>, RolesLogicError> {
         unimplemented!()
+    }
+}
+
+impl Upstream {
+    fn get_keys(&self) -> Keys {
+        let wallet_clone = Arc::clone(&self.wallet);
+    let keyset_id_clone = Arc::clone(&self.keyset_id);
+
+    // Run blocking operation asynchronously
+    tokio::task::block_in_place(move || {
+        let wallet = wallet_clone.safe_lock(|w| w.clone()).unwrap();
+        
+        // TODO this is broken, need to get keyset ID from the wallet instead of wherever we are getting it from now
+        let keyset_id = keyset_id_clone.safe_lock(|k| k.clone()).unwrap().unwrap();
+        println!("keyset_id: {}", keyset_id);
+        // Use block_on within block_in_place to safely wait for async operation
+        match tokio::runtime::Handle::current()
+            .block_on(wallet.get_keyset_keys(*KeysetId::try_from(keyset_id).unwrap())) {
+                Ok(keys) => keys,
+                Err(e) => {
+                    println!("Failed to get keyset keys: {}", e);
+                    Keys::new(BTreeMap::new())
+                }
+            }
+        })
     }
 }

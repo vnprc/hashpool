@@ -1,5 +1,5 @@
 use async_channel::{bounded, unbounded};
-use cdk::wallet::Wallet;
+use cdk::{nuts::PreMintSecrets, wallet::Wallet};
 use futures::FutureExt;
 use rand::Rng;
 pub use roles_logic_sv2::utils::Mutex;
@@ -38,6 +38,7 @@ pub struct TranslatorSv2 {
     reconnect_wait_time: u64,
     keyset_id: Arc<Mutex<Option<u64>>>,
     wallet: Arc<Mutex<Wallet>>,
+    premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
 }
 
 fn create_wallet() -> Arc<Mutex<Wallet>> {
@@ -58,11 +59,13 @@ impl TranslatorSv2 {
         let mut rng = rand::thread_rng();
         let wait_time = rng.gen_range(0..=3000);
         let keyset_id = Arc::new(Mutex::new(None));
+        let premint_secrets = Arc::new(Mutex::new(None));
         Self {
             config,
             reconnect_wait_time: wait_time,
             keyset_id,
             wallet: create_wallet(),
+            premint_secrets: premint_secrets,
         }
     }
 
@@ -210,6 +213,7 @@ impl TranslatorSv2 {
             task_collector_upstream,
             self.keyset_id.clone(),
             self.wallet.clone(),
+            self.premint_secrets.clone(),
         )
         .await
         {
@@ -222,6 +226,7 @@ impl TranslatorSv2 {
         let task_collector_init_task = task_collector.clone();
         let keyset_id = self.keyset_id.clone();
         let wallet = self.wallet.clone();
+        let premint_secrets = self.premint_secrets.clone();
         // Spawn a task to do all of this init work so that the main thread
         // can listen for signals and failures on the status channel. This
         // allows for the tproxy to fail gracefully if any of these init tasks
@@ -281,6 +286,7 @@ impl TranslatorSv2 {
                 task_collector_bridge,
                 keyset_id,
                 wallet,
+                premint_secrets.clone(),
             );
             proxy::Bridge::start(b.clone());
 
