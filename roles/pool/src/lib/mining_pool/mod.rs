@@ -637,6 +637,7 @@ impl Pool {
         // Clone `mint` to move into the blocking task
         let mint_clone = Arc::clone(&mint);
 
+        // TODO get Sv2KeySet instead of u64 keyset_id, impl this struct in mining subprotocol lib.rs
         // We need to run this blocking operation asynchronously
         let keyset_id = tokio::task::block_in_place(move || {
             let keyset_result = mint_clone.safe_lock(|m| {
