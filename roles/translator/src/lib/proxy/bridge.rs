@@ -70,10 +70,13 @@ pub struct Bridge {
     target: Arc<Mutex<Vec<u8>>>,
     last_job_id: u32,
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
+    
     wallet: Arc<Mutex<Wallet>>,
-    keyset_id: Arc<Mutex<Option<u64>>>,
-    /// Keeps track of the number of issued tokens in each epoch
+    
+    // TODO refactor: remove these fields and let the wallet manage this state
     ehash_token_count: Arc<Mutex<u32>>,
+    keyset_id: Arc<Mutex<Option<u64>>>,
+    premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
 }
 
 impl Bridge {
@@ -92,6 +95,7 @@ impl Bridge {
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
         keyset_id: Arc<Mutex<Option<u64>>>,
         wallet: Arc<Mutex<Wallet>>,
+        premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
     ) -> Arc<Mutex<Self>> {
         let ids = Arc::new(Mutex::new(GroupId::new()));
         let share_per_min = 1.0;
@@ -125,6 +129,7 @@ impl Bridge {
             wallet,
             keyset_id,
             ehash_token_count: Arc::new(Mutex::new(0)),
+            premint_secrets,
         }))
     }
 
@@ -280,21 +285,22 @@ impl Bridge {
                             None => return Err(Error::KeysetNotFound.into()),
                         };
     
-                        let premint_secret = self_.safe_lock(|s| {
-                            s.create_blinded_secret(keyset_id_u64)
-                        })??;
+                        let secret = self_.safe_lock(|s| {
+                            let new_premint_secrets = s.create_blinded_secret(keyset_id_u64).unwrap();
+                            
+                            // TODO get rid of this and let the wallet manage this state
+                            s.premint_secrets.safe_lock(|p| {
+                                match p {
+                                    None => *p = Some(new_premint_secrets.clone()),
+                                    Some(existing_secrets) => existing_secrets.secrets.push(new_premint_secrets.secrets.first().unwrap().clone()),
+                                }
+                            }).map_err(|_| PoisonLock);
+                            
+                            new_premint_secrets.secrets.first().unwrap().clone()
+                        })?;
 
-                        let secrets_len = premint_secret.secrets.len();
-                        if secrets_len != 1 {
-                            return Err(Error::InvalidInput(format!("Expected exactly one PremintSecret, got {}", secrets_len)));
-                        }
-
-                        let first_premint = premint_secret.secrets.first()
-                            .ok_or_else(|| Error::InvalidInput("No PremintSecret found".into()))?;
-                        share.blinded_message = Sv2BlindedMessage::from(first_premint.blinded_message.clone());
+                        share.blinded_message = Sv2BlindedMessage::from(secret.blinded_message.clone());
     
-                        // TODO send secrets upstream to the pool to be signed
-                        info!("premint_secret: {:?}", premint_secret);
                         info!("share.blinded_message: {:?}", share.blinded_message);
                         tx_sv2_submit_shares_ext.send(share).await?;
                     }
@@ -660,6 +666,7 @@ mod test {
                 // TODO test ecash stuff
                 Arc::new(Mutex::new(None)),
                 create_wallet(),
+                Arc::new(Mutex::new(None)),
             );
             (b, interface)
         }
