@@ -822,6 +822,8 @@ impl<'decoder> Default for Sv2BlindSignature<'decoder> {
     }
 }
 
+// TODO impl cdk::nuts::nut02::KeySet with Sv2 data types
+
 #[cfg(test)]
 pub mod tests {
     use super::*;
