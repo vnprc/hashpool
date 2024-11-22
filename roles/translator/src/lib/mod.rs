@@ -1,5 +1,5 @@
 use async_channel::{bounded, unbounded};
-use binary_sv2::PubKey;
+use cdk::wallet::Wallet;
 use futures::FutureExt;
 use rand::Rng;
 pub use roles_logic_sv2::utils::Mutex;
@@ -29,11 +29,28 @@ pub mod status;
 pub mod upstream_sv2;
 pub mod utils;
 
+// TODO consolidate, these consts are defined all over the place
+pub const HASH_CURRENCY_UNIT: &str = "HASH";
+
 #[derive(Clone, Debug)]
 pub struct TranslatorSv2 {
     config: ProxyConfig,
     reconnect_wait_time: u64,
     keyset_id: Arc<Mutex<Option<u64>>>,
+    wallet: Arc<Mutex<Wallet>>,
+}
+
+fn create_wallet() -> Arc<Mutex<Wallet>> {
+    use cdk::cdk_database::WalletMemoryDatabase;
+    use cdk::wallet::Wallet;
+    use rand::Rng;
+    use cdk::nuts::CurrencyUnit;
+
+    let seed = rand::thread_rng().gen::<[u8; 32]>();
+    let mint_url = "https://testnut.cashu.space";
+
+    let localstore = WalletMemoryDatabase::default();
+    Arc::new(Mutex::new(Wallet::new(mint_url, CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string()), Arc::new(localstore), &seed, None).unwrap()))
 }
 
 impl TranslatorSv2 {
@@ -45,6 +62,7 @@ impl TranslatorSv2 {
             config,
             reconnect_wait_time: wait_time,
             keyset_id,
+            wallet: create_wallet(),
         }
     }
 
@@ -189,6 +207,7 @@ impl TranslatorSv2 {
             diff_config.clone(),
             task_collector_upstream,
             self.keyset_id.clone(),
+            self.wallet.clone(),
         )
         .await
         {
@@ -200,6 +219,7 @@ impl TranslatorSv2 {
         };
         let task_collector_init_task = task_collector.clone();
         let keyset_id = self.keyset_id.clone();
+        let wallet = self.wallet.clone();
         // Spawn a task to do all of this init work so that the main thread
         // can listen for signals and failures on the status channel. This
         // allows for the tproxy to fail gracefully if any of these init tasks
@@ -258,6 +278,7 @@ impl TranslatorSv2 {
                 up_id,
                 task_collector_bridge,
                 keyset_id,
+                wallet,
             );
             proxy::Bridge::start(b.clone());
 
