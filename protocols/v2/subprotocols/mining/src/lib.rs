@@ -106,9 +106,8 @@
 //! This protocol explicitly expects that upstream server software is able to manage the size of
 //! the hashing space correctly for its clients and can provide new jobs quickly enough.
 
-use binary_sv2::{PubKey, B032, U256};
-use cdk::nuts::{BlindSignature, BlindedMessage};
-use std::convert::TryFrom;
+use cdk::{amount::{Amount, AmountStr}, nuts::{BlindSignature, BlindedMessage, CurrencyUnit, KeySet, PublicKey}};
+use std::{collections::BTreeMap, convert::TryFrom};
 #[cfg(not(feature = "with_serde"))]
 pub use binary_codec_sv2::{self, Decodable as Deserialize, Encodable as Serialize, *};
 #[cfg(not(feature = "with_serde"))]
@@ -151,6 +150,7 @@ pub use set_target::SetTarget;
 pub use submit_shares::{
     SubmitSharesError, SubmitSharesExtended, SubmitSharesStandard, SubmitSharesSuccess,
 };
+pub use std::error::Error;
 pub use update_channel::{UpdateChannel, UpdateChannelError};
 const MAX_EXTRANONCE_LEN: usize = 32;
 
@@ -793,7 +793,63 @@ impl<'decoder> Default for Sv2BlindSignature<'decoder> {
     }
 }
 
-// TODO impl cdk::nuts::nut02::KeySet with Sv2 data types
+#[derive(Debug, Clone)]
+pub struct Sv2SigningKey {
+    pub amount: u64,
+    pub pubkey: [u8; 33],
+}
+
+#[derive(Debug, Clone)]
+pub struct Sv2KeySet<'a> {
+    pub id: u64,
+    pub keys: Seq064K<'a, Sv2SigningKey>,
+}
+
+impl<'a> TryFrom<&'a KeySet> for Sv2KeySet<'a> {
+    type Error = Box<dyn Error>;
+
+    fn try_from(value: &'a KeySet) -> Result<Self, Self::Error> {
+        let id: u64 = KeysetId(value.id).into();
+
+        let mut key_pairs = Vec::new();
+            for (amount_str, public_key) in value.keys.keys() {
+            let amount: u64 = amount_str.inner().into();
+            // TODO investigate which is better Sv2BlindSignature parity bit or this
+            let pubkey_bytes: [u8; 33] = public_key.to_bytes();
+            let key_pair = Sv2SigningKey {
+                amount,
+                pubkey: pubkey_bytes,
+            };
+            key_pairs.push(key_pair);
+        }
+
+        let keys = Seq064K::new(key_pairs)
+            .map_err(|e| format!("Failed to create Seq064K: {:?}", e))?;
+
+        Ok(Sv2KeySet { id, keys })
+    }
+}
+
+impl TryFrom<&Sv2KeySet<'_>> for KeySet {
+    type Error = Box<dyn Error>;
+
+    fn try_from(value: &Sv2KeySet) -> Result<Self, Self::Error> {
+        let id = *KeysetId::try_from(value.id)?;
+        let mut keys_map: BTreeMap<AmountStr, PublicKey> = BTreeMap::new();
+        for key_pair in value.keys.clone().into_inner() {
+            let amount_str = AmountStr::from(Amount::from(key_pair.amount));
+            let public_key = PublicKey::from_slice(&key_pair.pubkey[..])?;
+
+            keys_map.insert(amount_str, public_key);
+        }
+
+        Ok(KeySet {
+            id,
+            unit: CurrencyUnit::Custom("HASH".to_string()),
+            keys: cdk::nuts::Keys::new(keys_map),
+        })
+    }
+}
 
 #[cfg(test)]
 pub mod tests {
