@@ -40,7 +40,7 @@ pub mod setup_connection;
 use setup_connection::SetupConnectionHandler;
 
 pub mod message_handler;
-use mining_sv2::KeysetId;
+use mining_sv2::{KeysetId, Sv2KeySet};
 
 pub type Message = PoolMessages<'static>;
 pub type StdFrame = StandardSv2Frame<Message>;
@@ -637,23 +637,21 @@ impl Pool {
         // Clone `mint` to move into the blocking task
         let mint_clone = Arc::clone(&mint);
 
-        // TODO get Sv2KeySet instead of u64 keyset_id, impl this struct in mining subprotocol lib.rs
         // We need to run this blocking operation asynchronously
-        let keyset_id = tokio::task::block_in_place(move || {
+        let keyset = tokio::task::block_in_place(move || {
             let keyset_result = mint_clone.safe_lock(|m| {
                 let pubkeys_future = m.pubkeys();
                 // We use block_on here safely because it's within a block_in_place, which is allowed to block.
                 let pubkeys = tokio::runtime::Handle::current()
                     .block_on(pubkeys_future)
                     .unwrap();
-                let first_keyset = pubkeys.keysets.first().unwrap();
-                KeysetId(first_keyset.id).into()
+                let first_keyset = pubkeys.keysets.first().unwrap().to_owned();
+                Sv2KeySet::try_from(first_keyset).unwrap()
             });
 
             keyset_result.unwrap() // Handle the result of safe_lock
         });
-        // println!("amount_str: {}", first_pubkey.0);
-        println!("keyset_id: {}", keyset_id);
+        println!("keyset: {:?}", keyset);
 
         let channel_factory = Arc::new(Mutex::new(PoolChannelFactory::new(
             ids,
@@ -663,7 +661,8 @@ impl Pool {
             kind,
             pool_coinbase_outputs.expect("Invalid coinbase output in config"),
             config.pool_signature.clone(),
-            Arc::new(Mutex::new(Some(keyset_id))),
+            // TODO when encoding is sorted out, pass Sv2KeySet instead keyset_id
+            Arc::new(Mutex::new(Some(keyset.id))),
         )));
         let pool = Arc::new(Mutex::new(Pool {
             downstreams: HashMap::with_hasher(BuildNoHashHasher::default()),
