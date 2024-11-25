@@ -800,15 +800,15 @@ pub struct Sv2SigningKey {
 }
 
 #[derive(Debug, Clone)]
-pub struct Sv2KeySet<'a> {
+pub struct Sv2KeySet<'decoder> {
     pub id: u64,
-    pub keys: Seq064K<'a, Sv2SigningKey>,
+    pub keys: Seq064K<'decoder, Sv2SigningKey>,
 }
 
-impl<'a> TryFrom<&'a KeySet> for Sv2KeySet<'a> {
+impl TryFrom<KeySet> for Sv2KeySet<'static> {
     type Error = Box<dyn Error>;
 
-    fn try_from(value: &'a KeySet) -> Result<Self, Self::Error> {
+    fn try_from(value: KeySet) -> Result<Self, Self::Error> {
         let id: u64 = KeysetId(value.id).into();
 
         let mut key_pairs = Vec::new();
@@ -830,10 +830,10 @@ impl<'a> TryFrom<&'a KeySet> for Sv2KeySet<'a> {
     }
 }
 
-impl TryFrom<&Sv2KeySet<'_>> for KeySet {
+impl TryFrom<Sv2KeySet<'_>> for KeySet {
     type Error = Box<dyn Error>;
 
-    fn try_from(value: &Sv2KeySet) -> Result<Self, Self::Error> {
+    fn try_from(value: Sv2KeySet) -> Result<Self, Self::Error> {
         let id = *KeysetId::try_from(value.id)?;
         let mut keys_map: BTreeMap<AmountStr, PublicKey> = BTreeMap::new();
         for key_pair in value.keys.clone().into_inner() {
