@@ -138,7 +138,7 @@
 use cdk::{amount::{Amount, AmountStr}, nuts::{BlindSignature, BlindedMessage, CurrencyUnit, KeySet, PublicKey}};
 use std::{collections::BTreeMap, convert::TryFrom};
 #[cfg(not(feature = "with_serde"))]
-pub use binary_codec_sv2::{self, Decodable as Deserialize, Encodable as Serialize, *};
+pub use binary_sv2::binary_codec_sv2::{self, Decodable as Deserialize, Encodable as Serialize, *};
 #[cfg(not(feature = "with_serde"))]
 pub use derive_codec_sv2::{Decodable as Deserialize, Encodable as Serialize};
 use core::{

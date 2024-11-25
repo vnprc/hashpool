@@ -720,7 +720,7 @@ dependencies = [
 [[package]]
 name = "cdk"
 version = "0.5.0"
-source = "git+https://github.com/vnprc/cdk?branch=hashpool#8e876fa9497495e55d024da26fb4ff2710143c99"
+source = "git+https://github.com/vnprc/cdk?rev=8e876fa9#8e876fa9497495e55d024da26fb4ff2710143c99"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2151,7 +2151,6 @@ dependencies = [
 name = "mining_sv2"
 version = "1.0.1"
 dependencies = [
- "binary_codec_sv2",
  "binary_sv2",
  "cdk",
  "const_sv2",
