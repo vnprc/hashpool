@@ -11,7 +11,7 @@ use mining_sv2::{
     ExtendedExtranonce, NewExtendedMiningJob, NewMiningJob, OpenExtendedMiningChannelSuccess,
     OpenMiningChannelError, OpenStandardMiningChannelSuccess, SetCustomMiningJob,
     SetCustomMiningJobSuccess, SetNewPrevHash, SubmitSharesError, SubmitSharesExtended,
-    SubmitSharesStandard, Target, Sv2BlindedMessage,
+    SubmitSharesStandard, Target, cashu::Sv2BlindedMessage,
 };
 
 use nohash_hasher::BuildNoHashHasher;

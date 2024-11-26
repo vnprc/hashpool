@@ -5,7 +5,7 @@ use binary_sv2::binary_codec_sv2;
 use binary_sv2::{Deserialize, Serialize, Str0255, B032};
 #[cfg(not(feature = "with_serde"))]
 use core::convert::TryInto;
-use crate::{Sv2BlindSignature, Sv2BlindedMessage};
+use crate::cashu::{Sv2BlindSignature, Sv2BlindedMessage};
 
 /// Message used by downstream to send result of its hashing work to an upstream.
 #[derive(Serialize, Deserialize, Debug, Clone)]

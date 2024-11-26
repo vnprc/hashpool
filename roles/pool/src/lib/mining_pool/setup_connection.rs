@@ -4,6 +4,7 @@ use super::super::{
 };
 use async_channel::{Receiver, Sender};
 use cdk::mint::Mint;
+use mining_sv2::cashu::KeysetId;
 use roles_logic_sv2::{
     common_messages_sv2::{
         has_requires_std_job, has_version_rolling, has_work_selection, SetupConnection,
@@ -111,7 +112,7 @@ impl ParseDownstreamCommonMessages<NoRouting> for SetupConnectionHandler {
                 // We use block_on here safely because it's within a block_in_place, which is allowed to block.
                 let pubkeys = tokio::runtime::Handle::current().block_on(pubkeys_future).unwrap();
                 // TODO is unwrap safe here?
-                let keyset_id: u64 = mining_sv2::KeysetId(pubkeys.keysets.first().unwrap().id).into();
+                let keyset_id: u64 = KeysetId(pubkeys.keysets.first().unwrap().id).into();
                 keyset_id
             });
 

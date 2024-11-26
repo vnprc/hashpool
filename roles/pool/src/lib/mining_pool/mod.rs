@@ -3,7 +3,7 @@ use super::{
     status,
 };
 use async_channel::{Receiver, Sender};
-use binary_sv2::{PubKey, U256};
+use binary_sv2::U256;
 use cdk::mint::Mint;
 use codec_sv2::{HandshakeRole, Responder, StandardEitherFrame, StandardSv2Frame};
 use error_handling::handle_result;
@@ -40,7 +40,7 @@ pub mod setup_connection;
 use setup_connection::SetupConnectionHandler;
 
 pub mod message_handler;
-use mining_sv2::{KeysetId, Sv2KeySet};
+use mining_sv2::cashu::Sv2KeySet;
 
 pub type Message = PoolMessages<'static>;
 pub type StdFrame = StandardSv2Frame<Message>;
