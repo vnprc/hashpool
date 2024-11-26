@@ -24,6 +24,7 @@ cdk = { git = "https://github.com/vnprc/cdk", rev = "8e876fa9" }
 [dev-dependencies]
 quickcheck = "1.0.3"
 quickcheck_macros = "1"
+rand = "0.8"
 
 [features]
 with_serde = ["binary_sv2/with_serde", "serde"]

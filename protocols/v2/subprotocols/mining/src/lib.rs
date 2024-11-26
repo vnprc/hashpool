@@ -1480,4 +1480,76 @@ pub mod tests {
         let prefix_len = extended.get_prefix_len();
         assert!(prefix_len == 4);
     }
+
+    fn get_random_pubkey() -> Sv2SigningKey {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+
+        let mut pubkey = [0u8; 33];
+        rng.fill(&mut pubkey[..]);
+
+        Sv2SigningKey {
+            amount: rng.gen::<u64>(),
+            pubkey,
+        }
+    }
+
+    fn get_random_keyset() -> Sv2KeySet<'static> {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+
+        // TODO find max size of keyset
+        let num_keys = rng.gen_range(1..10);
+        let mut keys_vec = Vec::with_capacity(num_keys);
+        for _ in 0..num_keys {
+            keys_vec.push(get_random_pubkey());
+        }
+    
+        Sv2KeySet {
+            id: rng.gen::<u64>(),
+            keys: Seq064K::new(keys_vec.clone()).unwrap(),
+        }
+    }
+
+    #[test]
+    fn test_sv2_signing_key_encode_decode() {
+        let original_key = get_random_pubkey();
+
+        // encode it
+        let mut buffer = [0u8; 41]; // 8 bytes for amount + 33 bytes for pubkey
+        let encoded_size = original_key.clone().to_bytes(&mut buffer).unwrap();
+        assert_eq!(encoded_size, 41);
+
+        // decode it
+        let decoded_key = Sv2SigningKey::from_bytes(&mut buffer).unwrap();
+        assert_eq!(original_key.amount, decoded_key.amount);
+        assert_eq!(original_key.pubkey, decoded_key.pubkey);
+    }
+
+    #[test]
+    fn test_sv2_keyset_encode_decode() {
+        let original_keyset = get_random_keyset();
+        let original_keys = original_keyset.clone().keys.into_inner();
+
+        let keys_length = original_keys.len();
+        let required_size = 8 + 2 + (keys_length * 41); // id + length prefix + keys
+
+        // encode it
+        let mut buffer = vec![0u8; required_size];
+        let encoded_size = original_keyset.clone().to_bytes(&mut buffer).unwrap();
+        assert_eq!(encoded_size, required_size);
+
+        // decode it
+        let decoded_keyset = Sv2KeySet::from_bytes(&mut buffer).unwrap();
+        assert_eq!(original_keyset.id, decoded_keyset.id);
+
+        // check for equality
+        let decoded_keys = decoded_keyset.keys.into_inner();
+        assert_eq!(original_keys.len(), decoded_keys.len());
+
+        for (original_key, decoded_key) in original_keys.iter().zip(decoded_keys.iter()) {
+            assert_eq!(original_key.amount, decoded_key.amount);
+            assert_eq!(original_key.pubkey, decoded_key.pubkey);
+        }
+    }
 }
