@@ -23,7 +23,7 @@ use super::super::{
 use error_handling::handle_result;
 use roles_logic_sv2::{channel_logic::channel_factory::OnNewShare, Error as RolesLogicError};
 use tracing::{debug, error, info, warn};
-use mining_sv2::{Sv2BlindedMessage, KeysetId};
+use mining_sv2::cashu::{Sv2BlindedMessage, KeysetId};
 
 // TODO consolidate these constants with the same constants in roles/pool/src/lib/mod.rs
 pub const HASH_CURRENCY_UNIT: &str = "HASH";

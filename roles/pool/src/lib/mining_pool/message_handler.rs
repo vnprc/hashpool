@@ -1,5 +1,6 @@
 use super::super::mining_pool::Downstream;
-use cdk::{mint::Mint, nuts::{BlindSignature, BlindedMessage}};
+use cashu::Sv2BlindSignature;
+use cdk::nuts::{BlindSignature, BlindedMessage};
 use roles_logic_sv2::{
     errors::Error,
     handlers::mining::{ParseDownstreamMiningMessages, SendTo, SupportedChannelTypes},
