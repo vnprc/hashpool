@@ -107,6 +107,7 @@
 //! the hashing space correctly for its clients and can provide new jobs quickly enough.
 
 use cdk::{amount::{Amount, AmountStr}, nuts::{BlindSignature, BlindedMessage, CurrencyUnit, KeySet, PublicKey}};
+use decodable::FieldMarker;
 use std::{collections::BTreeMap, convert::TryFrom};
 #[cfg(not(feature = "with_serde"))]
 pub use binary_codec_sv2::{self, Decodable as Deserialize, Encodable as Serialize, *};
@@ -848,6 +849,137 @@ impl TryFrom<Sv2KeySet<'_>> for KeySet {
             unit: CurrencyUnit::Custom("HASH".to_string()),
             keys: cdk::nuts::Keys::new(keys_map),
         })
+    }
+}
+
+impl<'a> Decodable<'a> for Sv2SigningKey {
+    fn from_bytes(data: &'a mut [u8]) -> Result<Self, binary_sv2::Error> {
+        let required_size = 8 + 33;
+        if data.len() < required_size {
+            // TODO use the right error
+            return Err(binary_sv2::Error::OutOfBound);
+        }
+
+        let amount_bytes = &data[0..8];
+        let amount = u64::from_le_bytes(amount_bytes.try_into().unwrap());
+
+        let pubkey_bytes = &data[8..(8 + 33)];
+        let mut pubkey = [0u8; 33];
+        pubkey.copy_from_slice(pubkey_bytes);
+
+        Ok(Sv2SigningKey { amount, pubkey })
+    }
+
+    // not needed
+    fn get_structure(_: &[u8]) -> Result<std::vec::Vec<FieldMarker>, binary_codec_sv2::Error> {
+        unimplemented!()
+    }
+
+    // not needed
+    fn from_decoded_fields(_: Vec<decodable::DecodableField<'a>>) -> Result<Sv2SigningKey, binary_codec_sv2::Error> {
+        unimplemented!()
+    }
+}
+
+impl Encodable for Sv2SigningKey {
+    fn to_bytes(self, dst: &mut [u8]) -> Result<usize, binary_sv2::Error> {
+        let required_size = 8 + 33; // u64 (8 bytes) + pubkey (33 bytes)
+        if dst.len() < required_size {
+            // TODO use the right error
+            return Err(binary_sv2::Error::OutOfBound);
+        }
+
+        dst[0..8].copy_from_slice(&self.amount.to_le_bytes());
+        dst[8..(8 + 33)].copy_from_slice(&self.pubkey);
+
+        Ok(required_size)
+    }
+}
+
+impl<'a> Encodable for Sv2KeySet<'a> {
+    fn to_bytes(self, dst: &mut [u8]) -> Result<usize, binary_sv2::Error> {
+        let keys = self.keys.into_inner();
+        
+        let mut required_size = 8; // keyset id
+        let keys_length = keys.len();
+
+        // Encode all keys to get their total size
+        let mut keys_bytes = Vec::new();
+        for key in keys {
+            let mut key_bytes = vec![0u8; 41];
+            key.to_bytes(&mut key_bytes)?;
+            keys_bytes.extend_from_slice(&key_bytes);
+        }
+
+        required_size += 2; // Seq064K length prefix
+        required_size += keys_bytes.len();
+
+        if dst.len() < required_size {
+            // TODO use the right error
+            return Err(binary_sv2::Error::OutOfBound);
+        }
+
+        // Encode `id`
+        dst[0..8].copy_from_slice(&self.id.to_le_bytes());
+
+        // Encode length of `keys`
+        dst[8..10].copy_from_slice(&(keys_length as u16).to_le_bytes());
+
+        // Encode `keys`
+        dst[10..(10 + keys_bytes.len())].copy_from_slice(&keys_bytes);
+
+        Ok(required_size)
+    }
+}
+
+impl<'a> Decodable<'a> for Sv2KeySet<'a> {
+    fn from_bytes(data: &'a mut [u8]) -> Result<Self, binary_sv2::Error> {
+        let mut offset = 0;
+
+        // Decode `id`
+        if data.len() < offset + 8 {
+            // TODO use the right error
+            return Err(binary_sv2::Error::OutOfBound);
+        }
+        let id_bytes = &data[offset..(offset + 8)];
+        let id = u64::from_le_bytes(id_bytes.try_into().unwrap());
+        offset += 8;
+
+        // Decode length of `keys`
+        if data.len() < offset + 2 {
+            // TODO use the right error
+            return Err(binary_sv2::Error::OutOfBound);
+        }
+        let length_bytes = &data[offset..(offset + 2)];
+        let keys_length = u16::from_le_bytes(length_bytes.try_into().unwrap()) as usize;
+        offset += 2;
+
+        let mut keys = Vec::with_capacity(keys_length);
+        for _ in 0..keys_length {
+            if data.len() < offset + 41 {
+                // TODO use the right error
+                return Err(binary_sv2::Error::OutOfBound);
+            }
+            let key_data = &mut data[offset..(offset + 41)];
+            let key = Sv2SigningKey::from_bytes(key_data)?;
+            keys.push(key);
+            offset += 41;
+        }
+
+        // TODO capture e and do something with it. New error type?
+        let keys_seq = Seq064K::new(keys).map_err(|e| binary_sv2::Error::DecodableConversionError)?;
+
+        Ok(Sv2KeySet { id, keys: keys_seq })
+    }
+
+    // not needed
+    fn get_structure(data: &[u8]) -> Result<Vec<FieldMarker>, binary_sv2::Error> {
+        unimplemented!()
+    }
+
+    // not needed
+    fn from_decoded_fields(data: Vec<decodable::DecodableField<'a>>) -> Result<Self, binary_sv2::Error> {
+        unimplemented!()
     }
 }
 
