@@ -8,6 +8,67 @@ pub use binary_codec_sv2::{self, Decodable as Deserialize, Encodable as Serializ
 #[cfg(not(feature = "with_serde"))]
 pub use derive_codec_sv2::{Decodable as Deserialize, Encodable as Serialize};
 
+// TODO find a better place for these errors
+#[derive(Debug)]
+pub enum CashuError {
+    SeqExceedsMaxSize(usize, usize),
+    ReadError(usize, usize),
+}
+
+impl std::fmt::Display for CashuError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CashuError::SeqExceedsMaxSize(actual, max) => {
+                write!(f, "Sequence exceeds max size: got {}, max is {}", actual, max)
+            }
+            CashuError::ReadError(actual, expected) => {
+                write!(f, "Read error: got {}, expected at least {}", actual, expected)
+            }
+        }
+    }
+}
+
+impl std::error::Error for CashuError {}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct FixedSeq64K<T> {
+    inner: Vec<T>,
+}
+
+impl<T> FixedSeq64K<T> {
+    const HEADERSIZE: usize = 2;
+
+    pub fn new(inner: Vec<T>) -> Result<Self, Box<dyn std::error::Error>> {
+        if inner.len() <= 65535 {
+            Ok(Self { inner })
+        } else {
+            Err(Box::new(CashuError::SeqExceedsMaxSize(inner.len(), 65535)))
+        }
+    }
+
+    pub fn into_inner(self) -> Vec<T> {
+        self.inner
+    }
+
+    fn expected_len(data: &[u8]) -> Result<usize, Box<dyn std::error::Error>> {
+        if data.len() >= Self::HEADERSIZE {
+            Ok(u16::from_le_bytes([data[0], data[1]]) as usize)
+        } else {
+            Err(Box::new(CashuError::ReadError(data.len(), Self::HEADERSIZE)))
+        }
+    }
+}
+
+impl<T: GetSize> GetSize for FixedSeq64K<T> {
+    fn get_size(&self) -> usize {
+        let mut size = Self::HEADERSIZE;
+        for with_size in &self.inner {
+            size += with_size.get_size()
+        }
+        size
+    }
+}
+
 pub struct KeysetId(pub cdk::nuts::nut02::Id);
 
 impl From<KeysetId> for u64 {
@@ -145,12 +206,12 @@ pub struct Sv2SigningKey {
 }
 
 #[derive(Debug, Clone)]
-pub struct Sv2KeySet<'decoder> {
+pub struct Sv2KeySet {
     pub id: u64,
-    pub keys: Seq064K<'decoder, Sv2SigningKey>,
+    pub keys: FixedSeq64K<Sv2SigningKey>,
 }
 
-impl TryFrom<KeySet> for Sv2KeySet<'static> {
+impl TryFrom<KeySet> for Sv2KeySet {
     type Error = Box<dyn Error>;
 
     fn try_from(value: KeySet) -> Result<Self, Self::Error> {
@@ -168,14 +229,14 @@ impl TryFrom<KeySet> for Sv2KeySet<'static> {
             key_pairs.push(key_pair);
         }
 
-        let keys = Seq064K::new(key_pairs)
+        let keys = FixedSeq64K::new(key_pairs)
             .map_err(|e| format!("Failed to create Seq064K: {:?}", e))?;
 
         Ok(Sv2KeySet { id, keys })
     }
 }
 
-impl TryFrom<Sv2KeySet<'_>> for KeySet {
+impl TryFrom<Sv2KeySet> for KeySet {
     type Error = Box<dyn Error>;
 
     fn try_from(value: Sv2KeySet) -> Result<Self, Self::Error> {
@@ -240,7 +301,7 @@ impl Encodable for Sv2SigningKey {
     }
 }
 
-impl<'a> Encodable for Sv2KeySet<'a> {
+impl<'a> Encodable for Sv2KeySet {
     fn to_bytes(self, dst: &mut [u8]) -> Result<usize, binary_sv2::Error> {
         let keys = self.keys.into_inner();
         
@@ -276,7 +337,7 @@ impl<'a> Encodable for Sv2KeySet<'a> {
     }
 }
 
-impl<'a> Decodable<'a> for Sv2KeySet<'a> {
+impl<'a> Decodable<'a> for Sv2KeySet {
     fn from_bytes(data: &'a mut [u8]) -> Result<Self, binary_sv2::Error> {
         let mut offset = 0;
 
@@ -311,7 +372,7 @@ impl<'a> Decodable<'a> for Sv2KeySet<'a> {
         }
 
         // TODO capture e and do something with it. New error type?
-        let keys_seq = Seq064K::new(keys).map_err(|e| binary_sv2::Error::DecodableConversionError)?;
+        let keys_seq = FixedSeq64K::new(keys).map_err(|e| binary_sv2::Error::DecodableConversionError)?;
 
         Ok(Sv2KeySet { id, keys: keys_seq })
     }
@@ -344,7 +405,7 @@ pub mod tests {
         }
     }
 
-    fn get_random_keyset() -> Sv2KeySet<'static> {
+    fn get_random_keyset() -> Sv2KeySet {
         use rand::Rng;
         let mut rng = rand::thread_rng();
 
@@ -357,7 +418,7 @@ pub mod tests {
     
         Sv2KeySet {
             id: rng.gen::<u64>(),
-            keys: Seq064K::new(keys_vec.clone()).unwrap(),
+            keys: FixedSeq64K::new(keys_vec.clone()).unwrap(),
         }
     }
 
