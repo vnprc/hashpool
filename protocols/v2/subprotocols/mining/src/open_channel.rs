@@ -8,6 +8,7 @@ use binary_sv2::{Deserialize, PubKey, Serialize, Str0255, B032, U256};
 use core::convert::TryInto;
 #[cfg(feature = "with_serde")]
 use core::convert::TryInto;
+use crate::cashu::Sv2KeySet;
 
 /// Message used by a downstream to request opening a Standard Channel.
 ///
@@ -211,8 +212,8 @@ pub struct OpenExtendedMiningChannelSuccess<'decoder> {
     /// Bytes used as implicit first part of extranonce
     #[cfg_attr(feature = "with_serde", serde(borrow))]
     pub extranonce_prefix: B032<'decoder>,
-    /// Compress keyset into single key for simplification
-    pub keyset_id: u64,
+    /// Cashu mint keyset
+    pub keyset: Sv2KeySet,
 }
 
 /// Message used by upstream to reject [`OpenExtendedMiningChannel`] or

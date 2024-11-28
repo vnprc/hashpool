@@ -23,7 +23,7 @@ use super::super::{
 use error_handling::handle_result;
 use roles_logic_sv2::{channel_logic::channel_factory::OnNewShare, Error as RolesLogicError};
 use tracing::{debug, error, info, warn};
-use mining_sv2::cashu::{Sv2BlindedMessage, KeysetId};
+use mining_sv2::cashu::{KeysetId, Sv2BlindedMessage, Sv2KeySet};
 
 // TODO consolidate these constants with the same constants in roles/pool/src/lib/mod.rs
 pub const HASH_CURRENCY_UNIT: &str = "HASH";
@@ -75,7 +75,7 @@ pub struct Bridge {
     
     // TODO refactor: remove these fields and let the wallet manage this state
     ehash_token_count: Arc<Mutex<u32>>,
-    keyset_id: Arc<Mutex<Option<u64>>>,
+    keyset: Arc<Mutex<Option<Sv2KeySet>>>,
     premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
 }
 
@@ -93,7 +93,7 @@ impl Bridge {
         target: Arc<Mutex<Vec<u8>>>,
         up_id: u32,
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
-        keyset_id: Arc<Mutex<Option<u64>>>,
+        keyset: Arc<Mutex<Option<Sv2KeySet>>>,
         wallet: Arc<Mutex<Wallet>>,
         premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
     ) -> Arc<Mutex<Self>> {
@@ -119,7 +119,7 @@ impl Bridge {
                 None,
                 String::from(""),
                 up_id,
-                keyset_id.clone(),
+                keyset.clone(),
             ),
             future_jobs: vec![],
             last_p_hash: None,
@@ -127,7 +127,7 @@ impl Bridge {
             last_job_id: 0,
             task_collector,
             wallet,
-            keyset_id,
+            keyset,
             ehash_token_count: Arc::new(Mutex::new(0)),
             premint_secrets,
         }))
@@ -276,17 +276,17 @@ impl Bridge {
                 info!("SHARE MEETS UPSTREAM TARGET");
                 match share {
                     Share::Extended(mut share) => {
-                        let (keyset_id_option, wallet) = self_
-                            .safe_lock(|s| (s.keyset_id.clone(), s.wallet.clone()))
+                        let (keyset_option, wallet) = self_
+                            .safe_lock(|s| (s.keyset.clone(), s.wallet.clone()))
                             .map_err(|_| PoisonLock)?;
     
-                        let keyset_id_u64 = match keyset_id_option.safe_lock(|k| k.clone()).unwrap() {
-                            Some(id) => id,
+                        let keyset = match keyset_option.safe_lock(|k| k.clone()).unwrap() {
+                            Some(keyset) => keyset,
                             None => return Err(Error::KeysetNotFound.into()),
                         };
     
                         let secret = self_.safe_lock(|s| {
-                            let new_premint_secrets = s.create_blinded_secret(keyset_id_u64).unwrap();
+                            let new_premint_secrets = s.create_blinded_secret(keyset.id).unwrap();
                             
                             // TODO get rid of this and let the wallet manage this state
                             s.premint_secrets.safe_lock(|p| {
