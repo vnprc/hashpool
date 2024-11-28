@@ -15,7 +15,7 @@ use cdk::{dhke, nuts::{BlindSignature, Keys, PreMintSecrets}, wallet::Wallet};
 use codec_sv2::{HandshakeRole, Initiator};
 use error_handling::handle_result;
 use key_utils::Secp256k1PublicKey;
-use mining_sv2::cashu::KeysetId;
+use mining_sv2::cashu::{KeysetId, Sv2KeySet};
 use network_helpers_sv2::Connection;
 use roles_logic_sv2::{
     common_messages_sv2::{Protocol, SetupConnection},
@@ -102,7 +102,7 @@ pub struct Upstream {
     // than the configured percentage
     pub(super) difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
-    keyset_id: Arc<Mutex<Option<u64>>>,
+    keyset: Arc<Mutex<Option<Sv2KeySet>>>,
     wallet: Arc<Mutex<Wallet>>,
     premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
 }
@@ -132,7 +132,7 @@ impl Upstream {
         target: Arc<Mutex<Vec<u8>>>,
         difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
-        keyset_id: Arc<Mutex<Option<u64>>>,
+        keyset: Arc<Mutex<Option<Sv2KeySet>>>,
         wallet: Arc<Mutex<Wallet>>,
         premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
     ) -> ProxyResult<'static, Arc<Mutex<Self>>> {
@@ -183,7 +183,7 @@ impl Upstream {
             target,
             difficulty_config,
             task_collector,
-            keyset_id,
+            keyset,
             wallet,
             premint_secrets,
         })))
@@ -700,9 +700,9 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
 
         let m_static = m.into_static();
 
-        self.keyset_id
-            .safe_lock(|keyset_id| {
-                *keyset_id = Some(m_static.keyset_id.clone());
+        self.keyset
+            .safe_lock(|keyset| {
+                *keyset = Some(m_static.keyset.clone());
             })
             .map_err(|e| RolesLogicError::PoisonLock(e.to_string()))?;
 
@@ -869,18 +869,18 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
 impl Upstream {
     fn get_keys(&self) -> Keys {
         let wallet_clone = Arc::clone(&self.wallet);
-    let keyset_id_clone = Arc::clone(&self.keyset_id);
+    let keyset_clone = Arc::clone(&self.keyset);
 
     // Run blocking operation asynchronously
     tokio::task::block_in_place(move || {
         let wallet = wallet_clone.safe_lock(|w| w.clone()).unwrap();
         
         // TODO this is broken, need to get keyset ID from the wallet instead of wherever we are getting it from now
-        let keyset_id = keyset_id_clone.safe_lock(|k| k.clone()).unwrap().unwrap();
-        println!("keyset_id: {}", keyset_id);
+        let keyset = keyset_clone.safe_lock(|k| k.clone()).unwrap().unwrap();
+        println!("keyset: {:?}", keyset);
         // Use block_on within block_in_place to safely wait for async operation
         match tokio::runtime::Handle::current()
-            .block_on(wallet.get_keyset_keys(*KeysetId::try_from(keyset_id).unwrap())) {
+            .block_on(wallet.get_keyset_keys(*KeysetId::try_from(keyset.id).unwrap())) {
                 Ok(keys) => keys,
                 Err(e) => {
                     println!("Failed to get keyset keys: {}", e);
