@@ -3,12 +3,13 @@ pub mod mining_pool;
 pub mod status;
 pub mod template_receiver;
 
-use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, convert::TryInto, net::SocketAddr, sync::Arc};
 
 use async_channel::{bounded, unbounded};
 
 use error::PoolError;
 use mining_pool::{get_coinbase_output, Configuration, Pool};
+use mining_sv2::cashu::Sv2KeySet;
 use roles_logic_sv2::utils::Mutex;
 use template_receiver::TemplateRx;
 use tracing::{error, info, warn};
@@ -26,7 +27,7 @@ pub const HASH_DERIVATION_PATH: u32 = 1337;
 pub struct PoolSv2 {
     config: Configuration,
     mint: Option<Arc<Mutex<Mint>>>,
-    keyset_id: Option<u64>
+    keyset: Option<Arc<Mutex<Sv2KeySet>>>,
 }
 
 // TODO remove after porting mint to use Sv2 data types
@@ -34,7 +35,7 @@ impl std::fmt::Debug for PoolSv2 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PoolSv2")
             .field("config", &self.config)
-            .field("keyset_id", &self.keyset_id)
+            .field("keyset", &self.keyset)
             .field("mint", &"debug not implemented")
             .finish()
     }
@@ -45,7 +46,7 @@ impl PoolSv2 {
         PoolSv2 {
             config,
             mint: None,
-            keyset_id: None,
+            keyset: None,
         }
     }
 
@@ -81,8 +82,11 @@ impl PoolSv2 {
             return Err(e);
         }
     
-        let mint = Arc::new(Mutex::new(self.create_mint().await));
-        self.mint = Some(mint.clone());
+        let mint = self.create_mint().await;
+        let keyset_id = mint.keysets().await.unwrap().keysets.first().unwrap().id;
+        let keyset = mint.keyset(&keyset_id).await.unwrap().unwrap();
+        let mint = Some(Arc::new(Mutex::new(mint)));
+        self.keyset = Some(Arc::new(Mutex::new(keyset.try_into().unwrap())));
 
         let pool = Pool::start(
             config.clone(),
@@ -91,7 +95,7 @@ impl PoolSv2 {
             s_solution,
             s_message_recv_signal,
             status::Sender::DownstreamListener(status_tx),
-            mint.clone(),
+            mint.unwrap().clone(),
         );
 
         // Start the error handling loop
