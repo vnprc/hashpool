@@ -661,7 +661,6 @@ impl Pool {
             kind,
             pool_coinbase_outputs.expect("Invalid coinbase output in config"),
             config.pool_signature.clone(),
-            // TODO when encoding is sorted out, pass Sv2KeySet instead keyset_id
             Arc::new(Mutex::new(Some(keyset))),
         )));
         let pool = Arc::new(Mutex::new(Pool {
