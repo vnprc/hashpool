@@ -33,12 +33,13 @@ impl std::fmt::Display for CashuError {
 
 impl std::error::Error for CashuError {}
 
+/// just like Seq064K without the lifetime
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct FixedSeq64K<T> {
+pub struct CashuSeq64K<T> {
     inner: Vec<T>,
 }
 
-impl<T> FixedSeq64K<T> {
+impl<T> CashuSeq64K<T> {
     const HEADERSIZE: usize = 2;
 
     pub fn new(inner: Vec<T>) -> Result<Self, Box<dyn std::error::Error>> {
@@ -62,7 +63,7 @@ impl<T> FixedSeq64K<T> {
     }
 }
 
-impl<T: GetSize> GetSize for FixedSeq64K<T> {
+impl<T: GetSize> GetSize for CashuSeq64K<T> {
     fn get_size(&self) -> usize {
         let mut size = Self::HEADERSIZE;
         for with_size in &self.inner {
@@ -211,14 +212,14 @@ pub struct Sv2SigningKey {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sv2KeySet {
     pub id: u64,
-    pub keys: FixedSeq64K<Sv2SigningKey>,
+    pub keys: CashuSeq64K<Sv2SigningKey>,
 }
 
 impl Default for Sv2KeySet {
     fn default() -> Self {
         Self {
             id: 0,
-            keys: FixedSeq64K::new(Vec::new()).unwrap(),
+            keys: CashuSeq64K::new(Vec::new()).unwrap(),
         }
     }
 }
@@ -241,7 +242,7 @@ impl TryFrom<KeySet> for Sv2KeySet {
             key_pairs.push(key_pair);
         }
 
-        let keys = FixedSeq64K::new(key_pairs)
+        let keys = CashuSeq64K::new(key_pairs)
             .map_err(|e| format!("Failed to create Seq064K: {:?}", e))?;
 
         Ok(Sv2KeySet { id, keys })
@@ -437,7 +438,7 @@ impl<'a> Decodable<'a> for Sv2KeySet {
         }
 
         // TODO capture e and do something with it. New error type?
-        let keys_seq = FixedSeq64K::new(keys).map_err(|e| binary_sv2::Error::DecodableConversionError)?;
+        let keys_seq = CashuSeq64K::new(keys).map_err(|e| binary_sv2::Error::DecodableConversionError)?;
 
         Ok(Sv2KeySet { id, keys: keys_seq })
     }
@@ -483,7 +484,7 @@ pub mod tests {
     
         Sv2KeySet {
             id: rng.gen::<u64>(),
-            keys: FixedSeq64K::new(keys_vec.clone()).unwrap(),
+            keys: CashuSeq64K::new(keys_vec.clone()).unwrap(),
         }
     }
 
