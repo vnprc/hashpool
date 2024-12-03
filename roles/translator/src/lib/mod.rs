@@ -37,7 +37,7 @@ pub const HASH_CURRENCY_UNIT: &str = "HASH";
 pub struct TranslatorSv2 {
     config: ProxyConfig,
     reconnect_wait_time: u64,
-    keyset: Arc<Mutex<Option<Sv2KeySet>>>,
+    keyset: Arc<Mutex<Option<Sv2KeySet<'static>>>>,
     wallet: Arc<Mutex<Wallet>>,
     premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
 }

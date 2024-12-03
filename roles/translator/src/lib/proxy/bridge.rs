@@ -64,7 +64,7 @@ pub struct Bridge {
     /// a Downstream role connects and receives the first notify values, this member field is no
     /// longer used.
     last_notify: Option<server_to_client::Notify<'static>>,
-    pub(self) channel_factory: ProxyExtendedChannelFactory,
+    pub(self) channel_factory: ProxyExtendedChannelFactory<'static>,
     future_jobs: Vec<NewExtendedMiningJob<'static>>,
     last_p_hash: Option<SetNewPrevHash<'static>>,
     target: Arc<Mutex<Vec<u8>>>,
@@ -75,7 +75,7 @@ pub struct Bridge {
     
     // TODO refactor: remove these fields and let the wallet manage this state
     ehash_token_count: Arc<Mutex<u32>>,
-    keyset: Arc<Mutex<Option<Sv2KeySet>>>,
+    keyset: Arc<Mutex<Option<Sv2KeySet<'static>>>>,
     premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
 }
 
@@ -93,7 +93,7 @@ impl Bridge {
         target: Arc<Mutex<Vec<u8>>>,
         up_id: u32,
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
-        keyset: Arc<Mutex<Option<Sv2KeySet>>>,
+        keyset: Arc<Mutex<Option<Sv2KeySet<'static>>>>,
         wallet: Arc<Mutex<Wallet>>,
         premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
     ) -> Arc<Mutex<Self>> {
