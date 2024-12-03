@@ -158,7 +158,7 @@ impl PoolSv2 {
         let hash_currency_unit = CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string());
 
         let mut currency_units = HashMap::new();
-        currency_units.insert(hash_currency_unit.clone(), (0, 64));
+        currency_units.insert(hash_currency_unit.clone(), (0, 1));
 
         let mut derivation_paths = HashMap::new();
         derivation_paths.insert(hash_currency_unit, DerivationPath::from(vec![
