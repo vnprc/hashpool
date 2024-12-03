@@ -102,7 +102,7 @@ pub struct Upstream {
     // than the configured percentage
     pub(super) difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
-    keyset: Arc<Mutex<Option<Sv2KeySet>>>,
+    keyset: Arc<Mutex<Option<Sv2KeySet<'static>>>>,
     wallet: Arc<Mutex<Wallet>>,
     premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
 }
@@ -132,7 +132,7 @@ impl Upstream {
         target: Arc<Mutex<Vec<u8>>>,
         difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
-        keyset: Arc<Mutex<Option<Sv2KeySet>>>,
+        keyset: Arc<Mutex<Option<Sv2KeySet<'static>>>>,
         wallet: Arc<Mutex<Wallet>>,
         premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
     ) -> ProxyResult<'static, Arc<Mutex<Self>>> {

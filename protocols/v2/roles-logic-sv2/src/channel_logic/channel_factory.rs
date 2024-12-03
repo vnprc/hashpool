@@ -195,7 +195,7 @@ impl Share {
 
 #[derive(Debug)]
 /// Basic logic shared between all the channel factory.
-struct ChannelFactory {
+struct ChannelFactory<'decoder> {
     ids: Arc<Mutex<GroupId>>,
     standard_channels_for_non_hom_downstreams:
         HashMap<u64, StandardChannel, BuildNoHashHasher<u64>>,
@@ -215,10 +215,10 @@ struct ChannelFactory {
     job_ids: Id,
     channel_to_group_id: HashMap<u32, u32, BuildNoHashHasher<u32>>,
     future_templates: HashMap<u32, NewTemplate<'static>, BuildNoHashHasher<u32>>,
-    keyset: Arc<Mutex<Option<Sv2KeySet>>>,
+    keyset: Arc<Mutex<Option<Sv2KeySet<'decoder>>>>,
 }
 
-impl ChannelFactory {
+impl<'decoder> ChannelFactory<'decoder> {
     pub fn add_standard_channel(
         &mut self,
         request_id: u32,
@@ -292,7 +292,7 @@ impl ChannelFactory {
                     target,
                     extranonce_size: max_extranonce_size,
                     extranonce_prefix,
-                    keyset: keyset.clone(),
+                    keyset: keyset.into_static(),
                 };
                 self.extended_channels.insert(channel_id, success.clone());
                 let mut result = vec![Mining::OpenExtendedMiningChannelSuccess(success)];
@@ -983,13 +983,13 @@ impl ChannelFactory {
 /// to ChannelFactory.
 #[derive(Debug)]
 pub struct PoolChannelFactory {
-    inner: ChannelFactory,
+    inner: ChannelFactory<'static>,
     job_creator: JobsCreators,
     pool_coinbase_outputs: Vec<TxOut>,
     pool_signature: String,
     // extedned_channel_id -> SetCustomMiningJob
     negotiated_jobs: HashMap<u32, SetCustomMiningJob<'static>, BuildNoHashHasher<u32>>,
-    keyset: Arc<Mutex<Option<Sv2KeySet>>>,
+    keyset: Arc<Mutex<Option<Sv2KeySet<'static>>>>,
 }
 
 impl PoolChannelFactory {
@@ -1001,7 +1001,7 @@ impl PoolChannelFactory {
         kind: ExtendedChannelKind,
         pool_coinbase_outputs: Vec<TxOut>,
         pool_signature: String,
-        keyset: Arc<Mutex<Option<Sv2KeySet>>>,
+        keyset: Arc<Mutex<Option<Sv2KeySet<'static>>>>,
     ) -> Self {
         let inner = ChannelFactory {
             ids,
@@ -1305,17 +1305,17 @@ impl PoolChannelFactory {
 /// Used by proxies that want to open extended channls with upstream. If the proxy has job
 /// declaration capabilities, we set the job creator and the coinbase outs.
 #[derive(Debug)]
-pub struct ProxyExtendedChannelFactory {
-    inner: ChannelFactory,
+pub struct ProxyExtendedChannelFactory<'decoder> {
+    inner: ChannelFactory<'decoder>,
     job_creator: Option<JobsCreators>,
     pool_coinbase_outputs: Option<Vec<TxOut>>,
     pool_signature: String,
     // Id assigned to the extended channel by upstream
     extended_channel_id: u32,
-    keyset: Arc<Mutex<Option<Sv2KeySet>>>,
+    keyset: Arc<Mutex<Option<Sv2KeySet<'decoder>>>>,
 }
 
-impl ProxyExtendedChannelFactory {
+impl<'decoder> ProxyExtendedChannelFactory<'decoder> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         ids: Arc<Mutex<GroupId>>,
@@ -1326,7 +1326,7 @@ impl ProxyExtendedChannelFactory {
         pool_coinbase_outputs: Option<Vec<TxOut>>,
         pool_signature: String,
         extended_channel_id: u32,
-        keyset: Arc<Mutex<Option<Sv2KeySet>>>,
+        keyset: Arc<Mutex<Option<Sv2KeySet<'decoder>>>>,
     ) -> Self {
         match &kind {
             ExtendedChannelKind::Proxy { .. } => {
@@ -1368,7 +1368,7 @@ impl ProxyExtendedChannelFactory {
             pool_coinbase_outputs,
             pool_signature,
             extended_channel_id,
-            keyset: keyset.clone(),
+            keyset: keyset,
         }
     }
     /// Calls [`ChannelFactory::add_standard_channel`]

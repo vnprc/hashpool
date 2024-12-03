@@ -4,7 +4,6 @@ use super::{
     upstream_sv2::Upstream as UpstreamMiningNode,
 };
 use async_channel::{Receiver, SendError, Sender};
-use binary_sv2::PubKey;
 use cashu::Sv2KeySet;
 use roles_logic_sv2::{
     channel_logic::channel_factory::{OnNewShare, PoolChannelFactory, Share},
@@ -69,7 +68,7 @@ pub enum DownstreamMiningNodeStatus {
     SoloMinerChannelOpend((PoolChannelFactory, CommonDownstreamData)),
 }
 
-impl DownstreamMiningNodeStatus {
+impl<'decoder> DownstreamMiningNodeStatus {
     fn is_paired(&self) -> bool {
         match self {
             DownstreamMiningNodeStatus::Initializing(_) => false,

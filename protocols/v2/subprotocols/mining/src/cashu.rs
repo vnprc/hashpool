@@ -1,7 +1,4 @@
 use cdk::{amount::{Amount, AmountStr}, nuts::{BlindSignature, BlindedMessage, CurrencyUnit, KeySet, PublicKey}};
-use decodable::FieldMarker;
-use encodable::EncodablePrimitive;
-use core::default;
 use std::{collections::BTreeMap, convert::{TryFrom, TryInto}};
 pub use std::error::Error;
 
@@ -32,46 +29,6 @@ impl std::fmt::Display for CashuError {
 }
 
 impl std::error::Error for CashuError {}
-
-/// just like Seq064K without the lifetime
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct CashuSeq64K<T> {
-    inner: Vec<T>,
-}
-
-impl<T> CashuSeq64K<T> {
-    const HEADERSIZE: usize = 2;
-
-    pub fn new(inner: Vec<T>) -> Result<Self, Box<dyn std::error::Error>> {
-        if inner.len() <= 65535 {
-            Ok(Self { inner })
-        } else {
-            Err(Box::new(CashuError::SeqExceedsMaxSize(inner.len(), 65535)))
-        }
-    }
-
-    pub fn into_inner(self) -> Vec<T> {
-        self.inner
-    }
-
-    fn expected_len(data: &[u8]) -> Result<usize, Box<dyn std::error::Error>> {
-        if data.len() >= Self::HEADERSIZE {
-            Ok(u16::from_le_bytes([data[0], data[1]]) as usize)
-        } else {
-            Err(Box::new(CashuError::ReadError(data.len(), Self::HEADERSIZE)))
-        }
-    }
-}
-
-impl<T: GetSize> GetSize for CashuSeq64K<T> {
-    fn get_size(&self) -> usize {
-        let mut size = Self::HEADERSIZE;
-        for with_size in &self.inner {
-            size += with_size.get_size()
-        }
-        size
-    }
-}
 
 pub struct KeysetId(pub cdk::nuts::nut02::Id);
 
@@ -203,64 +160,83 @@ impl<'decoder> Default for Sv2BlindSignature<'decoder> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Sv2SigningKey {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Sv2SigningKey<'decoder> {
     pub amount: u64,
-    pub pubkey: [u8; 33],
+    pub parity_bit: bool,
+    pub pubkey: PubKey<'decoder>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Sv2KeySet {
-    pub id: u64,
-    pub keys: CashuSeq64K<Sv2SigningKey>,
-}
-
-impl Default for Sv2KeySet {
+impl<'decoder> Default for Sv2SigningKey<'decoder> {
     fn default() -> Self {
-        Self {
-            id: 0,
-            keys: CashuSeq64K::new(Vec::new()).unwrap(),
+        Self { 
+            amount: Default::default(),
+            parity_bit: Default::default(),
+            pubkey: PubKey::from(<[u8; 32]>::from([0_u8; 32])),
         }
     }
 }
 
-impl TryFrom<KeySet> for Sv2KeySet {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Sv2KeySet<'decoder> {
+    pub id: u64,
+    // just one key for now
+    // TODO figure out how to do multiple keys
+    pub key: Sv2SigningKey<'decoder>,
+}
+
+impl<'a> Default for Sv2KeySet<'a> {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            key: Sv2SigningKey::default(),
+        }
+    }
+}
+
+impl<'a> TryFrom<KeySet> for Sv2KeySet<'a> {
     type Error = Box<dyn Error>;
 
     fn try_from(value: KeySet) -> Result<Self, Self::Error> {
         let id: u64 = KeysetId(value.id).into();
 
-        let mut key_pairs = Vec::new();
-            for (amount_str, public_key) in value.keys.keys() {
+        if let Some((amount_str, public_key)) = value.keys.keys().iter().next() {
             let amount: u64 = amount_str.inner().into();
-            // TODO investigate which is better Sv2BlindSignature parity bit or this
-            let pubkey_bytes: [u8; 33] = public_key.to_bytes();
-            let key_pair = Sv2SigningKey {
+            let mut pubkey_bytes = public_key.to_bytes();
+            let (parity_byte, pubkey_data) = pubkey_bytes.split_at_mut(1);
+            let parity_bit = parity_byte[0] == 0x03;
+
+            let pubkey = PubKey::from_bytes(pubkey_data)
+                .map_err(|_| "Failed to parse public key")?
+                .into_static();
+
+            let keys = Sv2SigningKey {
                 amount,
-                pubkey: pubkey_bytes,
+                parity_bit,
+                pubkey,
             };
-            key_pairs.push(key_pair);
+            Ok(Sv2KeySet { id, key: keys })
+        } else {
+            Err("KeySet contains no keys".into())
         }
-
-        let keys = CashuSeq64K::new(key_pairs)
-            .map_err(|e| format!("Failed to create Seq064K: {:?}", e))?;
-
-        Ok(Sv2KeySet { id, keys })
     }
 }
 
-impl TryFrom<Sv2KeySet> for KeySet {
+impl<'a> TryFrom<Sv2KeySet<'a>> for KeySet {
     type Error = Box<dyn Error>;
 
     fn try_from(value: Sv2KeySet) -> Result<Self, Self::Error> {
         let id = *KeysetId::try_from(value.id)?;
         let mut keys_map: BTreeMap<AmountStr, PublicKey> = BTreeMap::new();
-        for key_pair in value.keys.clone().into_inner() {
-            let amount_str = AmountStr::from(Amount::from(key_pair.amount));
-            let public_key = PublicKey::from_slice(&key_pair.pubkey[..])?;
+        let amount_str = AmountStr::from(Amount::from(value.key.amount));
 
-            keys_map.insert(amount_str, public_key);
-        }
+        let mut pubkey_bytes = [0u8; 33];
+        pubkey_bytes[0] = if value.key.parity_bit { 0x03 } else { 0x02 };
+        pubkey_bytes[1..].copy_from_slice(&value.key.pubkey.inner_as_ref());
+
+        let public_key = PublicKey::from_slice(&pubkey_bytes)?;
+
+        keys_map.insert(amount_str, public_key);
 
         Ok(KeySet {
             id,
@@ -283,208 +259,31 @@ impl<'a> IntoB032<'a> for [u8; 32] {
     }
 }
 
-impl<'a> From<Sv2KeySet> for EncodableField<'a> {
-    fn from(value: Sv2KeySet) -> Self {
-        // Encode `id` as a primitive field
-        let id_field = EncodableField::Primitive(EncodablePrimitive::U64(value.id));
-
-        // Encode each key in `keys` as a struct
-        let keys_field: Vec<EncodableField> = value
-            .keys
-            .into_inner()
-            .into_iter()
-            .map(|key| {
-                let amount_field = EncodableField::Primitive(EncodablePrimitive::U64(key.amount));
-                
-                // Convert 33-byte `pubkey` into parity_bit and 32-byte array
-                let pubkey_bytes = key.pubkey;
-                let parity_bit = pubkey_bytes[0] == 0x03;
-                let pubkey_core = <[u8; 32]>::try_from(&pubkey_bytes[1..]).unwrap(); // Safe because we know the size is correct
-                let pubkey_b032 = pubkey_core.into_b032();
-
-                // Encode the converted fields
-                let parity_field = EncodableField::Primitive(EncodablePrimitive::Bool(parity_bit));
-                let pubkey_core_field =
-                    EncodableField::Primitive(EncodablePrimitive::B032(pubkey_b032));
-
-                EncodableField::Struct(vec![amount_field, parity_field, pubkey_core_field])
-            })
-            .collect();
-
-        // Combine `id` and `keys` into the `Struct` variant
-        EncodableField::Struct(vec![
-            id_field,
-            EncodableField::Struct(keys_field),
-        ])
-    }
-}
-
-impl Fixed for Sv2KeySet {
-    const SIZE: usize = std::mem::size_of::<u64>() + 33;
-}
-
-impl<'a> Decodable<'a> for Sv2SigningKey {
-    fn from_bytes(data: &'a mut [u8]) -> Result<Self, binary_sv2::Error> {
-        let required_size = 8 + 33;
-        if data.len() < required_size {
-            // TODO use the right error
-            return Err(binary_sv2::Error::OutOfBound);
-        }
-
-        let amount_bytes = &data[0..8];
-        let amount = u64::from_le_bytes(amount_bytes.try_into().unwrap());
-
-        let pubkey_bytes = &data[8..(8 + 33)];
-        let mut pubkey = [0u8; 33];
-        pubkey.copy_from_slice(pubkey_bytes);
-
-        Ok(Sv2SigningKey { amount, pubkey })
-    }
-
-    // not needed
-    fn get_structure(_: &[u8]) -> Result<std::vec::Vec<FieldMarker>, binary_codec_sv2::Error> {
-        unimplemented!()
-    }
-
-    // not needed
-    fn from_decoded_fields(_: Vec<decodable::DecodableField<'a>>) -> Result<Sv2SigningKey, binary_codec_sv2::Error> {
-        unimplemented!()
-    }
-}
-
-impl Encodable for Sv2SigningKey {
-    fn to_bytes(self, dst: &mut [u8]) -> Result<usize, binary_sv2::Error> {
-        let required_size = 8 + 33; // u64 (8 bytes) + pubkey (33 bytes)
-        if dst.len() < required_size {
-            // TODO use the right error
-            return Err(binary_sv2::Error::OutOfBound);
-        }
-
-        dst[0..8].copy_from_slice(&self.amount.to_le_bytes());
-        dst[8..(8 + 33)].copy_from_slice(&self.pubkey);
-
-        Ok(required_size)
-    }
-}
-
-// impl<'a> Encodable for Sv2KeySet {
-//     fn to_bytes(self, dst: &mut [u8]) -> Result<usize, binary_sv2::Error> {
-//         let keys = self.keys.into_inner();
-        
-//         let mut required_size = 8; // keyset id
-//         let keys_length = keys.len();
-
-//         // Encode all keys to get their total size
-//         let mut keys_bytes = Vec::new();
-//         for key in keys {
-//             let mut key_bytes = vec![0u8; 41];
-//             key.to_bytes(&mut key_bytes)?;
-//             keys_bytes.extend_from_slice(&key_bytes);
-//         }
-
-//         required_size += 2; // Seq064K length prefix
-//         required_size += keys_bytes.len();
-
-//         if dst.len() < required_size {
-//             // TODO use the right error
-//             return Err(binary_sv2::Error::OutOfBound);
-//         }
-
-//         // Encode `id`
-//         dst[0..8].copy_from_slice(&self.id.to_le_bytes());
-
-//         // Encode length of `keys`
-//         dst[8..10].copy_from_slice(&(keys_length as u16).to_le_bytes());
-
-//         // Encode `keys`
-//         dst[10..(10 + keys_bytes.len())].copy_from_slice(&keys_bytes);
-
-//         Ok(required_size)
-//     }
-// }
-
-impl<'a> Decodable<'a> for Sv2KeySet {
-    fn from_bytes(data: &'a mut [u8]) -> Result<Self, binary_sv2::Error> {
-        let mut offset = 0;
-
-        // Decode `id`
-        if data.len() < offset + 8 {
-            // TODO use the right error
-            return Err(binary_sv2::Error::OutOfBound);
-        }
-        let id_bytes = &data[offset..(offset + 8)];
-        let id = u64::from_le_bytes(id_bytes.try_into().unwrap());
-        offset += 8;
-
-        // Decode length of `keys`
-        if data.len() < offset + 2 {
-            // TODO use the right error
-            return Err(binary_sv2::Error::OutOfBound);
-        }
-        let length_bytes = &data[offset..(offset + 2)];
-        let keys_length = u16::from_le_bytes(length_bytes.try_into().unwrap()) as usize;
-        offset += 2;
-
-        let mut keys = Vec::with_capacity(keys_length);
-        for _ in 0..keys_length {
-            if data.len() < offset + 41 {
-                // TODO use the right error
-                return Err(binary_sv2::Error::OutOfBound);
-            }
-            let key_data = &mut data[offset..(offset + 41)];
-            let key = Sv2SigningKey::from_bytes(key_data)?;
-            keys.push(key);
-            offset += 41;
-        }
-
-        // TODO capture e and do something with it. New error type?
-        let keys_seq = CashuSeq64K::new(keys).map_err(|e| binary_sv2::Error::DecodableConversionError)?;
-
-        Ok(Sv2KeySet { id, keys: keys_seq })
-    }
-
-    // not needed
-    fn get_structure(data: &[u8]) -> Result<Vec<FieldMarker>, binary_sv2::Error> {
-        unimplemented!()
-    }
-
-    // not needed
-    fn from_decoded_fields(data: Vec<decodable::DecodableField<'a>>) -> Result<Self, binary_sv2::Error> {
-        unimplemented!()
-    }
-}
-
 #[cfg(test)]
 pub mod tests {
     use super::*;
 
-    fn get_random_pubkey() -> Sv2SigningKey {
+    fn get_random_pubkey<'a>() -> Sv2SigningKey<'a> {
         use rand::Rng;
         let mut rng = rand::thread_rng();
 
-        let mut pubkey = [0u8; 33];
-        rng.fill(&mut pubkey[..]);
+        let mut pubkey_bytes = [0u8; 32];
+        rng.fill(&mut pubkey_bytes[..]);
 
         Sv2SigningKey {
             amount: rng.gen::<u64>(),
-            pubkey,
+            pubkey: PubKey::from_bytes(&mut pubkey_bytes).unwrap().into_static(),
+            parity_bit: rng.gen(),
         }
     }
 
-    fn get_random_keyset() -> Sv2KeySet {
+    fn get_random_keyset<'a>() -> Sv2KeySet<'a> {
         use rand::Rng;
         let mut rng = rand::thread_rng();
-
-        // TODO find max size of keyset
-        let num_keys = rng.gen_range(1..10);
-        let mut keys_vec = Vec::with_capacity(num_keys);
-        for _ in 0..num_keys {
-            keys_vec.push(get_random_pubkey());
-        }
     
         Sv2KeySet {
             id: rng.gen::<u64>(),
-            keys: CashuSeq64K::new(keys_vec.clone()).unwrap(),
+            key: get_random_pubkey(),
         }
     }
 
@@ -493,7 +292,7 @@ pub mod tests {
         let original_key = get_random_pubkey();
 
         // encode it
-        let mut buffer = [0u8; 41]; // 8 bytes for amount + 33 bytes for pubkey
+        let mut buffer = [0u8; 41]; // 8 byte amount + 33 byte pubkey
         let encoded_size = original_key.clone().to_bytes(&mut buffer).unwrap();
         assert_eq!(encoded_size, 41);
 
@@ -506,27 +305,19 @@ pub mod tests {
     #[test]
     fn test_sv2_keyset_encode_decode() {
         let original_keyset = get_random_keyset();
-        let original_keys = original_keyset.clone().keys.into_inner();
-
-        let keys_length = original_keys.len();
-        let required_size = 8 + 2 + (keys_length * 41); // id + length prefix + keys
+        let original_key = original_keyset.clone().key;
+        let required_size = 8 + 8 + 1 + 32; // id + amount + parity_bit + pubkey
 
         // encode it
         let mut buffer = vec![0u8; required_size];
         let encoded_size = original_keyset.clone().to_bytes(&mut buffer).unwrap();
+        println!("buffer {:?}", buffer);
         assert_eq!(encoded_size, required_size);
 
         // decode it
         let decoded_keyset = Sv2KeySet::from_bytes(&mut buffer).unwrap();
         assert_eq!(original_keyset.id, decoded_keyset.id);
-
-        // check for equality
-        let decoded_keys = decoded_keyset.keys.into_inner();
-        assert_eq!(original_keys.len(), decoded_keys.len());
-
-        for (original_key, decoded_key) in original_keys.iter().zip(decoded_keys.iter()) {
-            assert_eq!(original_key.amount, decoded_key.amount);
-            assert_eq!(original_key.pubkey, decoded_key.pubkey);
-        }
+        assert_eq!(original_key.amount, decoded_keyset.key.amount);
+        assert_eq!(original_key.pubkey, decoded_keyset.key.pubkey);
     }
 }

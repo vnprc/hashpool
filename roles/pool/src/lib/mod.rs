@@ -24,14 +24,14 @@ pub const HASH_CURRENCY_UNIT: &str = "HASH";
 pub const HASH_DERIVATION_PATH: u32 = 1337;
 
 #[derive(Clone)]
-pub struct PoolSv2 {
+pub struct PoolSv2<'decoder> {
     config: Configuration,
     mint: Option<Arc<Mutex<Mint>>>,
-    keyset: Option<Arc<Mutex<Sv2KeySet>>>,
+    keyset: Option<Arc<Mutex<Sv2KeySet<'decoder>>>>,
 }
 
 // TODO remove after porting mint to use Sv2 data types
-impl std::fmt::Debug for PoolSv2 {
+impl<'decoder> std::fmt::Debug for PoolSv2<'decoder> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PoolSv2")
             .field("config", &self.config)
@@ -41,8 +41,8 @@ impl std::fmt::Debug for PoolSv2 {
     }
 }
 
-impl PoolSv2 {
-    pub fn new(config: Configuration) -> PoolSv2 {
+impl PoolSv2<'_> {
+    pub fn new(config: Configuration) -> PoolSv2<'static> {
         PoolSv2 {
             config,
             mint: None,
