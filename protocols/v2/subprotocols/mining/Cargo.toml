@@ -20,7 +20,7 @@ binary_sv2 = {version = "^1.0.0", path = "../../../../protocols/v2/binary-sv2/bi
 binary_codec_sv2 = {version = "^1.0.0", path = "../../../../protocols/v2/binary-sv2/no-serde-sv2/codec"}
 derive_codec_sv2 = {version = "^1.0.0", path = "../../../../protocols/v2/binary-sv2/no-serde-sv2/derive_codec"}
 const_sv2 = {version = "^2.0.0", path = "../../../../protocols/v2/const-sv2"}
-cdk = { git = "https://github.com/vnprc/cdk", rev = "8e876fa9" }
+cdk = { git = "https://github.com/vnprc/cdk", rev = "64aab9c8" }
 
 [dev-dependencies]
 quickcheck = "1.0.3"

@@ -44,9 +44,9 @@ key-utils = { version = "^1.0.0", path = "../../utils/key-utils" }
 tokio-util = { version = "0.7.10", features = ["codec"] }
 async-compat = "0.2.1"
 rand = "0.8.4"
-cdk = { git = "https://github.com/vnprc/cdk", rev = "8e876fa9" }
 bitcoin = "0.30"
 mining_sv2 = { version = "^1.0.0", path = "../../protocols/v2/subprotocols/mining" }
+cdk = { git = "https://github.com/vnprc/cdk", rev = "64aab9c8" }
 
 
 [dev-dependencies]
