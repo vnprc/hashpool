@@ -11,7 +11,7 @@ use crate::{
 use async_channel::{Receiver, Sender};
 use async_std::net::TcpStream;
 use binary_sv2::u256_from_int;
-use cdk::{dhke, nuts::{BlindSignature, Keys, PreMintSecrets}, wallet::Wallet};
+use cdk::{dhke, nuts::{BlindSignature, Keys, KeySet, PreMintSecrets}, wallet::Wallet};
 use codec_sv2::{HandshakeRole, Initiator};
 use error_handling::handle_result;
 use key_utils::Secp256k1PublicKey;
@@ -703,11 +703,50 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
 
         let m_static = m.into_static();
 
+        // TODO remove this...but I can't yet because it breaks other stuff
         self.keyset
             .safe_lock(|keyset| {
                 *keyset = Some(m_static.keyset.clone());
             })
             .map_err(|e| RolesLogicError::PoisonLock(e.to_string()))?;
+
+        // Clone wallet to move into the blocking task
+        let wallet_clone = Arc::clone(&self.wallet);
+        // TODO use a better error
+        // TODO delete println below and don't clone...or learn how to borrow properly lol
+        let keyset_result = KeySet::try_from(m_static.keyset.clone())
+            .map_err(|e| {RolesLogicError::TxDecodingError(e.to_string())});
+
+        match keyset_result {
+            Ok(keyset) => {
+                // We need to run this blocking operation asynchronously
+                let keyset_result = tokio::task::block_in_place(move || {
+                    wallet_clone.safe_lock(|wallet| {
+                        tokio::runtime::Handle::current()
+                            .block_on(wallet.add_keyset(keyset.keys))
+                            // TODO use a better error
+                            .map_err(|e| RolesLogicError::TxDecodingError(e.to_string()))
+                    })
+                        // TODO use a better error
+                        .map_err(|e| RolesLogicError::TxDecodingError(e.to_string()))
+                });
+                
+                match keyset_result {
+                    Ok(_) => {
+                        // Operation succeeded, return or log the result
+                        println!("Keyset {} successfully added to wallet!", &m_static.keyset.id);
+                    }
+                    Err(e) => {
+                        // Handle the error appropriately
+                        println!("Error occurred: {:?}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                // Handle the error appropriately
+                println!("Error occurred: {:?}", e);
+            }
+        }
 
         let m = Mining::OpenExtendedMiningChannelSuccess(m_static);
         Ok(SendTo::None(Some(m)))
