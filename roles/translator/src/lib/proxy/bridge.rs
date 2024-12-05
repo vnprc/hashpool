@@ -292,7 +292,10 @@ impl Bridge {
                             s.premint_secrets.safe_lock(|p| {
                                 match p {
                                     None => *p = Some(new_premint_secrets.clone()),
-                                    Some(existing_secrets) => existing_secrets.secrets.push(new_premint_secrets.secrets.first().unwrap().clone()),
+                                    Some(existing_secrets) => {
+                                        existing_secrets.secrets.clear();
+                                        existing_secrets.secrets.push(new_premint_secrets.secrets.first().unwrap().clone());
+                                    }
                                 }
                             }).map_err(|_| PoisonLock);
                             
