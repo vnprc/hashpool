@@ -716,6 +716,8 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
 
         match keyset_result {
             Ok(keyset) => {
+                // damned borrow checker
+                let keyset_copy = keyset.clone();
                 // We need to run this blocking operation asynchronously
                 let keyset_result = tokio::task::block_in_place(move || {
                     wallet_clone.safe_lock(|wallet| {
@@ -731,7 +733,7 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
                 match keyset_result {
                     Ok(_) => {
                         // Operation succeeded, return or log the result
-                        println!("Keyset {} successfully added to wallet!", &m_static.keyset.id);
+                        println!("Keyset {:?} successfully added to wallet!", keyset_copy);
                     }
                     Err(e) => {
                         // Handle the error appropriately
@@ -795,8 +797,9 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
         let premint_secrets = self.premint_secrets.safe_lock(|p| p.clone()).map_err(|e| RolesLogicError::PoisonLock(e.to_string()))?.unwrap();
         
         let promises: Vec<BlindSignature> = vec![blind_signature.into()];
+        let keys = &self.get_keys();
 
-        let proofs = match dhke::construct_proofs(promises, premint_secrets.rs(), premint_secrets.secrets(), &self.get_keys()) {
+        let proofs = match dhke::construct_proofs(promises, premint_secrets.rs(), premint_secrets.secrets(), keys) {
             Ok(p) => p,
             Err(e) => {
                 println!("Failed to construct proofs: {}", e);
@@ -908,12 +911,12 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
 impl Upstream {
     fn get_keys(&self) -> Keys {
         let wallet_clone = Arc::clone(&self.wallet);
-    let keyset_clone = Arc::clone(&self.keyset);
+        let keyset_clone = Arc::clone(&self.keyset);
 
-    // Run blocking operation asynchronously
-    tokio::task::block_in_place(move || {
-        let wallet = wallet_clone.safe_lock(|w| w.clone()).unwrap();
-        
+        // Run blocking operation asynchronously
+        tokio::task::block_in_place(move || {
+            let wallet = wallet_clone.safe_lock(|w| w.clone()).unwrap();
+
         // TODO this is broken, need to get keyset ID from the wallet instead of wherever we are getting it from now
         let keyset = keyset_clone.safe_lock(|k| k.clone()).unwrap().unwrap();
         println!("keyset: {:?}", keyset);
@@ -928,4 +931,50 @@ impl Upstream {
             }
         })
     }
+
+    // TODO find out how to get the active keyset from the wallet
+    // this function should work but always returns an empty list from cdk
+    // fn get_keys(&self) -> Result<Keys, RolesLogicError> {
+    //     let wallet_clone = Arc::clone(&self.wallet);
+
+    //     // Run blocking operation asynchronously
+    //     let keys = tokio::task::block_in_place(move || {
+    //         let active_keysets = wallet_clone
+    //             .safe_lock(|wallet| {
+    //                 tokio::runtime::Handle::current()
+    //                     // TODO why does this always return empty? Seems like an issue in my cdk fork
+    //                     .block_on(wallet.get_active_mint_keysets_local())
+    //                     // TODO use a better error
+    //                     .map_err(|e| RolesLogicError::TxDecodingError(e.to_string()))
+    //             })
+    //             .map_err(|e| RolesLogicError::PoisonLock(e.to_string()))??;
+
+    //         if active_keysets.len() == 0 {
+    //             println!("No keysets found");
+    //             return Ok::<Keys, RolesLogicError>(Keys::new(BTreeMap::new()));
+    //         }
+
+    //         for keyset_info in active_keysets {
+    //             if keyset_info.active {
+    //                 let keys = wallet_clone
+    //                     .safe_lock(|wallet| {
+    //                         tokio::runtime::Handle::current()
+    //                             .block_on(wallet.get_keyset_keys(keyset_info.id))
+    //                             // TODO use a better error
+    //                             .map_err(|e| RolesLogicError::TxDecodingError(e.to_string()))
+    //                     })
+    //                     .map_err(|e| RolesLogicError::PoisonLock(e.to_string()))??;
+        
+    //                 return Ok(keys);
+    //             }
+    //         }
+
+    //         // Default to empty keys if no active keyset is found
+    //         Ok(Keys::new(BTreeMap::new()))
+    //     })?;
+
+    //     Ok(keys)
+    // }
+
+
 }
