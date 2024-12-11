@@ -27,6 +27,8 @@ tracing = { version = "0.1"}
 chacha20poly1305 = { version = "0.10.1"}
 nohash-hasher = "0.2.0"
 siphasher = "1"
+cdk = { git = "https://github.com/vnprc/cdk", rev = "bdc6f4c" }
+tokio = { version = "1", features = ["full"] }
 
 [dev-dependencies]
 quickcheck = "1.0.3"

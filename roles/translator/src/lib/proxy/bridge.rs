@@ -119,7 +119,7 @@ impl Bridge {
                 None,
                 String::from(""),
                 up_id,
-                keyset.clone(),
+                wallet.clone(),
             ),
             future_jobs: vec![],
             last_p_hash: None,

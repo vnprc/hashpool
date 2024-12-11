@@ -2699,6 +2699,7 @@ name = "roles_logic_sv2"
 version = "1.2.1"
 dependencies = [
  "binary_sv2",
+ "cdk",
  "chacha20poly1305",
  "common_messages_sv2",
  "const_sv2",
@@ -2709,6 +2710,7 @@ dependencies = [
  "siphasher",
  "stratum-common",
  "template_distribution_sv2",
+ "tokio",
  "tracing",
 ]
 

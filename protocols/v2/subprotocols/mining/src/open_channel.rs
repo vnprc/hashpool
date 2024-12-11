@@ -228,10 +228,10 @@ impl<'a> OpenMiningChannelError<'a> {
             error_code: "unknown-user".to_string().try_into().unwrap(),
         }
     }
-    pub fn no_mint_keyset(request_id: u32) -> Self {
+    pub fn no_wallet(request_id: u32) -> Self {
         Self {
             request_id,
-            error_code: "no-mint-keyset"
+            error_code: "no-wallet"
                 .to_string()
                 .try_into()
                 .unwrap(),

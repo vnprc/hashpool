@@ -7,24 +7,19 @@ use crate::{
     Error,
 };
 
+use binary_sv2::{PubKey, Deserialize};
+use cdk::{nuts::Keys, wallet::Wallet};
 use mining_sv2::{
-    cashu::{Sv2BlindedMessage, Sv2KeySet}, ExtendedExtranonce, NewExtendedMiningJob, NewMiningJob, OpenExtendedMiningChannelSuccess, OpenMiningChannelError, OpenStandardMiningChannelSuccess, SetCustomMiningJob, SetCustomMiningJobSuccess, SetNewPrevHash, SubmitSharesError, SubmitSharesExtended, SubmitSharesStandard, Target
+    cashu::{Sv2BlindedMessage, Sv2KeySet, Sv2SigningKey, KeysetId}, ExtendedExtranonce, NewExtendedMiningJob, NewMiningJob, OpenExtendedMiningChannelSuccess, OpenMiningChannelError, OpenStandardMiningChannelSuccess, SetCustomMiningJob, SetCustomMiningJobSuccess, SetNewPrevHash, SubmitSharesError, SubmitSharesExtended, SubmitSharesStandard, Target,
 };
 
 use nohash_hasher::BuildNoHashHasher;
-use std::{collections::HashMap, convert::TryInto, sync::Arc};
+use std::{collections::{BTreeMap, HashMap}, convert::TryInto, sync::Arc};
 use template_distribution_sv2::{NewTemplate, SetNewPrevHash as SetNewPrevHashFromTp};
 
 use tracing::{debug, error, info, trace, warn};
 
-use stratum_common::{
-    bitcoin,
-    bitcoin::{
-        hash_types,
-        hashes::{hex::ToHex, sha256d::Hash, Hash as Hash_},
-        TxOut,
-    },
-};
+use stratum_common::bitcoin::{self, hash_types, hashes::{hex::ToHex, sha256d::Hash, Hash as Hash_}, util::key, TxOut};
 
 /// A stripped type of `SetCustomMiningJob` without the (`channel_id, `request_id` and `token`) fields
 #[derive(Debug)]
@@ -316,7 +311,7 @@ impl<'decoder> ChannelFactory<'decoder> {
                 Ok(result)
             } else {
                 Ok(vec![Mining::OpenMiningChannelError(
-                    OpenMiningChannelError::no_mint_keyset(request_id),
+                    OpenMiningChannelError::no_wallet(request_id),
                 )])
             }
         } else {
@@ -1312,7 +1307,7 @@ pub struct ProxyExtendedChannelFactory<'decoder> {
     pool_signature: String,
     // Id assigned to the extended channel by upstream
     extended_channel_id: u32,
-    keyset: Arc<Mutex<Option<Sv2KeySet<'decoder>>>>,
+    wallet: Arc<Mutex<Wallet>>,
 }
 
 impl<'decoder> ProxyExtendedChannelFactory<'decoder> {
@@ -1326,7 +1321,7 @@ impl<'decoder> ProxyExtendedChannelFactory<'decoder> {
         pool_coinbase_outputs: Option<Vec<TxOut>>,
         pool_signature: String,
         extended_channel_id: u32,
-        keyset: Arc<Mutex<Option<Sv2KeySet<'decoder>>>>,
+        wallet: Arc<Mutex<Wallet>>,
     ) -> Self {
         match &kind {
             ExtendedChannelKind::Proxy { .. } => {
@@ -1341,6 +1336,11 @@ impl<'decoder> ProxyExtendedChannelFactory<'decoder> {
             }
             ExtendedChannelKind::Pool => panic!("Try to construct an ProxyExtendedChannelFactory with pool kind, kind must be Proxy or ProxyJd"),
         };
+
+        // TODO get keyset from wallet
+        let keyset = Self::get_keys(wallet.clone())
+            .unwrap_or_else(|_| Sv2KeySet::default());
+
         let inner = ChannelFactory {
             ids,
             standard_channels_for_non_hom_downstreams: HashMap::with_hasher(
@@ -1360,7 +1360,7 @@ impl<'decoder> ProxyExtendedChannelFactory<'decoder> {
             job_ids: Id::new(),
             channel_to_group_id: HashMap::with_hasher(BuildNoHashHasher::default()),
             future_templates: HashMap::with_hasher(BuildNoHashHasher::default()),
-            keyset: keyset.clone(),
+            keyset: Arc::new(Mutex::new(Some(keyset))),
         };
         ProxyExtendedChannelFactory {
             inner,
@@ -1368,7 +1368,7 @@ impl<'decoder> ProxyExtendedChannelFactory<'decoder> {
             pool_coinbase_outputs,
             pool_signature,
             extended_channel_id,
-            keyset: keyset,
+            wallet: wallet.clone(),
         }
     }
     /// Calls [`ChannelFactory::add_standard_channel`]
@@ -1760,6 +1760,82 @@ impl<'decoder> ProxyExtendedChannelFactory<'decoder> {
     ) -> Option<bool> {
         self.inner.update_target_for_channel(channel_id, new_target)
     }
+
+    fn get_keys(wallet: Arc<Mutex<Wallet>>) -> Result<Sv2KeySet<'static>, Error> {
+        let wallet_clone = Arc::clone(&wallet);
+
+        // Run blocking operation asynchronously
+        let (keys, keyset_id) = tokio::task::block_in_place(move || {
+            let active_keysets = wallet_clone
+                .safe_lock(|wallet| {
+                    tokio::runtime::Handle::current()
+                        .block_on(wallet.get_active_mint_keysets_local())
+                        // TODO handle result
+                        .unwrap()
+                        // TODO use a better error
+                        // .map_err(|e| RolesLogicError::TxDecodingError(e.to_string()))
+                })
+                // TODO use a better error
+                .map_err(|e| Error::TxDecodingError(e.to_string()))?;
+
+            if active_keysets.is_empty() {
+                println!("No keysets found");
+                return Ok::<(Keys, cdk::nuts::Id), Error>((Keys::new(BTreeMap::new()), cdk::nuts::Id::from_bytes(&[0_u8; 8]).unwrap()));
+            }
+
+            for keyset_info in active_keysets {
+                if keyset_info.active {
+                    let (keys, keyset_id) = wallet_clone
+                        .safe_lock(|wallet| {
+                            let keys = tokio::runtime::Handle::current()
+                                .block_on(wallet.get_keyset_keys(keyset_info.id))
+                                // TODO use a better error
+                                .map_err(|e| Error::TxDecodingError(e.to_string()))
+                                .unwrap();
+                            
+                            (keys, keyset_info.id)
+                        })
+                        // TODO use a better error
+                        .map_err(|e| Error::TxDecodingError(e.to_string()))
+                        .unwrap();
+
+                    return Ok((keys, keyset_id));
+                }
+            }
+
+            // Default to empty keys if no active keyset is found
+            Ok((Keys::new(BTreeMap::new()), cdk::nuts::Id::from_bytes(&[0_u8; 8]).unwrap()))
+        })?;
+
+        // Extract the single key from the map
+        let (amount_str, public_key) = keys.iter().next().unwrap();
+        let amount: u64 = amount_str.inner().into();
+        let mut pubkey_bytes = public_key.to_bytes();
+        let (parity_byte, pubkey_data) = pubkey_bytes.split_at_mut(1);
+        let parity_bit = parity_byte[0] == 0x03;
+
+        let pubkey = PubKey::from_bytes(pubkey_data)
+            .map_err(|e| Error::TxDecodingError("Failed to parse public key".to_string()))
+            //TODO handle result properly
+            .unwrap()
+            .into_static();
+
+        let sv2_signing_key = Sv2SigningKey {
+            amount,
+            parity_bit,
+            pubkey,
+        };
+
+        let keyset_id: u64 = KeysetId(keyset_id).try_into().unwrap();
+
+        // Return the constructed Sv2KeySet
+        Ok(Sv2KeySet {
+            id: keyset_id,
+            key: sv2_signing_key,
+        })
+
+        // Ok(keys)
+    }
 }
 
 /// Used by proxies for tracking upstream targets.
@@ -1780,6 +1856,7 @@ impl ExtendedChannelKind {
         }
     }
 }
+
 #[cfg(test)]
 mod test {
     use super::*;
