@@ -276,29 +276,27 @@ impl Bridge {
                 info!("SHARE MEETS UPSTREAM TARGET");
                 match share {
                     Share::Extended(mut share) => {
-                        let (keyset_option, wallet) = self_
-                            .safe_lock(|s| (s.keyset.clone(), s.wallet.clone()))
-                            .map_err(|_| PoisonLock)?;
-    
-                        let keyset = match keyset_option.safe_lock(|k| k.clone()).unwrap() {
-                            Some(keyset) => keyset,
-                            None => return Err(Error::KeysetNotFound.into()),
-                        };
-    
-                        let secret = self_.safe_lock(|s| {
-                            let new_premint_secrets = s.create_blinded_secret(keyset.id).unwrap();
+                        let secret = self_.safe_lock(|bridge| {
+                            let new_premint_secrets = match bridge.create_blinded_secret() {
+                                Ok(secrets) => secrets,
+                                Err(e) => {
+                                    println!("Failed to create blinded secret: {:?}", e);
+                                    // TODO fail gracefully
+                                    panic!();
+                                }
+                            };
                             
                             // TODO get rid of this and let the wallet manage this state
-                            s.premint_secrets.safe_lock(|p| {
-                                match p {
-                                    None => *p = Some(new_premint_secrets.clone()),
+                            let _ = bridge.premint_secrets.safe_lock(|premint_secrets| {
+                                match premint_secrets {
+                                    None => *premint_secrets = Some(new_premint_secrets.clone()),
                                     Some(existing_secrets) => {
                                         existing_secrets.secrets.clear();
                                         existing_secrets.secrets.push(new_premint_secrets.secrets.first().unwrap().clone());
                                     }
                                 }
                             }).map_err(|_| PoisonLock);
-                            
+
                             new_premint_secrets.secrets.first().unwrap().clone()
                         })?;
 
@@ -330,33 +328,18 @@ impl Bridge {
         Ok(())
     }
 
-    fn create_blinded_secret(
-        &self,
-        keyset_id: u64,
-    ) -> Result<cdk::nuts::PreMintSecrets, Error<'static>> {
-        let keyset_id = *KeysetId::try_from(keyset_id).map_err(Error::InvalidKeysetId)?;
-
-        // Increment the counter before generating blinded secret.
-        // This enables greater performance and readability
-        // at the cost of potential gaps in the token counter sequence.
-        let ehash_token_count = self.ehash_token_count.safe_lock(|count| -> Result<u32, Error<'static>> {
-            let current_count = *count;
-            *count = current_count.checked_add(1).ok_or(Error::TokenCountOverflow)?;
-            Ok(current_count)
-        }).map_err(|_| Error::PoisonLock)??;
-
-        let premint_secrets = self.wallet.safe_lock(|wallet| -> Result<PreMintSecrets, Error<'static>> {
-            let premint_secrets = wallet.generate_premint_secrets(
-                keyset_id,
-                Amount::from(1),
-                &SplitTarget::None,
-                None,
-                ehash_token_count,
-            )
-            .map_err(Error::WalletError)?;
-            Ok(premint_secrets)
-        }).map_err(|_| Error::PoisonLock)?;
-        premint_secrets
+    fn create_blinded_secret(&self) -> Result<cdk::nuts::PreMintSecrets, Error<'static>> {
+        tokio::task::block_in_place(|| {
+            self.wallet
+                .safe_lock(|wallet| {
+                    // Use tokio runtime's block_on to await the async function
+                    tokio::runtime::Handle::current()
+                        .block_on(wallet.gen_ehash_premint_secrets())
+                        .map_err(Error::WalletError)
+                })
+                .map_err(|_| Error::PoisonLock)
+        })
+        .map_err(|_| Error::PoisonLock)?
     }
 
     /// Translates a SV1 `mining.submit` message to a SV2 `SubmitSharesExtended` message.

@@ -39,7 +39,7 @@ key-utils = { version = "^1.0.0", path = "../../utils/key-utils" }
 bip39 = { version = "2.0", features = ["rand"] }
 mining_sv2 = { version = "^1.0.0", path = "../../protocols/v2/subprotocols/mining" }
 bitcoin = { version= "0.32.2" }
-cdk = { git = "https://github.com/vnprc/cdk", rev = "bdc6f4c" }
+cdk = { git = "https://github.com/vnprc/cdk", rev = "3d5698d" }
 
 [dev-dependencies]
 hex = "0.4.3"
