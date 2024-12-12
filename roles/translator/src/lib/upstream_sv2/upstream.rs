@@ -15,7 +15,7 @@ use cdk::{dhke, nuts::{BlindSignature, Keys, KeySet, PreMintSecrets}, wallet::Wa
 use codec_sv2::{HandshakeRole, Initiator};
 use error_handling::handle_result;
 use key_utils::Secp256k1PublicKey;
-use mining_sv2::cashu::{KeysetId, Sv2KeySet};
+use mining_sv2::cashu::Sv2KeySet;
 use network_helpers_sv2::Connection;
 use roles_logic_sv2::{
     common_messages_sv2::{Protocol, SetupConnection},
@@ -711,7 +711,7 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
             .map_err(|e| RolesLogicError::PoisonLock(e.to_string()))?;
 
         // Clone wallet to move into the blocking task
-        let wallet_clone = Arc::clone(&self.wallet);
+        let wallet_clone = &self.wallet.clone();
         // TODO use a better error
         // TODO delete println below and don't clone...or learn how to borrow properly lol
         let keyset_result = KeySet::try_from(m_static.keyset.clone())
@@ -923,38 +923,27 @@ impl Upstream {
 
         // Run blocking operation asynchronously
         let keys = tokio::task::block_in_place(move || {
-            let active_keysets = wallet_clone
+            let active_keyset = wallet_clone
                 .safe_lock(|wallet| {
                     tokio::runtime::Handle::current()
                         // TODO why does this always return empty? Seems like an issue in my cdk fork
-                        .block_on(wallet.get_active_mint_keysets_local())
+                        .block_on(wallet.get_active_mint_keyset_local())
                         // TODO use a better error
                         .map_err(|e| RolesLogicError::TxDecodingError(e.to_string()))
                 })
                 .map_err(|e| RolesLogicError::PoisonLock(e.to_string()))??;
 
-            if active_keysets.len() == 0 {
-                println!("No keysets found");
-                return Ok::<Keys, RolesLogicError>(Keys::new(BTreeMap::new()));
-            }
 
-            for keyset_info in active_keysets {
-                if keyset_info.active {
-                    let keys = wallet_clone
-                        .safe_lock(|wallet| {
-                            tokio::runtime::Handle::current()
-                                .block_on(wallet.get_keyset_keys(keyset_info.id))
-                                // TODO use a better error
-                                .map_err(|e| RolesLogicError::TxDecodingError(e.to_string()))
-                        })
-                        .map_err(|e| RolesLogicError::PoisonLock(e.to_string()))??;
-        
-                    return Ok(keys);
-                }
-            }
+            let keys = wallet_clone
+                .safe_lock(|wallet| {
+                    tokio::runtime::Handle::current()
+                        .block_on(wallet.get_keyset_keys(active_keyset.id))
+                        // TODO use a better error
+                        .map_err(|e| RolesLogicError::TxDecodingError(e.to_string()))
+                })
+                .map_err(|e| RolesLogicError::PoisonLock(e.to_string()))?;
 
-            // Default to empty keys if no active keyset is found
-            Ok(Keys::new(BTreeMap::new()))
+            return keys;
         })?;
 
         Ok(keys)
