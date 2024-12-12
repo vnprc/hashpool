@@ -720,7 +720,7 @@ dependencies = [
 [[package]]
 name = "cdk"
 version = "0.5.0"
-source = "git+https://github.com/vnprc/cdk?rev=3d5698d#3d5698d83e78e3816fb5b934876e47ff3a531217"
+source = "git+https://github.com/vnprc/cdk?rev=d4b958e#d4b958e3ec9ddad03799161074861db3e78317be"
 dependencies = [
  "anyhow",
  "async-trait",

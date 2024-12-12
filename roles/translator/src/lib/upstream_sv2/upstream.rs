@@ -799,22 +799,14 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
         let blind_signature = m.blind_signature;
         let premint_secrets = self.premint_secrets.safe_lock(|p| p.clone()).map_err(|e| RolesLogicError::PoisonLock(e.to_string()))?.unwrap();
         
-        let promises: Vec<BlindSignature> = vec![blind_signature.into()];
-        let keys = match self.get_keys() {
-            Ok(keys) => keys,
-            Err(e) => {
-                println!("Failed to retrieve keyset. {}", e);
-                return Ok(SendTo::None(None));
-            },
-        };
-
-        let proofs = match dhke::construct_proofs(promises, premint_secrets.rs(), premint_secrets.secrets(), &keys) {
-            Ok(p) => p,
-            Err(e) => {
-                println!("Failed to construct proofs: {}", e);
-                return Ok(SendTo::None(None));
-            }
-        };
+        let proofs = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(
+                wallet.gen_ehash_proofs(
+                    BlindSignature::from(blind_signature).clone(),
+                    premint_secrets.iter().next().unwrap().clone(),
+                ),
+            )
+        });
         
         println!("proofs: {:?}", proofs);
 
