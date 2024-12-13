@@ -797,13 +797,21 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
     ) -> Result<roles_logic_sv2::handlers::mining::SendTo<Downstream>, RolesLogicError> {
         let wallet = self.wallet.safe_lock(|w| w.clone()).map_err(|e| RolesLogicError::PoisonLock(e.to_string()))?;
         let blind_signature = m.blind_signature;
-        let premint_secrets = self.premint_secrets.safe_lock(|p| p.clone()).map_err(|e| RolesLogicError::PoisonLock(e.to_string()))?.unwrap();
+
+        // TODO save premint secrets to the wallet or some other data structure and retrieve them when constructing proofs
+        let premint_secrets = self.premint_secrets
+            .safe_lock(|p| p.clone())
+            .map_err(|e| RolesLogicError::PoisonLock(e.to_string()))?
+            .ok_or_else(|| RolesLogicError::MissingPremintSecret)?;
+
+        let premint_secret = premint_secrets.into_iter().next()
+            .ok_or_else(|| RolesLogicError::MissingPremintSecret)?;
         
         let proofs = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(
                 wallet.gen_ehash_proofs(
-                    BlindSignature::from(blind_signature).clone(),
-                    premint_secrets.iter().next().unwrap().clone(),
+                    BlindSignature::from(blind_signature),
+                    premint_secret,
                 ),
             )
         });
@@ -907,38 +915,4 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
     ) -> Result<roles_logic_sv2::handlers::mining::SendTo<Downstream>, RolesLogicError> {
         unimplemented!()
     }
-}
-
-impl Upstream {
-    fn get_keys(&self) -> Result<Keys, RolesLogicError> {
-        let wallet_clone = Arc::clone(&self.wallet);
-
-        // Run blocking operation asynchronously
-        let keys = tokio::task::block_in_place(move || {
-            let active_keyset = wallet_clone
-                .safe_lock(|wallet| {
-                    tokio::runtime::Handle::current()
-                        // TODO why does this always return empty? Seems like an issue in my cdk fork
-                        .block_on(wallet.get_active_mint_keyset_local())
-                        // TODO use a better error
-                        .map_err(|e| RolesLogicError::TxDecodingError(e.to_string()))
-                })
-                .map_err(|e| RolesLogicError::PoisonLock(e.to_string()))??;
-
-
-            let keys = wallet_clone
-                .safe_lock(|wallet| {
-                    tokio::runtime::Handle::current()
-                        .block_on(wallet.get_keyset_keys(active_keyset.id))
-                        // TODO use a better error
-                        .map_err(|e| RolesLogicError::TxDecodingError(e.to_string()))
-                })
-                .map_err(|e| RolesLogicError::PoisonLock(e.to_string()))?;
-
-            return keys;
-        })?;
-
-        Ok(keys)
-    }
-
 }
