@@ -62,6 +62,7 @@ pub enum Error {
     LogicErrorMessage(std::boxed::Box<AllMessages<'static>>),
     JDSMissingTransactions,
     MissingPremintSecret,
+    KeysetError(String),
 }
 
 impl From<BinarySv2Error> for Error {
@@ -155,6 +156,7 @@ impl Display for Error {
             LogicErrorMessage(e) => write!(f, "Message is well formatted but can not be handled: {:?}", e),
             JDSMissingTransactions => write!(f, "JD server cannot propagate the block: missing transactions"),
             MissingPremintSecret => write!(f, "No premint secret found: cannot mint ehash token"),
+            KeysetError(e) => write!(f, "Unable to add keyset to wallet {}", e),
         }
     }
 }

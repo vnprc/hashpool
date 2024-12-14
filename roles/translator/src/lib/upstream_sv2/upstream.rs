@@ -11,7 +11,7 @@ use crate::{
 use async_channel::{Receiver, Sender};
 use async_std::net::TcpStream;
 use binary_sv2::u256_from_int;
-use cdk::{dhke, nuts::{BlindSignature, Keys, KeySet, PreMintSecrets}, wallet::Wallet};
+use cdk::{nuts::{BlindSignature, KeySet, PreMintSecrets}, wallet::Wallet};
 use codec_sv2::{HandshakeRole, Initiator};
 use error_handling::handle_result;
 use key_utils::Secp256k1PublicKey;
@@ -36,7 +36,7 @@ use roles_logic_sv2::{
     Error::NoUpstreamsConnected,
 };
 use std::{
-    collections::BTreeMap, net::SocketAddr, sync::{atomic::AtomicBool, Arc}
+    net::SocketAddr, sync::{atomic::AtomicBool, Arc}
 };
 use tokio::{
     task::AbortHandle,
@@ -710,44 +710,20 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
             })
             .map_err(|e| RolesLogicError::PoisonLock(e.to_string()))?;
 
-        // Clone wallet to move into the blocking task
         let wallet_clone = &self.wallet.clone();
-        // TODO use a better error
-        // TODO delete println below and don't clone...or learn how to borrow properly lol
-        let keyset_result = KeySet::try_from(m_static.keyset.clone())
-            .map_err(|e| {RolesLogicError::TxDecodingError(e.to_string())});
+        let keyset = KeySet::try_from(m_static.keyset.clone())
+            .map_err(|e| {RolesLogicError::KeysetError(e.to_string())})?;
 
-        match keyset_result {
-            Ok(keyset) => {
-                // damned borrow checker
-                let keyset_copy = keyset.clone();
-                // We need to run this blocking operation asynchronously
-                let keyset_result = tokio::task::block_in_place(move || {
-                    wallet_clone.safe_lock(|wallet| {
-                        tokio::runtime::Handle::current()
-                            .block_on(wallet.add_keyset(keyset.keys, true, 0))
-                            // TODO use a better error
-                            .map_err(|e| RolesLogicError::TxDecodingError(e.to_string()))
-                    })
-                        // TODO use a better error
-                        .map_err(|e| RolesLogicError::TxDecodingError(e.to_string()))
-                });
-                
-                match keyset_result {
-                    Ok(_) => {
-                        // Operation succeeded, return or log the result
-                        println!("Keyset {:?} successfully added to wallet!", keyset_copy);
-                    }
-                    Err(e) => {
-                        // Handle the error appropriately
-                        println!("Error occurred: {:?}", e);
-                    }
-                }
-            }
-            Err(e) => {
-                // Handle the error appropriately
-                println!("Error occurred: {:?}", e);
-            }
+        let result = tokio::task::block_in_place(move || {
+            wallet_clone.safe_lock(|wallet| {
+                tokio::runtime::Handle::current()
+                    .block_on(wallet.add_keyset(keyset.keys, true, 0))
+            })
+            .map_err(|e| RolesLogicError::KeysetError(e.to_string()))
+        })?;
+
+        if let Err(ref e) = result {
+            warn!("Failed to add keyset to wallet: {:?}", e);
         }
 
         let m = Mining::OpenExtendedMiningChannelSuccess(m_static);

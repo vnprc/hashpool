@@ -187,10 +187,6 @@ pub async fn handle_error(
             send_status(sender, e, error_handling::ErrorBranch::Break).await
         }
         // TODO reevaluate these errors
-        Error::KeysetNotFound => todo!(),
-        Error::InvalidKeysetId(error) => todo!(),
         Error::WalletError(error) => todo!(),
-        Error::TokenCountOverflow => todo!(),
-        Error::InvalidInput(_) => todo!(),
     }
 }
