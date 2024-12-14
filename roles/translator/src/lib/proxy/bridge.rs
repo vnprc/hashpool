@@ -1,5 +1,5 @@
 use async_channel::{Receiver, Sender};
-use cdk::{amount::{Amount, SplitTarget}, nuts::PreMintSecrets, wallet::Wallet};
+use cdk::{nuts::PreMintSecrets, wallet::Wallet};
 use roles_logic_sv2::{
     channel_logic::channel_factory::{ExtendedChannelKind, ProxyExtendedChannelFactory, Share},
     mining_sv2::{
@@ -23,7 +23,7 @@ use super::super::{
 use error_handling::handle_result;
 use roles_logic_sv2::{channel_logic::channel_factory::OnNewShare, Error as RolesLogicError};
 use tracing::{debug, error, info, warn};
-use mining_sv2::cashu::{KeysetId, Sv2BlindedMessage, Sv2KeySet};
+use mining_sv2::cashu::{Sv2BlindedMessage, Sv2KeySet};
 
 // TODO consolidate these constants with the same constants in roles/pool/src/lib/mod.rs
 pub const HASH_CURRENCY_UNIT: &str = "HASH";
@@ -74,8 +74,6 @@ pub struct Bridge {
     wallet: Arc<Mutex<Wallet>>,
     
     // TODO refactor: remove these fields and let the wallet manage this state
-    ehash_token_count: Arc<Mutex<u32>>,
-    keyset: Arc<Mutex<Option<Sv2KeySet<'static>>>>,
     premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
 }
 
@@ -127,8 +125,6 @@ impl Bridge {
             last_job_id: 0,
             task_collector,
             wallet,
-            keyset,
-            ehash_token_count: Arc::new(Mutex::new(0)),
             premint_secrets,
         }))
     }
@@ -332,7 +328,6 @@ impl Bridge {
         tokio::task::block_in_place(|| {
             self.wallet
                 .safe_lock(|wallet| {
-                    // Use tokio runtime's block_on to await the async function
                     tokio::runtime::Handle::current()
                         .block_on(wallet.gen_ehash_premint_secrets())
                         .map_err(Error::WalletError)

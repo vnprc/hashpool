@@ -77,11 +77,7 @@ pub enum Error<'a> {
     TargetError(roles_logic_sv2::errors::Error),
     Sv1MessageTooLong,
     // TODO evaluate mint errors
-    KeysetNotFound,
-    InvalidKeysetId(cdk::nuts::nut02::Error),
     WalletError(cdk::error::Error),
-    TokenCountOverflow,
-    InvalidInput(String),
 }
 
 impl<'a> fmt::Display for Error<'a> {
@@ -121,12 +117,7 @@ impl<'a> fmt::Display for Error<'a> {
                 write!(f, "Received an sv1 message that is longer than max len")
             }
             // Mint errors
-            KeysetNotFound => write!(f, "Keyset not found"),
-            InvalidKeysetId(ref e) => write!(f, "Invalid Keyset ID: `{:?}`", e),
             WalletError(ref e) => write!(f, "Wallet error: `{:?}`", e),
-            TokenCountOverflow => write!(f, "Token count overflow"),
-            // TODO this error sucks, make it not suck
-            InvalidInput(ref e) => write!(f, "Invalid input: `{:?}`", e),
         }
     }
 }
