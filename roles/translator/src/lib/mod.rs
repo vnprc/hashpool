@@ -1,7 +1,6 @@
 use async_channel::{bounded, unbounded};
 use cdk::{nuts::PreMintSecrets, wallet::Wallet};
 use futures::FutureExt;
-use mining_sv2::cashu::Sv2KeySet;
 use rand::Rng;
 pub use roles_logic_sv2::utils::Mutex;
 use status::Status;
@@ -37,7 +36,6 @@ pub const HASH_CURRENCY_UNIT: &str = "HASH";
 pub struct TranslatorSv2 {
     config: ProxyConfig,
     reconnect_wait_time: u64,
-    keyset: Arc<Mutex<Option<Sv2KeySet<'static>>>>,
     wallet: Arc<Mutex<Wallet>>,
     premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
 }
@@ -59,12 +57,10 @@ impl TranslatorSv2 {
     pub fn new(config: ProxyConfig) -> Self {
         let mut rng = rand::thread_rng();
         let wait_time = rng.gen_range(0..=3000);
-        let keyset = Arc::new(Mutex::new(None));
         let premint_secrets = Arc::new(Mutex::new(None));
         Self {
             config,
             reconnect_wait_time: wait_time,
-            keyset,
             wallet: create_wallet(),
             premint_secrets: premint_secrets,
         }
@@ -212,7 +208,6 @@ impl TranslatorSv2 {
             target.clone(),
             diff_config.clone(),
             task_collector_upstream,
-            self.keyset.clone(),
             self.wallet.clone(),
             self.premint_secrets.clone(),
         )
@@ -225,7 +220,6 @@ impl TranslatorSv2 {
             }
         };
         let task_collector_init_task = task_collector.clone();
-        let keyset = self.keyset.clone();
         let wallet = self.wallet.clone();
         let premint_secrets = self.premint_secrets.clone();
         // Spawn a task to do all of this init work so that the main thread
@@ -285,7 +279,6 @@ impl TranslatorSv2 {
                 target,
                 up_id,
                 task_collector_bridge,
-                keyset,
                 wallet,
                 premint_secrets.clone(),
             );

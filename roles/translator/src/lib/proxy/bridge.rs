@@ -72,8 +72,7 @@ pub struct Bridge {
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
     
     wallet: Arc<Mutex<Wallet>>,
-    
-    // TODO refactor: remove these fields and let the wallet manage this state
+    // TODO refactor this state into the wallet
     premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
 }
 
@@ -91,7 +90,6 @@ impl Bridge {
         target: Arc<Mutex<Vec<u8>>>,
         up_id: u32,
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
-        keyset: Arc<Mutex<Option<Sv2KeySet<'static>>>>,
         wallet: Arc<Mutex<Wallet>>,
         premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
     ) -> Arc<Mutex<Self>> {
@@ -117,7 +115,8 @@ impl Bridge {
                 None,
                 String::from(""),
                 up_id,
-                keyset.clone(),
+                // TODO why does this work with a blank keyset but fail with None?
+                Arc::new(Mutex::new(Some(Sv2KeySet::default()))),
             ),
             future_jobs: vec![],
             last_p_hash: None,
@@ -152,7 +151,7 @@ impl Bridge {
                                 extranonce2_len,
                             });
                         }
-                        Mining::OpenMiningChannelError(_) => todo!(),
+                        Mining::OpenMiningChannelError(e) => error!("Error opening Sv1 mining connection: {:?}", e),
                         Mining::SetNewPrevHash(_) => (),
                         Mining::NewExtendedMiningJob(_) => (),
                         _ => unreachable!(),
@@ -646,7 +645,6 @@ mod test {
                 1,
                 task_collector,
                 // TODO test ecash stuff
-                Arc::new(Mutex::new(None)),
                 create_wallet(),
                 Arc::new(Mutex::new(None)),
             );
