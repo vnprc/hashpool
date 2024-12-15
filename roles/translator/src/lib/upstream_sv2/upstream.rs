@@ -102,7 +102,6 @@ pub struct Upstream {
     // than the configured percentage
     pub(super) difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
-    keyset: Arc<Mutex<Option<Sv2KeySet<'static>>>>,
     wallet: Arc<Mutex<Wallet>>,
     premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
 }
@@ -132,7 +131,6 @@ impl Upstream {
         target: Arc<Mutex<Vec<u8>>>,
         difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
-        keyset: Arc<Mutex<Option<Sv2KeySet<'static>>>>,
         wallet: Arc<Mutex<Wallet>>,
         premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
     ) -> ProxyResult<'static, Arc<Mutex<Self>>> {
@@ -183,7 +181,6 @@ impl Upstream {
             target,
             difficulty_config,
             task_collector,
-            keyset,
             wallet,
             premint_secrets,
         })))
@@ -699,14 +696,6 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
         self.extranonce_prefix = Some(m.extranonce_prefix.to_vec());
 
         let m_static = m.into_static();
-
-        // TODO remove this...but I can't yet because it breaks other stuff
-        self.keyset
-            .safe_lock(|keyset| {
-                *keyset = Some(m_static.keyset.clone());
-            })
-            .map_err(|e| RolesLogicError::PoisonLock(e.to_string()))?;
-
         let wallet_clone = &self.wallet.clone();
         let keyset = KeySet::try_from(m_static.keyset.clone())
             .map_err(|e| {RolesLogicError::KeysetError(e.to_string())})?;
