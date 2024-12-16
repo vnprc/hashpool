@@ -64,7 +64,7 @@ pub struct Bridge {
     /// a Downstream role connects and receives the first notify values, this member field is no
     /// longer used.
     last_notify: Option<server_to_client::Notify<'static>>,
-    pub(self) channel_factory: ProxyExtendedChannelFactory<'static>,
+    pub(self) channel_factory: ProxyExtendedChannelFactory,
     future_jobs: Vec<NewExtendedMiningJob<'static>>,
     last_p_hash: Option<SetNewPrevHash<'static>>,
     target: Arc<Mutex<Vec<u8>>>,
@@ -115,8 +115,7 @@ impl Bridge {
                 None,
                 String::from(""),
                 up_id,
-                // TODO why does this work with a blank keyset but fail with None?
-                Arc::new(Mutex::new(Some(Sv2KeySet::default()))),
+                Arc::new(Mutex::new(Sv2KeySet::default())),
             ),
             future_jobs: vec![],
             last_p_hash: None,
