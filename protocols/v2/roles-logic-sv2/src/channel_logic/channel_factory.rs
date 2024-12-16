@@ -196,7 +196,7 @@ impl Share {
 
 #[derive(Debug)]
 /// Basic logic shared between all the channel factory.
-struct ChannelFactory<'decoder> {
+struct ChannelFactory {
     ids: Arc<Mutex<GroupId>>,
     standard_channels_for_non_hom_downstreams:
         HashMap<u64, StandardChannel, BuildNoHashHasher<u64>>,
@@ -216,10 +216,10 @@ struct ChannelFactory<'decoder> {
     job_ids: Id,
     channel_to_group_id: HashMap<u32, u32, BuildNoHashHasher<u32>>,
     future_templates: HashMap<u32, NewTemplate<'static>, BuildNoHashHasher<u32>>,
-    keyset: Arc<Mutex<Option<Sv2KeySet<'decoder>>>>,
+    keyset: Arc<Mutex<Sv2KeySet<'static>>>,
 }
 
-impl<'decoder> ChannelFactory<'decoder> {
+impl ChannelFactory {
     pub fn add_standard_channel(
         &mut self,
         request_id: u32,
@@ -286,40 +286,34 @@ impl<'decoder> ChannelFactory<'decoder> {
                 keyset.clone()
             }).map_err(|e| Error::PoisonLock(e.to_string()))?;
 
-            if let Some(keyset) = keyset {
-                let success = OpenExtendedMiningChannelSuccess {
-                    request_id,
-                    channel_id,
-                    target,
-                    extranonce_size: max_extranonce_size,
-                    extranonce_prefix,
-                    keyset: keyset.into_static(),
-                };
-                self.extended_channels.insert(channel_id, success.clone());
-                let mut result = vec![Mining::OpenExtendedMiningChannelSuccess(success)];
-                if let Some((job, _)) = &self.last_valid_job {
-                    let mut job = job.clone();
-                    job.set_future();
-                    let j_id = job.job_id;
-                    result.push(Mining::NewExtendedMiningJob(job));
-                    if let Some((new_prev_hash, _)) = &self.last_prev_hash {
-                        let mut new_prev_hash = new_prev_hash.into_set_p_hash(channel_id, None);
-                        new_prev_hash.job_id = j_id;
-                        result.push(Mining::SetNewPrevHash(new_prev_hash.clone()))
-                    };
-                } else if let Some((new_prev_hash, _)) = &self.last_prev_hash {
-                    let new_prev_hash = new_prev_hash.into_set_p_hash(channel_id, None);
+            let success = OpenExtendedMiningChannelSuccess {
+                request_id,
+                channel_id,
+                target,
+                extranonce_size: max_extranonce_size,
+                extranonce_prefix,
+                keyset: keyset.into_static(),
+            };
+            self.extended_channels.insert(channel_id, success.clone());
+            let mut result = vec![Mining::OpenExtendedMiningChannelSuccess(success)];
+            if let Some((job, _)) = &self.last_valid_job {
+                let mut job = job.clone();
+                job.set_future();
+                let j_id = job.job_id;
+                result.push(Mining::NewExtendedMiningJob(job));
+                if let Some((new_prev_hash, _)) = &self.last_prev_hash {
+                    let mut new_prev_hash = new_prev_hash.into_set_p_hash(channel_id, None);
+                    new_prev_hash.job_id = j_id;
                     result.push(Mining::SetNewPrevHash(new_prev_hash.clone()))
                 };
-                for (job, _) in &self.future_jobs {
-                    result.push(Mining::NewExtendedMiningJob(job.clone()))
-                }
-                Ok(result)
-            } else {
-                Ok(vec![Mining::OpenMiningChannelError(
-                    OpenMiningChannelError::no_mint_keyset(request_id),
-                )])
+            } else if let Some((new_prev_hash, _)) = &self.last_prev_hash {
+                let new_prev_hash = new_prev_hash.into_set_p_hash(channel_id, None);
+                result.push(Mining::SetNewPrevHash(new_prev_hash.clone()))
+            };
+            for (job, _) in &self.future_jobs {
+                result.push(Mining::NewExtendedMiningJob(job.clone()))
             }
+            Ok(result)
         } else {
             Ok(vec![Mining::OpenMiningChannelError(
                 OpenMiningChannelError::unsupported_extranonce_size(request_id),
@@ -987,13 +981,13 @@ impl<'decoder> ChannelFactory<'decoder> {
 /// to ChannelFactory.
 #[derive(Debug)]
 pub struct PoolChannelFactory {
-    inner: ChannelFactory<'static>,
+    inner: ChannelFactory,
     job_creator: JobsCreators,
     pool_coinbase_outputs: Vec<TxOut>,
     pool_signature: String,
     // extedned_channel_id -> SetCustomMiningJob
     negotiated_jobs: HashMap<u32, SetCustomMiningJob<'static>, BuildNoHashHasher<u32>>,
-    keyset: Arc<Mutex<Option<Sv2KeySet<'static>>>>,
+    keyset: Arc<Mutex<Sv2KeySet<'static>>>,
 }
 
 impl PoolChannelFactory {
@@ -1005,7 +999,7 @@ impl PoolChannelFactory {
         kind: ExtendedChannelKind,
         pool_coinbase_outputs: Vec<TxOut>,
         pool_signature: String,
-        keyset: Arc<Mutex<Option<Sv2KeySet<'static>>>>,
+        keyset: Arc<Mutex<Sv2KeySet<'static>>>,
     ) -> Self {
         let inner = ChannelFactory {
             ids,
@@ -1310,17 +1304,17 @@ impl PoolChannelFactory {
 /// Used by proxies that want to open extended channls with upstream. If the proxy has job
 /// declaration capabilities, we set the job creator and the coinbase outs.
 #[derive(Debug)]
-pub struct ProxyExtendedChannelFactory<'decoder> {
-    inner: ChannelFactory<'decoder>,
+pub struct ProxyExtendedChannelFactory {
+    inner: ChannelFactory,
     job_creator: Option<JobsCreators>,
     pool_coinbase_outputs: Option<Vec<TxOut>>,
     pool_signature: String,
     // Id assigned to the extended channel by upstream
     extended_channel_id: u32,
-    keyset: Arc<Mutex<Option<Sv2KeySet<'decoder>>>>,
+    keyset: Arc<Mutex<Sv2KeySet<'static>>>,
 }
 
-impl<'decoder> ProxyExtendedChannelFactory<'decoder> {
+impl ProxyExtendedChannelFactory {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         ids: Arc<Mutex<GroupId>>,
@@ -1331,7 +1325,7 @@ impl<'decoder> ProxyExtendedChannelFactory<'decoder> {
         pool_coinbase_outputs: Option<Vec<TxOut>>,
         pool_signature: String,
         extended_channel_id: u32,
-        keyset: Arc<Mutex<Option<Sv2KeySet<'decoder>>>>,
+        keyset: Arc<Mutex<Sv2KeySet<'static>>>,
     ) -> Self {
         match &kind {
             ExtendedChannelKind::Proxy { .. } => {
@@ -1373,7 +1367,7 @@ impl<'decoder> ProxyExtendedChannelFactory<'decoder> {
             pool_coinbase_outputs,
             pool_signature,
             extended_channel_id,
-            keyset: keyset,
+            keyset,
         }
     }
     /// Calls [`ChannelFactory::add_standard_channel`]
