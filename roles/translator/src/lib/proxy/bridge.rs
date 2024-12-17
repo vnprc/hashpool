@@ -71,7 +71,7 @@ pub struct Bridge {
     last_job_id: u32,
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
     
-    wallet: Arc<Mutex<Wallet>>,
+    wallet: Arc<Wallet>,
     // TODO refactor this state into the wallet
     premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
 }
@@ -90,7 +90,7 @@ impl Bridge {
         target: Arc<Mutex<Vec<u8>>>,
         up_id: u32,
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
-        wallet: Arc<Mutex<Wallet>>,
+        wallet: Arc<Wallet>,
         premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
     ) -> Arc<Mutex<Self>> {
         let ids = Arc::new(Mutex::new(GroupId::new()));
@@ -324,15 +324,11 @@ impl Bridge {
 
     fn create_blinded_secret(&self) -> Result<cdk::nuts::PreMintSecrets, Error<'static>> {
         tokio::task::block_in_place(|| {
-            self.wallet
-                .safe_lock(|wallet| {
-                    tokio::runtime::Handle::current()
-                        .block_on(wallet.gen_ehash_premint_secrets())
-                        .map_err(Error::WalletError)
-                })
-                .map_err(|_| Error::PoisonLock)
+            let wallet_clone = self.wallet.clone();
+            tokio::runtime::Handle::current()
+                .block_on(wallet_clone.gen_ehash_premint_secrets())
+                .map_err(Error::WalletError)
         })
-        .map_err(|_| Error::PoisonLock)?
     }
 
     /// Translates a SV1 `mining.submit` message to a SV2 `SubmitSharesExtended` message.
