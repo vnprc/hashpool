@@ -36,11 +36,11 @@ pub const HASH_CURRENCY_UNIT: &str = "HASH";
 pub struct TranslatorSv2 {
     config: ProxyConfig,
     reconnect_wait_time: u64,
-    wallet: Arc<Mutex<Wallet>>,
+    wallet: Arc<Wallet>,
     premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
 }
 
-fn create_wallet() -> Arc<Mutex<Wallet>> {
+fn create_wallet() -> Arc<Wallet> {
     use cdk::cdk_database::WalletMemoryDatabase;
     use cdk::wallet::Wallet;
     use rand::Rng;
@@ -50,7 +50,7 @@ fn create_wallet() -> Arc<Mutex<Wallet>> {
     let mint_url = "https://testnut.cashu.space";
 
     let localstore = WalletMemoryDatabase::default();
-    Arc::new(Mutex::new(Wallet::new(mint_url, CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string()), Arc::new(localstore), &seed, None).unwrap()))
+    Arc::new(Wallet::new(mint_url, CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string()), Arc::new(localstore), &seed, None).unwrap())
 }
 
 impl TranslatorSv2 {

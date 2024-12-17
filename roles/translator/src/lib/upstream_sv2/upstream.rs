@@ -15,7 +15,6 @@ use cdk::{nuts::{BlindSignature, KeySet, PreMintSecrets}, wallet::Wallet};
 use codec_sv2::{HandshakeRole, Initiator};
 use error_handling::handle_result;
 use key_utils::Secp256k1PublicKey;
-use mining_sv2::cashu::Sv2KeySet;
 use network_helpers_sv2::Connection;
 use roles_logic_sv2::{
     common_messages_sv2::{Protocol, SetupConnection},
@@ -103,7 +102,7 @@ pub struct Upstream {
     // than the configured percentage
     pub(super) difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
-    wallet: Arc<Mutex<Wallet>>,
+    wallet: Arc<Wallet>,
     premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
 }
 
@@ -132,7 +131,7 @@ impl Upstream {
         target: Arc<Mutex<Vec<u8>>>,
         difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
-        wallet: Arc<Mutex<Wallet>>,
+        wallet: Arc<Wallet>,
         premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
     ) -> ProxyResult<'static, Arc<Mutex<Self>>> {
         // Connect to the SV2 Upstream role retry connection every 5 seconds.
@@ -699,21 +698,15 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
         self.extranonce_prefix = Some(m.extranonce_prefix.to_vec());
 
         let m_static = m.into_static();
-        let wallet_clone = &self.wallet.clone();
+        let wallet_clone = self.wallet.clone();
         let keyset = KeySet::try_from(m_static.keyset.clone())
             .map_err(|e| {RolesLogicError::KeysetError(e.to_string())})?;
 
-        let result = tokio::task::block_in_place(move || {
-            wallet_clone.safe_lock(|wallet| {
-                tokio::runtime::Handle::current()
-                    .block_on(wallet.add_keyset(keyset.keys, true, 0))
-            })
-            .map_err(|e| RolesLogicError::KeysetError(e.to_string()))
-        })?;
-
-        if let Err(ref e) = result {
-            warn!("Failed to add keyset to wallet: {:?}", e);
-        }
+        tokio::spawn(async move {
+            if let Err(e) = wallet_clone.add_keyset(keyset.keys, true, 0).await {
+                warn!("Failed to add keyset to wallet: {:?}", e);
+            };
+        });
 
         let m = Mining::OpenExtendedMiningChannelSuccess(m_static);
         Ok(SendTo::None(Some(m)))
@@ -760,7 +753,7 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
         &mut self,
         m: roles_logic_sv2::mining_sv2::SubmitSharesSuccess,
     ) -> Result<roles_logic_sv2::handlers::mining::SendTo<Downstream>, RolesLogicError> {
-        let wallet = self.wallet.safe_lock(|w| w.clone()).map_err(|e| RolesLogicError::PoisonLock(e.to_string()))?;
+        let wallet = self.wallet.clone();
         let blind_signature = m.blind_signature;
 
         // TODO save premint secrets to the wallet or some other data structure and retrieve them when constructing proofs
