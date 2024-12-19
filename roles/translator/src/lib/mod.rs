@@ -207,7 +207,6 @@ impl TranslatorSv2 {
             diff_config.clone(),
             task_collector_upstream,
             self.wallet.clone(),
-            self.premint_secrets.clone(),
         )
         .await
         {
@@ -278,7 +277,6 @@ impl TranslatorSv2 {
                 up_id,
                 task_collector_bridge,
                 wallet,
-                premint_secrets.clone(),
             );
             proxy::Bridge::start(b.clone());
 

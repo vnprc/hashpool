@@ -1,5 +1,5 @@
 use super::super::mining_pool::Downstream;
-use cashu::Sv2BlindSignature;
+use cashu::{Sv2BlindSignature, Sv2BlindedMessage};
 use cdk::nuts::{BlindSignature, BlindedMessage};
 use roles_logic_sv2::{
     errors::Error,
@@ -183,7 +183,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                     }
 
                     let blinded_message: BlindedMessage = m.blinded_message.into();
-                    let blinded_signature = self.get_blinded_signature(blinded_message);
+                    let blinded_signature = self.get_blinded_signature(&blinded_message);
 
                     let success = SubmitSharesSuccess {
                         channel_id: m.channel_id,
@@ -199,7 +199,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetDownstreamTarget => {
 
                 let blinded_message: BlindedMessage = m.blinded_message.into();
-                let blinded_signature = self.get_blinded_signature(blinded_message);
+                let blinded_signature = self.get_blinded_signature(&blinded_message);
 
                 let success = SubmitSharesSuccess {
                         channel_id: m.channel_id,
@@ -232,7 +232,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
 }
 
 impl Downstream {
-    fn get_blinded_signature(&self, blinded_message: BlindedMessage) -> BlindSignature {
+    fn get_blinded_signature(&self, blinded_message: &BlindedMessage) -> BlindSignature {
         // Clone `mint` to move into the blocking task
         let mint_clone = Arc::clone(&self.mint);
 
