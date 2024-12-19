@@ -66,7 +66,6 @@ pub struct SubmitSharesExtended<'decoder> {
     /// channel opening flow.
     #[cfg_attr(feature = "with_serde", serde(borrow))]
     pub extranonce: B032<'decoder>,
-    // TODO implement Serialize and Deserialize for Sv2BlindedMessage
     // Premint secrets
     pub blinded_message: Sv2BlindedMessage<'decoder>,
 }

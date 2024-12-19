@@ -103,7 +103,8 @@ pub struct Upstream {
     pub(super) difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
     wallet: Arc<Wallet>,
-    premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
+    // TODO remove this when I figure out a proper solution
+    quote_id: u32,
 }
 
 impl PartialEq for Upstream {
@@ -132,7 +133,6 @@ impl Upstream {
         difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
         wallet: Arc<Wallet>,
-        premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
     ) -> ProxyResult<'static, Arc<Mutex<Self>>> {
         // Connect to the SV2 Upstream role retry connection every 5 seconds.
         let socket = loop {
@@ -183,7 +183,7 @@ impl Upstream {
             difficulty_config,
             task_collector,
             wallet,
-            premint_secrets,
+            quote_id: 0,
         })))
     }
 
@@ -755,26 +755,23 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
     ) -> Result<roles_logic_sv2::handlers::mining::SendTo<Downstream>, RolesLogicError> {
         let wallet = self.wallet.clone();
         let blind_signature = m.blind_signature;
-
-        // TODO save premint secrets to the wallet or some other data structure and retrieve them when constructing proofs
-        let premint_secrets = self.premint_secrets
-            .safe_lock(|p| p.clone())
-            .map_err(|e| RolesLogicError::PoisonLock(e.to_string()))?
-            .ok_or_else(|| RolesLogicError::MissingPremintSecret)?;
-
-        let premint_secret = premint_secrets.into_iter().next()
-            .ok_or_else(|| RolesLogicError::MissingPremintSecret)?;
+        // TODO use unique share identifier and remove this counter
+        let quote_id = self.quote_id.to_string();
+        self.quote_id = self.quote_id + 1;
         
-        let proofs = tokio::task::block_in_place(|| {
+        let result = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(
                 wallet.gen_ehash_proofs(
                     BlindSignature::from(blind_signature),
-                    premint_secret,
+                    &quote_id,
                 ),
             )
         });
         
-        println!("proofs: {:?}", proofs);
+        match result {
+            Ok(amount) => println!("Success! Minted an ehash token worth: {:?}", amount),
+            Err(e) => println!("Error minting ehash {:?}", e),
+        }
 
         Ok(SendTo::None(None))
     }

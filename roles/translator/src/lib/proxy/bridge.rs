@@ -72,8 +72,8 @@ pub struct Bridge {
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
     
     wallet: Arc<Wallet>,
-    // TODO refactor this state into the wallet
-    premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
+    //TODO find a unique identifier for shares and remove this counter
+    quote_id: u32,
 }
 
 impl Bridge {
@@ -91,7 +91,6 @@ impl Bridge {
         up_id: u32,
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
         wallet: Arc<Wallet>,
-        premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
     ) -> Arc<Mutex<Self>> {
         let ids = Arc::new(Mutex::new(GroupId::new()));
         let share_per_min = 1.0;
@@ -123,7 +122,7 @@ impl Bridge {
             last_job_id: 0,
             task_collector,
             wallet,
-            premint_secrets,
+            quote_id: 0,
         }))
     }
 
@@ -270,29 +269,18 @@ impl Bridge {
                 info!("SHARE MEETS UPSTREAM TARGET");
                 match share {
                     Share::Extended(mut share) => {
-                        let secret = self_.safe_lock(|bridge| {
-                            let new_premint_secrets = match bridge.create_blinded_secret() {
+                        let premint_secrets = self_.safe_lock(|bridge| {
+                            match bridge.create_blinded_secret(&share) {
                                 Ok(secrets) => secrets,
                                 Err(e) => {
                                     println!("Failed to create blinded secret: {:?}", e);
                                     // TODO fail gracefully
                                     panic!();
                                 }
-                            };
-                            
-                            // TODO get rid of this and let the wallet manage this state
-                            let _ = bridge.premint_secrets.safe_lock(|premint_secrets| {
-                                match premint_secrets {
-                                    None => *premint_secrets = Some(new_premint_secrets.clone()),
-                                    Some(existing_secrets) => {
-                                        existing_secrets.secrets.clear();
-                                        existing_secrets.secrets.push(new_premint_secrets.secrets.first().unwrap().clone());
-                                    }
-                                }
-                            }).map_err(|_| PoisonLock);
-
-                            new_premint_secrets.secrets.first().unwrap().clone()
+                            }
                         })?;
+
+                        let secret = premint_secrets.secrets.first().unwrap();
 
                         share.blinded_message = Sv2BlindedMessage::from(secret.blinded_message.clone());
     
@@ -322,11 +310,22 @@ impl Bridge {
         Ok(())
     }
 
-    fn create_blinded_secret(&self) -> Result<cdk::nuts::PreMintSecrets, Error<'static>> {
+    fn create_blinded_secret(
+        &mut self,
+        share: &SubmitSharesExtended,
+    ) -> Result<cdk::nuts::PreMintSecrets, Error<'static>> {
+        // TODO get share hash value and replace this counter
+        let quote_id = self.quote_id.to_string();
+        self.quote_id = self.quote_id + 1;
+
         tokio::task::block_in_place(|| {
             let wallet_clone = self.wallet.clone();
             tokio::runtime::Handle::current()
-                .block_on(wallet_clone.gen_ehash_premint_secrets())
+                .block_on(wallet_clone.gen_ehash_premint_secrets(
+                    1,
+                    &quote_id,
+                    "http://localhost:8000"
+                ))
                 .map_err(Error::WalletError)
         })
     }
@@ -641,7 +640,6 @@ mod test {
                 task_collector,
                 // TODO test ecash stuff
                 create_wallet(),
-                Arc::new(Mutex::new(None)),
             );
             (b, interface)
         }
