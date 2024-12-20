@@ -11,7 +11,7 @@ use crate::{
 use async_channel::{Receiver, Sender};
 use async_std::net::TcpStream;
 use binary_sv2::u256_from_int;
-use cdk::{nuts::{BlindSignature, KeySet, PreMintSecrets}, wallet::Wallet};
+use cdk::{nuts::{BlindSignature, KeySet}, wallet::Wallet};
 use codec_sv2::{HandshakeRole, Initiator};
 use error_handling::handle_result;
 use key_utils::Secp256k1PublicKey;
@@ -44,6 +44,7 @@ use tokio::{
 use tracing::{error, info, warn};
 
 use stratum_common::bitcoin::BlockHash;
+use stratum_common::bitcoin::hashes::hex::ToHex;
 
 pub static IS_NEW_JOB_HANDLED: AtomicBool = AtomicBool::new(true);
 /// Represents the currently active `prevhash` of the mining job being worked on OR being submitted
@@ -103,8 +104,6 @@ pub struct Upstream {
     pub(super) difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
     wallet: Arc<Wallet>,
-    // TODO remove this when I figure out a proper solution
-    quote_id: u32,
 }
 
 impl PartialEq for Upstream {
@@ -183,7 +182,6 @@ impl Upstream {
             difficulty_config,
             task_collector,
             wallet,
-            quote_id: 0,
         })))
     }
 
@@ -755,21 +753,20 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
     ) -> Result<roles_logic_sv2::handlers::mining::SendTo<Downstream>, RolesLogicError> {
         let wallet = self.wallet.clone();
         let blind_signature = m.blind_signature;
-        // TODO use unique share identifier and remove this counter
-        let quote_id = self.quote_id.to_string();
-        self.quote_id = self.quote_id + 1;
+        // TODO is it better to recalculate this value from the share or to pass it over the wire?
+        let share_hash = m.hash.to_vec().to_hex();
         
         let result = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(
                 wallet.gen_ehash_proofs(
                     BlindSignature::from(blind_signature),
-                    &quote_id,
+                    &share_hash,
                 ),
             )
         });
         
         match result {
-            Ok(amount) => println!("Success! Minted an ehash token worth: {:?}", amount),
+            Ok(amount) => info!("Hashpool minted an ehash token for share {} with difficulty value {:?}", share_hash, amount),
             Err(e) => println!("Error minting ehash {:?}", e),
         }
 

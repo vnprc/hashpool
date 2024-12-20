@@ -86,7 +86,8 @@ impl OnNewShare {
                         ntime: share.ntime,
                         version: share.version,
                         extranonce: extranonce.try_into().unwrap(),
-                        // use a fake blinded message?
+                        // initialize to all zeros, will be updated later
+                        hash: [0u8; 32].into(),
                         blinded_message: Sv2BlindedMessage::default(),
                     };
                     *self = Self::SendSubmitShareUpstream((Share::Extended(share), *template_id));
@@ -104,7 +105,8 @@ impl OnNewShare {
                         ntime: share.ntime,
                         version: share.version,
                         extranonce: extranonce.try_into().unwrap(),
-                        // use a fake blinded message?
+                        // initialize to all zeros, will be updated later
+                        hash: [0u8; 32].into(),
                         blinded_message: Sv2BlindedMessage::default(),
                     };
                     *self = Self::ShareMeetBitcoinTarget((
@@ -851,6 +853,13 @@ impl ChannelFactory {
             let mut hash = hash;
             hash.reverse();
             debug!("Hash           : {:?}", hash.to_vec().to_hex());
+            // Hashpool: set hash on the share for use in indexing the blinded secret
+            match &mut m {
+                Share::Extended(extended_share) => {
+                    extended_share.hash = hash.into();
+                }
+                Share::Standard(_) => (),
+            };
         }
         let hash: Target = hash.into();
 
