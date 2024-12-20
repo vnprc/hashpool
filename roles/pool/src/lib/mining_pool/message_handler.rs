@@ -131,7 +131,8 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         last_sequence_number: m.sequence_number,
                         new_submits_accepted_count: 1,
                         new_shares_sum: 0,
-                        // TODO this is a hack, what should we do here?
+                        // initialize to all zeros, will be updated later
+                        hash: [0u8; 32].into(),
                         blind_signature: Sv2BlindSignature::default(),
                     };
 
@@ -144,7 +145,8 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         last_sequence_number: m.sequence_number,
                         new_submits_accepted_count: 1,
                         new_shares_sum: 0,
-                        // TODO this is a hack, what should we do here?
+                        // initialize to all zeros, will be updated later
+                        hash: [0u8; 32].into(),
                         blind_signature: Sv2BlindSignature::default(),
                     };
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
@@ -191,6 +193,8 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         new_submits_accepted_count: 1,
                         new_shares_sum: 0,
                         blind_signature: blinded_signature.into(),
+                        // TODO is this ownership hack fixable?
+                        hash: m.hash.inner_as_ref().to_owned().try_into()?,
                     };
 
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
@@ -198,15 +202,17 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                 },
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetDownstreamTarget => {
 
-                let blinded_message: BlindedMessage = m.blinded_message.into();
-                let blinded_signature = self.get_blinded_signature(&blinded_message);
+                    let blinded_message: BlindedMessage = m.blinded_message.into();
+                    let blinded_signature = self.get_blinded_signature(&blinded_message);
 
-                let success = SubmitSharesSuccess {
+                    let success = SubmitSharesSuccess {
                         channel_id: m.channel_id,
                         last_sequence_number: m.sequence_number,
                         new_submits_accepted_count: 1,
                         new_shares_sum: 0,
                         blind_signature: blinded_signature.into(),
+                        // TODO is this ownership hack fixable?
+                        hash: m.hash.inner_as_ref().to_owned().try_into()?,
                     };
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
                 },

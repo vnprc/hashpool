@@ -1,5 +1,5 @@
 use async_channel::{Receiver, Sender};
-use cdk::{nuts::PreMintSecrets, wallet::Wallet};
+use cdk::wallet::Wallet;
 use roles_logic_sv2::{
     channel_logic::channel_factory::{ExtendedChannelKind, ProxyExtendedChannelFactory, Share},
     mining_sv2::{
@@ -8,6 +8,7 @@ use roles_logic_sv2::{
     parsers::Mining,
     utils::{GroupId, Mutex},
 };
+use stratum_common::bitcoin::hashes::hex::ToHex;
 use std::sync::Arc;
 use tokio::{sync::broadcast, task::AbortHandle};
 use v1::{client_to_server::Submit, server_to_client, utils::HexU32Be};
@@ -70,10 +71,7 @@ pub struct Bridge {
     target: Arc<Mutex<Vec<u8>>>,
     last_job_id: u32,
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
-    
     wallet: Arc<Wallet>,
-    //TODO find a unique identifier for shares and remove this counter
-    quote_id: u32,
 }
 
 impl Bridge {
@@ -122,7 +120,6 @@ impl Bridge {
             last_job_id: 0,
             task_collector,
             wallet,
-            quote_id: 0,
         }))
     }
 
@@ -284,7 +281,7 @@ impl Bridge {
 
                         share.blinded_message = Sv2BlindedMessage::from(secret.blinded_message.clone());
     
-                        info!("share.blinded_message: {:?}", share.blinded_message);
+                        debug!("share.blinded_message: {:?}", share.blinded_message);
                         tx_sv2_submit_shares_ext.send(share).await?;
                     }
                     // We are in an extended channel; shares are extended
@@ -314,16 +311,16 @@ impl Bridge {
         &mut self,
         share: &SubmitSharesExtended,
     ) -> Result<cdk::nuts::PreMintSecrets, Error<'static>> {
-        // TODO get share hash value and replace this counter
-        let quote_id = self.quote_id.to_string();
-        self.quote_id = self.quote_id + 1;
+        // TODO is it better to recalculate this value from the share or to pass it over the wire?
+        let share_hash = share.hash.to_vec().to_hex();
 
         tokio::task::block_in_place(|| {
             let wallet_clone = self.wallet.clone();
             tokio::runtime::Handle::current()
                 .block_on(wallet_clone.gen_ehash_premint_secrets(
+                    // TODO calculate share difficulty and set token amount == difficulty
                     1,
-                    &quote_id,
+                    &share_hash,
                     "http://localhost:8000"
                 ))
                 .map_err(Error::WalletError)
@@ -360,6 +357,7 @@ impl Bridge {
             version,
             extranonce: extranonce2.try_into()?,
             // initialize to all zeros, will be updated later
+            hash: [0u8; 32].into(),
             blinded_message: Sv2BlindedMessage::default(),
         })
     }
