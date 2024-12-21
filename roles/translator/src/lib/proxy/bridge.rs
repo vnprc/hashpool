@@ -313,18 +313,36 @@ impl Bridge {
     ) -> Result<cdk::nuts::PreMintSecrets, Error<'static>> {
         // TODO is it better to recalculate this value from the share or to pass it over the wire?
         let share_hash = share.hash.to_vec().to_hex();
+        let work = Self::calculate_work(share.hash.to_vec().try_into()?);
+        println!("share found with work {}", work);
 
         tokio::task::block_in_place(|| {
             let wallet_clone = self.wallet.clone();
             tokio::runtime::Handle::current()
                 .block_on(wallet_clone.gen_ehash_premint_secrets(
-                    // TODO calculate share difficulty and set token amount == difficulty
+                    // TODO transmit all keysets from the mint and set amount equal to work
                     1,
                     &share_hash,
                     "http://localhost:8000"
                 ))
                 .map_err(Error::WalletError)
         })
+    }
+
+    fn calculate_work(hash: [u8; 32]) -> u64 {
+        let mut work = 0u64;
+    
+        for byte in hash {
+            if byte == 0 {
+                work += 8; // Each zero byte adds 8 bits of work
+            } else {
+                // Count the leading zeros in the current byte
+                work += byte.leading_zeros() as u64;
+                break; // Stop counting after the first non-zero byte
+            }
+        }
+    
+        work
     }
 
     /// Translates a SV1 `mining.submit` message to a SV2 `SubmitSharesExtended` message.
