@@ -29,7 +29,7 @@ use const_sv2::{
     CHANNEL_BIT_RECONNECT, CHANNEL_BIT_REQUEST_TRANSACTION_DATA,
     CHANNEL_BIT_REQUEST_TRANSACTION_DATA_ERROR, CHANNEL_BIT_REQUEST_TRANSACTION_DATA_SUCCESS,
     CHANNEL_BIT_SETUP_CONNECTION, CHANNEL_BIT_SETUP_CONNECTION_ERROR,
-    CHANNEL_BIT_SETUP_CONNECTION_SUCCESS, CHANNEL_BIT_SET_CUSTOM_MINING_JOB,
+    CHANNEL_BIT_SETUP_CONNECTION_SUCCESS, CHANNEL_BIT_SETUP_CONNECTION_SUCCESS_MINT, CHANNEL_BIT_SET_CUSTOM_MINING_JOB,
     CHANNEL_BIT_SET_CUSTOM_MINING_JOB_ERROR, CHANNEL_BIT_SET_CUSTOM_MINING_JOB_SUCCESS,
     CHANNEL_BIT_SET_EXTRANONCE_PREFIX, CHANNEL_BIT_SET_GROUP_CHANNEL,
     CHANNEL_BIT_SET_NEW_PREV_HASH, CHANNEL_BIT_SET_TARGET, CHANNEL_BIT_SUBMIT_SHARES_ERROR,
@@ -50,6 +50,7 @@ use const_sv2::{
     MESSAGE_TYPE_REQUEST_TRANSACTION_DATA, MESSAGE_TYPE_REQUEST_TRANSACTION_DATA_ERROR,
     MESSAGE_TYPE_REQUEST_TRANSACTION_DATA_SUCCESS, MESSAGE_TYPE_SETUP_CONNECTION,
     MESSAGE_TYPE_SETUP_CONNECTION_ERROR, MESSAGE_TYPE_SETUP_CONNECTION_SUCCESS,
+    MESSAGE_TYPE_SETUP_CONNECTION_SUCCESS_MINT,
     MESSAGE_TYPE_SET_CUSTOM_MINING_JOB, MESSAGE_TYPE_SET_CUSTOM_MINING_JOB_ERROR,
     MESSAGE_TYPE_SET_CUSTOM_MINING_JOB_SUCCESS, MESSAGE_TYPE_SET_EXTRANONCE_PREFIX,
     MESSAGE_TYPE_SET_GROUP_CHANNEL, MESSAGE_TYPE_SET_NEW_PREV_HASH, MESSAGE_TYPE_SET_TARGET,
@@ -60,7 +61,7 @@ use const_sv2::{
 };
 
 use common_messages_sv2::{
-    ChannelEndpointChanged, SetupConnection, SetupConnectionError, SetupConnectionSuccess,
+    ChannelEndpointChanged, SetupConnection, SetupConnectionError, SetupConnectionSuccess, SetupConnectionSuccessMint,
 };
 
 use template_distribution_sv2::{
@@ -97,6 +98,7 @@ pub enum CommonMessages<'a> {
     #[cfg_attr(feature = "with_serde", serde(borrow))]
     SetupConnectionError(SetupConnectionError<'a>),
     SetupConnectionSuccess(SetupConnectionSuccess),
+    SetupConnectionSuccessMint(SetupConnectionSuccessMint),
 }
 
 #[derive(Clone, Debug)]
@@ -237,6 +239,7 @@ impl<'a> IsSv2Message for CommonMessages<'a> {
             Self::SetupConnection(_) => MESSAGE_TYPE_SETUP_CONNECTION,
             Self::SetupConnectionError(_) => MESSAGE_TYPE_SETUP_CONNECTION_ERROR,
             Self::SetupConnectionSuccess(_) => MESSAGE_TYPE_SETUP_CONNECTION_SUCCESS,
+            Self::SetupConnectionSuccessMint(_) => MESSAGE_TYPE_SETUP_CONNECTION_SUCCESS_MINT,
         }
     }
 
@@ -246,6 +249,7 @@ impl<'a> IsSv2Message for CommonMessages<'a> {
             Self::SetupConnection(_) => CHANNEL_BIT_SETUP_CONNECTION,
             Self::SetupConnectionError(_) => CHANNEL_BIT_SETUP_CONNECTION_ERROR,
             Self::SetupConnectionSuccess(_) => CHANNEL_BIT_SETUP_CONNECTION_SUCCESS,
+            Self::SetupConnectionSuccessMint(_) => CHANNEL_BIT_SETUP_CONNECTION_SUCCESS_MINT,
         }
     }
 }
@@ -382,6 +386,7 @@ impl<'decoder> From<CommonMessages<'decoder>> for EncodableField<'decoder> {
             CommonMessages::SetupConnection(a) => a.into(),
             CommonMessages::SetupConnectionError(a) => a.into(),
             CommonMessages::SetupConnectionSuccess(a) => a.into(),
+            CommonMessages::SetupConnectionSuccessMint(a) => a.into(),
         }
     }
 }
@@ -454,6 +459,7 @@ impl GetSize for CommonMessages<'_> {
             CommonMessages::SetupConnection(a) => a.get_size(),
             CommonMessages::SetupConnectionError(a) => a.get_size(),
             CommonMessages::SetupConnectionSuccess(a) => a.get_size(),
+            CommonMessages::SetupConnectionSuccessMint(a) => a.get_size(),
         }
     }
 }
