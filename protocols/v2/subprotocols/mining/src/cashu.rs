@@ -187,63 +187,58 @@ pub struct Sv2KeySet<'decoder> {
 }
 
 impl<'decoder> Sv2KeySet<'decoder> {
+    const KEY_SIZE: usize = 41;
+    const NUM_KEYS: usize = 64;
+
     /// Attempts to read 64 signing keys from the `keys` field.
     pub fn get_signing_keys(&self) -> Result<[Sv2SigningKey<'static>; 64], binary_sv2::Error> {
         let raw = self.keys.inner_as_ref();
 
-        // Each Sv2SigningKey is 41 bytes: (8 + 1 + 32)
-        const KEY_SIZE: usize = 41;
-        const NUM_KEYS: usize = 64;
-        if raw.len() != KEY_SIZE * NUM_KEYS {
+        if raw.len() != Self::KEY_SIZE * Self::NUM_KEYS {
             return Err(binary_sv2::Error::DecodableConversionError);
         }
 
-        // Prepare an output array of 64 keys
-        let mut out = array::from_fn(|_| Sv2SigningKey::default());
+        let mut output = array::from_fn(|_| Sv2SigningKey::default());
 
         // Decode each 41-byte chunk into Sv2SigningKey
-        for i in 0..NUM_KEYS {
-            let start = i * KEY_SIZE;
-            let end = start + KEY_SIZE;
-            let chunk = &raw[start..end];
-            let mut buffer = [0u8; KEY_SIZE];
+        for (i, chunk) in raw.chunks(Self::KEY_SIZE).enumerate() {
+            let mut buffer = [0u8; Self::KEY_SIZE];
             buffer.copy_from_slice(chunk);
             
-            let key = Sv2SigningKey::from_bytes(&mut buffer[..])?;
+            let key = Sv2SigningKey::from_bytes(&mut buffer)?;
 
-            let owned_key = Sv2SigningKey {
+            output[i] = Sv2SigningKey {
                 amount: key.amount,
                 parity_bit: key.parity_bit,
                 pubkey: key.pubkey.into_static(),
             };
-    
-            out[i] = owned_key;
         }
 
-        Ok(out)
+        Ok(output)
     }
 
     /// Takes an array of 64 keys, encodes them, and packs them into the `keys` field (`B064K`).
     pub fn set_signing_keys(&mut self, keys: &[Sv2SigningKey<'_>]) -> Result<(), binary_sv2::Error> {
-        if keys.len() != 64 {
+        if keys.len() != Self::NUM_KEYS {
             return Err(binary_sv2::Error::DecodableConversionError);
         }
 
-        // Each Sv2SigningKey is 41 bytes
-        let mut buffer = Vec::with_capacity(64 * 41);
+        let mut buffer = [0u8; Self::KEY_SIZE * Self::NUM_KEYS];
 
-        for key in keys {
-            let mut key_buf = [0u8; 41];
-            let written = key.clone().to_bytes(&mut key_buf)?;
-            // Safety check: ensure the serialized size is always 41
-            if written != 41 {
+        for (i, key) in keys.iter().enumerate() {
+            let start = i * Self::KEY_SIZE;
+            let end = start + Self::KEY_SIZE;
+
+            let key_buf = &mut buffer[start..end];
+            let written = key.clone().to_bytes(key_buf)?;
+
+            // sanity check
+            if written != Self::KEY_SIZE {
                 return Err(binary_sv2::Error::DecodableConversionError);
             }
-            buffer.extend_from_slice(&key_buf);
         }
 
-        // Store the entire 2624-byte array in the B064K struct
-        self.keys = B064K::try_from(buffer)?;
+        self.keys = B064K::try_from(buffer.to_vec())?;
         Ok(())
     }
 }
