@@ -148,6 +148,8 @@ impl PoolSv2<'_> {
     }
 
     async fn create_mint(&self) -> Mint {
+        const NUM_KEYS: u8 = 64;
+
         let nuts = Nuts::new().nut07(true);
 
         let mint_info = MintInfo::new().nuts(nuts);
@@ -158,7 +160,7 @@ impl PoolSv2<'_> {
         let hash_currency_unit = CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string());
 
         let mut currency_units = HashMap::new();
-        currency_units.insert(hash_currency_unit.clone(), (0, 1));
+        currency_units.insert(hash_currency_unit.clone(), (0, NUM_KEYS));
 
         let mut derivation_paths = HashMap::new();
         derivation_paths.insert(hash_currency_unit, DerivationPath::from(vec![

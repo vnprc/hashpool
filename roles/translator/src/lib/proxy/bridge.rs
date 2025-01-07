@@ -320,8 +320,7 @@ impl Bridge {
             let wallet_clone = self.wallet.clone();
             tokio::runtime::Handle::current()
                 .block_on(wallet_clone.gen_ehash_premint_secrets(
-                    // TODO transmit all keysets from the mint and set amount equal to work
-                    1,
+                    work,
                     &share_hash,
                     "http://localhost:8000"
                 ))

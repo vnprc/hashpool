@@ -1,4 +1,5 @@
 use cdk::{amount::{Amount, AmountStr}, nuts::{BlindSignature, BlindedMessage, CurrencyUnit, KeySet, PublicKey}};
+use core::array;
 use std::{collections::BTreeMap, convert::{TryFrom, TryInto}};
 pub use std::error::Error;
 
@@ -182,14 +183,94 @@ pub struct Sv2KeySet<'decoder> {
     pub id: u64,
     // just one key for now
     // TODO figure out how to do multiple keys
-    pub key: Sv2SigningKey<'decoder>,
+    pub keys: B064K<'decoder>,
+}
+
+impl<'decoder> Sv2KeySet<'decoder> {
+    /// Attempts to read 64 signing keys from the `keys` field.
+    pub fn get_signing_keys(&self) -> Result<[Sv2SigningKey<'static>; 64], binary_sv2::Error> {
+        let raw = self.keys.inner_as_ref();
+
+        // Each Sv2SigningKey is 41 bytes: (8 + 1 + 32)
+        const KEY_SIZE: usize = 41;
+        const NUM_KEYS: usize = 64;
+        if raw.len() != KEY_SIZE * NUM_KEYS {
+            return Err(binary_sv2::Error::DecodableConversionError);
+        }
+
+        // Prepare an output array of 64 keys
+        let mut out = array::from_fn(|_| Sv2SigningKey::default());
+
+        // Decode each 41-byte chunk into Sv2SigningKey
+        for i in 0..NUM_KEYS {
+            let start = i * KEY_SIZE;
+            let end = start + KEY_SIZE;
+            let chunk = &raw[start..end];
+            let mut buffer = [0u8; KEY_SIZE];
+            buffer.copy_from_slice(chunk);
+            
+            let key = Sv2SigningKey::from_bytes(&mut buffer[..])?;
+
+            let owned_key = Sv2SigningKey {
+                amount: key.amount,
+                parity_bit: key.parity_bit,
+                pubkey: key.pubkey.into_static(),
+            };
+    
+            out[i] = owned_key;
+        }
+
+        Ok(out)
+    }
+
+    /// Takes an array of 64 keys, encodes them, and packs them into the `keys` field (`B064K`).
+    pub fn set_signing_keys(&mut self, keys: &[Sv2SigningKey<'_>]) -> Result<(), binary_sv2::Error> {
+        if keys.len() != 64 {
+            return Err(binary_sv2::Error::DecodableConversionError);
+        }
+
+        // Each Sv2SigningKey is 41 bytes
+        let mut buffer = Vec::with_capacity(64 * 41);
+
+        for key in keys {
+            let mut key_buf = [0u8; 41];
+            let written = key.clone().to_bytes(&mut key_buf)?;
+            // Safety check: ensure the serialized size is always 41
+            if written != 41 {
+                return Err(binary_sv2::Error::DecodableConversionError);
+            }
+            buffer.extend_from_slice(&key_buf);
+        }
+
+        // Store the entire 2624-byte array in the B064K struct
+        self.keys = B064K::try_from(buffer)?;
+        Ok(())
+    }
 }
 
 impl<'a> Default for Sv2KeySet<'a> {
     fn default() -> Self {
+        const KEY_SIZE: usize = 41;
+        const NUM_KEYS: usize = 64;
+
+        let mut buffer = Vec::with_capacity(KEY_SIZE * NUM_KEYS);
+
+        let default_key = Sv2SigningKey::default();
+        let mut temp_buf = [0u8; KEY_SIZE];
+        default_key
+            .to_bytes(&mut temp_buf[..])
+            .expect("Failed to serialize default Sv2SigningKey");
+
+        for _ in 0..NUM_KEYS {
+            buffer.extend_from_slice(&temp_buf);
+        }
+
+        let b064k = B064K::try_from(buffer)
+            .expect("Failed to create B064K with default signing keys");
+
         Self {
             id: 0,
-            key: Sv2SigningKey::default(),
+            keys: b064k,
         }
     }
 }
@@ -200,8 +281,8 @@ impl<'a> TryFrom<KeySet> for Sv2KeySet<'a> {
     fn try_from(value: KeySet) -> Result<Self, Self::Error> {
         let id: u64 = KeysetId(value.id).into();
 
-        if let Some((amount_str, public_key)) = value.keys.keys().iter().next() {
-            let amount: u64 = amount_str.inner().into();
+        let mut sv2_keys = Vec::with_capacity(64);
+        for (amount_str, public_key) in value.keys.keys().iter() {
             let mut pubkey_bytes = public_key.to_bytes();
             let (parity_byte, pubkey_data) = pubkey_bytes.split_at_mut(1);
             let parity_bit = parity_byte[0] == 0x03;
@@ -210,15 +291,28 @@ impl<'a> TryFrom<KeySet> for Sv2KeySet<'a> {
                 .map_err(|_| "Failed to parse public key")?
                 .into_static();
 
-            let keys = Sv2SigningKey {
-                amount,
+            let signing_key = Sv2SigningKey {
+                amount: amount_str.inner().into(),
                 parity_bit,
                 pubkey,
             };
-            Ok(Sv2KeySet { id, key: keys })
-        } else {
-            Err("KeySet contains no keys".into())
+            sv2_keys.push(signing_key);
         }
+
+        // sanity check
+        if sv2_keys.len() != 64 {
+            return Err("Expected KeySet to have exactly 64 keys".into());
+        }
+
+        let mut this = Sv2KeySet {
+            id,
+            keys: B064K::try_from(vec![0u8; 0])
+                .map_err(|e| format!("binary_sv2::Error: {:?}", e))?,
+        };
+        this.set_signing_keys(&sv2_keys)
+            .map_err(|e| format!("binary_sv2::Error: {:?}", e))?;
+
+        Ok(this)
     }
 }
 
@@ -227,16 +321,22 @@ impl<'a> TryFrom<Sv2KeySet<'a>> for KeySet {
 
     fn try_from(value: Sv2KeySet) -> Result<Self, Self::Error> {
         let id = *KeysetId::try_from(value.id)?;
+
+        let signing_keys = value.get_signing_keys()
+            .map_err(|e| format!("binary_sv2::Error: {:?}", e))?;
+
         let mut keys_map: BTreeMap<AmountStr, PublicKey> = BTreeMap::new();
-        let amount_str = AmountStr::from(Amount::from(value.key.amount));
+        for signing_key in signing_keys.iter() {
+            let amount_str = AmountStr::from(Amount::from(signing_key.amount));
 
-        let mut pubkey_bytes = [0u8; 33];
-        pubkey_bytes[0] = if value.key.parity_bit { 0x03 } else { 0x02 };
-        pubkey_bytes[1..].copy_from_slice(&value.key.pubkey.inner_as_ref());
-
-        let public_key = PublicKey::from_slice(&pubkey_bytes)?;
-
-        keys_map.insert(amount_str, public_key);
+            let mut pubkey_bytes = [0u8; 33];
+            pubkey_bytes[0] = if signing_key.parity_bit { 0x03 } else { 0x02 };
+            pubkey_bytes[1..].copy_from_slice(&signing_key.pubkey.inner_as_ref());
+            
+            let public_key = PublicKey::from_slice(&pubkey_bytes)?;
+    
+            keys_map.insert(amount_str, public_key);
+        }
 
         Ok(KeySet {
             id,
@@ -283,7 +383,7 @@ pub mod tests {
     
         Sv2KeySet {
             id: rng.gen::<u64>(),
-            key: get_random_pubkey(),
+            keys: get_random_pubkey(),
         }
     }
 
@@ -305,7 +405,7 @@ pub mod tests {
     #[test]
     fn test_sv2_keyset_encode_decode() {
         let original_keyset = get_random_keyset();
-        let original_key = original_keyset.clone().key;
+        let original_key = original_keyset.clone().keys;
         let required_size = 8 + 8 + 1 + 32; // id + amount + parity_bit + pubkey
 
         // encode it
@@ -317,7 +417,7 @@ pub mod tests {
         // decode it
         let decoded_keyset = Sv2KeySet::from_bytes(&mut buffer).unwrap();
         assert_eq!(original_keyset.id, decoded_keyset.id);
-        assert_eq!(original_key.amount, decoded_keyset.key.amount);
-        assert_eq!(original_key.pubkey, decoded_keyset.key.pubkey);
+        assert_eq!(original_key.amount, decoded_keyset.keys.amount);
+        assert_eq!(original_key.pubkey, decoded_keyset.keys.pubkey);
     }
 }
