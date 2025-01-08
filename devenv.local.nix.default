@@ -1,0 +1,5 @@
+# devenv.local.nix.default
+{
+  # Set your local CDK path here
+  env.CDK_PATH = "/absolute/path/to/cdk/crates/cdk";
+}
