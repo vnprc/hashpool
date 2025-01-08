@@ -1,5 +1,3 @@
-set shell := ["bash", "-cu"]
-
 # format nix files
 formatnix:
 	alejandra .
@@ -27,3 +25,10 @@ local-cdk:
         sed -i.bak "s|cdk = { git = \"https://github.com/vnprc/cdk\", rev = \"[^\"]*\" }|cdk = { path = \"$CDK_PATH\" }|" "$file"; \
     done
 
+# restore cargo dependencies from .bak files
+restore-deps:
+    find . -name "Cargo.toml.bak" | while IFS= read -r bakfile; do \
+        origfile="${bakfile%.bak}"; \
+        echo "Restoring $origfile from $bakfile"; \
+        mv "$bakfile" "$origfile"; \
+    done
