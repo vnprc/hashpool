@@ -651,7 +651,7 @@ impl Pool {
 
             keyset_result.unwrap() // Handle the result of safe_lock
         });
-        println!("keyset: {:?}", keyset);
+        info!("KEYSET ID: {:}", keyset.id);
 
         let channel_factory = Arc::new(Mutex::new(PoolChannelFactory::new(
             ids,
