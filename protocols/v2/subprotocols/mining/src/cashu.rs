@@ -181,8 +181,6 @@ impl<'decoder> Default for Sv2SigningKey<'decoder> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Sv2KeySet<'decoder> {
     pub id: u64,
-    // just one key for now
-    // TODO figure out how to do multiple keys
     pub keys: B064K<'decoder>,
 }
 
@@ -358,7 +356,7 @@ impl<'a> IntoB032<'a> for [u8; 32] {
 pub mod tests {
     use super::*;
 
-    fn get_random_pubkey<'a>() -> Sv2SigningKey<'a> {
+    fn get_random_signing_key() -> Sv2SigningKey<'static> {
         use rand::Rng;
         let mut rng = rand::thread_rng();
 
@@ -372,19 +370,26 @@ pub mod tests {
         }
     }
 
-    fn get_random_keyset<'a>() -> Sv2KeySet<'a> {
+    fn get_random_keyset() -> Sv2KeySet<'static> {
         use rand::Rng;
         let mut rng = rand::thread_rng();
     
-        Sv2KeySet {
-            id: rng.gen::<u64>(),
-            keys: get_random_pubkey(),
+        let mut signing_keys: [Sv2SigningKey<'static>; 64] = array::from_fn(|_| get_random_signing_key());
+        for i in 0..64 {
+            signing_keys[i] = get_random_signing_key();
         }
+
+        let mut keyset = Sv2KeySet::default();
+        // TODO this is an invalid keyset_id, does it matter?
+        keyset.id = rng.gen::<u64>();
+        keyset.set_signing_keys(&signing_keys).unwrap();
+
+        keyset
     }
 
     #[test]
     fn test_sv2_signing_key_encode_decode() {
-        let original_key = get_random_pubkey();
+        let original_key = get_random_signing_key();
 
         // encode it
         let mut buffer = [0u8; 41]; // 8 byte amount + 33 byte pubkey
@@ -400,19 +405,20 @@ pub mod tests {
     #[test]
     fn test_sv2_keyset_encode_decode() {
         let original_keyset = get_random_keyset();
-        let original_key = original_keyset.clone().keys;
-        let required_size = 8 + 8 + 1 + 32; // id + amount + parity_bit + pubkey
-
-        // encode it
+        let required_size = 8 + 2 + 64 * 41; // keyset_id + B064K length prefix + ( 64 * signing keys )
         let mut buffer = vec![0u8; required_size];
+
+
         let encoded_size = original_keyset.clone().to_bytes(&mut buffer).unwrap();
-        println!("buffer {:?}", buffer);
         assert_eq!(encoded_size, required_size);
 
         // decode it
         let decoded_keyset = Sv2KeySet::from_bytes(&mut buffer).unwrap();
         assert_eq!(original_keyset.id, decoded_keyset.id);
-        assert_eq!(original_key.amount, decoded_keyset.keys.amount);
-        assert_eq!(original_key.pubkey, decoded_keyset.keys.pubkey);
+
+        // Check that all 64 keys match
+        let original_keys = original_keyset.get_signing_keys().unwrap();
+        let decoded_keys = decoded_keyset.get_signing_keys().unwrap();
+        assert_eq!(original_keys, decoded_keys);
     }
 }
