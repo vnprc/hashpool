@@ -294,7 +294,7 @@ impl ChannelFactory {
                 target,
                 extranonce_size: max_extranonce_size,
                 extranonce_prefix,
-                keyset: keyset.into_static(),
+                keyset: keyset.into(),
             };
             self.extended_channels.insert(channel_id, success.clone());
             let mut result = vec![Mining::OpenExtendedMiningChannelSuccess(success)];
@@ -341,7 +341,7 @@ impl ChannelFactory {
             extranonce_size,
             extranonce_prefix,
             // only called from the jd client, use a fake keyset
-            keyset: Sv2KeySet::default(),
+            keyset: Sv2KeySet::default().into(),
         };
         self.extended_channels.insert(channel_id, success.clone());
         Some(())

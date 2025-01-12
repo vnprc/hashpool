@@ -178,93 +178,92 @@ impl<'decoder> Default for Sv2SigningKey<'decoder> {
     }
 }
 
+// Wire type for inter-role communication
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Sv2KeySet<'decoder> {
+pub struct Sv2KeySetWire<'decoder> {
     pub id: u64,
     pub keys: B064K<'decoder>,
 }
 
-impl<'decoder> Sv2KeySet<'decoder> {
-    const KEY_SIZE: usize = 41;
-    const NUM_KEYS: usize = 64;
+// Domain type for in-role usage
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Sv2KeySet<'a> {
+    pub id: u64,
+    pub keys: [Sv2SigningKey<'a>; 64],
+}
 
-    /// Attempts to read 64 signing keys from the `keys` field.
-    pub fn get_signing_keys(&self) -> Result<[Sv2SigningKey<'static>; 64], binary_sv2::Error> {
-        let raw = self.keys.inner_as_ref();
+impl<'a> Sv2KeySet<'a> {
+    pub const KEY_SIZE: usize = 41;
+    pub const NUM_KEYS: usize = 64;
+}
 
-        if raw.len() != Self::KEY_SIZE * Self::NUM_KEYS {
+impl<'a> TryFrom<Sv2KeySetWire<'a>> for [Sv2SigningKey<'a>; 64] {
+    type Error = binary_sv2::Error;
+
+    fn try_from(wire: Sv2KeySetWire<'a>) -> Result<Self, Self::Error> {
+        let raw = wire.keys.inner_as_ref();
+        if raw.len() != Sv2KeySet::KEY_SIZE * Sv2KeySet::NUM_KEYS {
             return Err(binary_sv2::Error::DecodableConversionError);
         }
 
-        let mut output = array::from_fn(|_| Sv2SigningKey::default());
-
-        // Decode each 41-byte chunk into Sv2SigningKey
-        for (i, chunk) in raw.chunks(Self::KEY_SIZE).enumerate() {
-            let mut buffer = [0u8; Self::KEY_SIZE];
+        let mut keys = array::from_fn(|_| Sv2SigningKey::default());
+        for (i, chunk) in raw.chunks(Sv2KeySet::KEY_SIZE).enumerate() {
+            let mut buffer = [0u8; Sv2KeySet::KEY_SIZE];
             buffer.copy_from_slice(chunk);
-            
-            let key = Sv2SigningKey::from_bytes(&mut buffer)?;
-
-            output[i] = Sv2SigningKey {
-                amount: key.amount,
-                parity_bit: key.parity_bit,
-                pubkey: key.pubkey.into_static(),
-            };
+            keys[i] = Sv2SigningKey::from_bytes(&mut buffer)
+                .map_err(|_| binary_sv2::Error::DecodableConversionError)?
+                .into_static();
         }
-
-        Ok(output)
+        Ok(keys)
     }
+}
 
-    /// Takes an array of 64 keys, encodes them, and packs them into the `keys` field (`B064K`).
-    pub fn set_signing_keys(&mut self, keys: &[Sv2SigningKey<'_>]) -> Result<(), binary_sv2::Error> {
-        if keys.len() != Self::NUM_KEYS {
-            return Err(binary_sv2::Error::DecodableConversionError);
-        }
+impl<'a> TryFrom<&[Sv2SigningKey<'a>; 64]> for Sv2KeySetWire<'a> {
+    type Error = binary_sv2::Error;
 
-        let mut buffer = [0u8; Self::KEY_SIZE * Self::NUM_KEYS];
-
+    fn try_from(keys: &[Sv2SigningKey<'a>; 64]) -> Result<Self, Self::Error> {
+        let mut buffer = [0u8; Sv2KeySet::KEY_SIZE * Sv2KeySet::NUM_KEYS];
         for (i, key) in keys.iter().enumerate() {
-            let start = i * Self::KEY_SIZE;
-            let end = start + Self::KEY_SIZE;
-
-            let key_buf = &mut buffer[start..end];
-            let written = key.clone().to_bytes(key_buf)?;
-
-            // sanity check
-            if written != Self::KEY_SIZE {
-                return Err(binary_sv2::Error::DecodableConversionError);
-            }
+            let start = i * Sv2KeySet::KEY_SIZE;
+            let end = start + Sv2KeySet::KEY_SIZE;
+            key.clone()
+                .to_bytes(&mut buffer[start..end])
+                .map_err(|_| binary_sv2::Error::DecodableConversionError)?;
         }
+        let encoded_keys = B064K::try_from(buffer.to_vec())
+            .map_err(|_| binary_sv2::Error::DecodableConversionError)?;
 
-        self.keys = B064K::try_from(buffer.to_vec())?;
-        Ok(())
+        Ok(Sv2KeySetWire {
+            id: 0, // ID can be set later by the caller
+            keys: encoded_keys,
+        })
+    }
+}
+
+impl<'a> From<Sv2KeySet<'a>> for Sv2KeySetWire<'a> {
+    fn from(domain: Sv2KeySet<'a>) -> Self {
+        (&domain.keys).try_into()
+            .expect("Encoding keys to Sv2KeySetWire should not fail")
+    }
+}
+
+impl<'a> TryFrom<Sv2KeySetWire<'a>> for Sv2KeySet<'a> {
+    type Error = binary_sv2::Error;
+
+    fn try_from(wire: Sv2KeySetWire<'a>) -> Result<Self, Self::Error> {
+        let keys: [Sv2SigningKey<'a>; 64] = wire.clone().try_into()?;
+        Ok(Sv2KeySet {
+            id: wire.id,
+            keys,
+        })
     }
 }
 
 impl<'a> Default for Sv2KeySet<'a> {
     fn default() -> Self {
-        const KEY_SIZE: usize = 41;
-        const NUM_KEYS: usize = 64;
-
-        let mut buffer = Vec::with_capacity(KEY_SIZE * NUM_KEYS);
-
         let default_key = Sv2SigningKey::default();
-        let mut temp_buf = [0u8; KEY_SIZE];
-        default_key
-            .to_bytes(&mut temp_buf[..])
-            .expect("Failed to serialize default Sv2SigningKey");
-
-        for _ in 0..NUM_KEYS {
-            buffer.extend_from_slice(&temp_buf);
-        }
-
-        let b064k = B064K::try_from(buffer)
-            .expect("Failed to create B064K with default signing keys");
-
-        Self {
-            id: 0,
-            keys: b064k,
-        }
+        let keys = array::from_fn(|_| default_key.clone());
+        Sv2KeySet { id: 0, keys }
     }
 }
 
@@ -297,15 +296,11 @@ impl<'a> TryFrom<KeySet> for Sv2KeySet<'a> {
             return Err("Expected KeySet to have exactly 64 keys".into());
         }
 
-        let mut this = Sv2KeySet {
-            id,
-            keys: B064K::try_from(vec![0u8; 0])
-                .map_err(|e| format!("binary_sv2::Error: {:?}", e))?,
-        };
-        this.set_signing_keys(&sv2_keys)
-            .map_err(|e| format!("binary_sv2::Error: {:?}", e))?;
+        let keys: [Sv2SigningKey<'a>; 64] = sv2_keys
+            .try_into()
+            .map_err(|_| "Failed to convert Vec<Sv2SigningKey> into array")?;
 
-        Ok(this)
+        Ok(Sv2KeySet { id, keys })
     }
 }
 
@@ -315,11 +310,8 @@ impl<'a> TryFrom<Sv2KeySet<'a>> for KeySet {
     fn try_from(value: Sv2KeySet) -> Result<Self, Self::Error> {
         let id = *KeysetId::try_from(value.id)?;
 
-        let signing_keys = value.get_signing_keys()
-            .map_err(|e| format!("binary_sv2::Error: {:?}", e))?;
-
         let mut keys_map: BTreeMap<AmountStr, PublicKey> = BTreeMap::new();
-        for signing_key in signing_keys.iter() {
+        for signing_key in value.keys.iter() {
             let amount_str = AmountStr::from(Amount::from(signing_key.amount));
 
             let mut pubkey_bytes = [0u8; 33];
@@ -374,17 +366,16 @@ pub mod tests {
         use rand::Rng;
         let mut rng = rand::thread_rng();
     
-        let mut signing_keys: [Sv2SigningKey<'static>; 64] = array::from_fn(|_| get_random_signing_key());
+        let mut keys: [Sv2SigningKey<'static>; 64] = array::from_fn(|_| get_random_signing_key());
         for i in 0..64 {
-            signing_keys[i] = get_random_signing_key();
+            keys[i] = get_random_signing_key();
         }
 
-        let mut keyset = Sv2KeySet::default();
-        // TODO this is an invalid keyset_id, does it matter?
-        keyset.id = rng.gen::<u64>();
-        keyset.set_signing_keys(&signing_keys).unwrap();
-
-        keyset
+        Sv2KeySet {
+            // TODO this is an invalid keyset_id, does it matter?
+            id: rng.gen::<u64>(),
+            keys,
+        }
     }
 
     #[test]
@@ -403,22 +394,12 @@ pub mod tests {
     }
 
     #[test]
-    fn test_sv2_keyset_encode_decode() {
+    fn test_sv2_keyset_domain_to_wire_conversion() {
         let original_keyset = get_random_keyset();
-        let required_size = 8 + 2 + 64 * 41; // keyset_id + B064K length prefix + ( 64 * signing keys )
-        let mut buffer = vec![0u8; required_size];
+        let wire_keyset: Sv2KeySetWire = original_keyset.clone().into();
+        let domain_keyset: Sv2KeySet = wire_keyset.clone().try_into().unwrap();
 
-
-        let encoded_size = original_keyset.clone().to_bytes(&mut buffer).unwrap();
-        assert_eq!(encoded_size, required_size);
-
-        // decode it
-        let decoded_keyset = Sv2KeySet::from_bytes(&mut buffer).unwrap();
-        assert_eq!(original_keyset.id, decoded_keyset.id);
-
-        // Check that all 64 keys match
-        let original_keys = original_keyset.get_signing_keys().unwrap();
-        let decoded_keys = decoded_keyset.get_signing_keys().unwrap();
-        assert_eq!(original_keys, decoded_keys);
+        assert_eq!(wire_keyset.id, domain_keyset.id);
+        assert_eq!(original_keyset.keys, domain_keyset.keys);
     }
 }
