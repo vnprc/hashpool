@@ -110,7 +110,7 @@ impl<'decoder> Default for Sv2BlindedMessage<'decoder> {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Sv2BlindSignature<'decoder> {
     pub amount: u64,
     pub keyset_id: u64,
@@ -149,7 +149,6 @@ impl From<Sv2BlindSignature<'_>> for BlindSignature {
     }
 }
 
-// placeholder for now
 impl<'decoder> Default for Sv2BlindSignature<'decoder> {
     fn default() -> Self {
         Self {
@@ -158,6 +157,100 @@ impl<'decoder> Default for Sv2BlindSignature<'decoder> {
             parity_bit: false,
             blind_signature: PubKey::from([0u8; 32]),
         }
+    }
+}
+
+// Domain type for operating on blind sigs
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Sv2BlindSignatureSet<'a> {
+    // TODO add keyset ID?
+    pub signatures: [Sv2BlindSignature<'a>; 64],
+}
+
+impl<'a> Sv2BlindSignatureSet<'a> {
+    /// Each Sv2BlindSignature is encoded as:
+    ///  - 8 bytes for `amount`
+    ///  - 8 bytes for `keyset_id`
+    ///  - 1 byte for `parity_bit`
+    ///  - 32 bytes for the `blind_signature` pubkey
+    pub const SIGNATURE_SIZE: usize = 49; 
+    pub const NUM_SIGNATURES: usize = 64;
+}
+
+impl<'a> Default for Sv2BlindSignatureSet<'a> {
+    fn default() -> Self {
+        let default_sig = Sv2BlindSignature::default();
+        let signatures = core::array::from_fn(|_| default_sig.clone());
+        Sv2BlindSignatureSet { signatures }
+    }
+}
+
+// wire type for network transmission
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Sv2BlindSignatureSetWire<'decoder> {
+    // 64 * 49 = 3136 bytes total, stored in a fixed-size B064K
+    pub signatures: B064K<'decoder>,
+}
+
+impl<'a> TryFrom<Sv2BlindSignatureSetWire<'a>> for [Sv2BlindSignature<'a>; 64] {
+    type Error = binary_sv2::Error;
+
+    fn try_from(wire: Sv2BlindSignatureSetWire<'a>) -> Result<Self, Self::Error> {
+        let raw = wire.signatures.inner_as_ref();
+        let expected_len = Sv2BlindSignatureSet::SIGNATURE_SIZE * Sv2BlindSignatureSet::NUM_SIGNATURES;
+        if raw.len() != expected_len {
+            return Err(binary_sv2::Error::DecodableConversionError);
+        }
+
+        let mut out = core::array::from_fn(|_| Sv2BlindSignature::default());
+        for (i, chunk) in raw.chunks(Sv2BlindSignatureSet::SIGNATURE_SIZE).enumerate() {
+            let mut buf = [0u8; Sv2BlindSignatureSet::SIGNATURE_SIZE];
+            buf.copy_from_slice(chunk);
+
+            let sig = Sv2BlindSignature::from_bytes(&mut buf)
+                .map_err(|_| binary_sv2::Error::DecodableConversionError)?;
+
+            out[i] = sig.into_static();
+        }
+        Ok(out)
+    }
+}
+
+impl<'a> TryFrom<&[Sv2BlindSignature<'a>; 64]> for Sv2BlindSignatureSetWire<'a> {
+    type Error = binary_sv2::Error;
+
+    fn try_from(domain_sigs: &[Sv2BlindSignature<'a>; 64]) -> Result<Self, Self::Error> {
+        let mut buf = [0u8; Sv2BlindSignatureSet::SIGNATURE_SIZE * Sv2BlindSignatureSet::NUM_SIGNATURES];
+        for (i, sig) in domain_sigs.iter().enumerate() {
+            let start = i * Sv2BlindSignatureSet::SIGNATURE_SIZE;
+            let end   = start + Sv2BlindSignatureSet::SIGNATURE_SIZE;
+
+            sig.clone()
+                .to_bytes(&mut buf[start..end])
+                .map_err(|_| binary_sv2::Error::DecodableConversionError)?;
+        }
+
+        let encoded = B064K::try_from(buf.to_vec())
+            .map_err(|_| binary_sv2::Error::DecodableConversionError)?;
+
+        Ok(Sv2BlindSignatureSetWire { signatures: encoded })
+    }
+}
+
+impl<'a> From<Sv2BlindSignatureSet<'a>> for Sv2BlindSignatureSetWire<'a> {
+    fn from(domain: Sv2BlindSignatureSet<'a>) -> Self {
+        // Should never fail if you have exactly 64 signatures
+        (&domain.signatures).try_into()
+            .expect("Encoding 64 blind signatures into wire data should not fail")
+    }
+}
+
+impl<'a> TryFrom<Sv2BlindSignatureSetWire<'a>> for Sv2BlindSignatureSet<'a> {
+    type Error = binary_sv2::Error;
+
+    fn try_from(wire: Sv2BlindSignatureSetWire<'a>) -> Result<Self, Self::Error> {
+        let signatures: [Sv2BlindSignature<'a>; 64] = wire.clone().try_into()?;
+        Ok(Self { signatures })
     }
 }
 
@@ -378,6 +471,32 @@ pub mod tests {
         }
     }
 
+    fn get_random_signature() -> Sv2BlindSignature<'static> {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+
+        let mut signature_bytes = [0u8; 32];
+        rng.fill(&mut signature_bytes[..]);
+
+        Sv2BlindSignature {
+            keyset_id: rng.gen::<u64>(),
+            amount: rng.gen::<u64>(),
+            blind_signature: PubKey::from_bytes(&mut signature_bytes).unwrap().into_static(),
+            parity_bit: rng.gen(),
+        }
+    }
+
+    fn get_random_sigset() -> Sv2BlindSignatureSet<'static> {
+        let mut sigs: [Sv2BlindSignature<'static>; 64] = array::from_fn(|_| get_random_signature());
+        for i in 0..64 {
+            sigs[i] = get_random_signature();
+        }
+
+        Sv2BlindSignatureSet {
+            signatures: sigs,
+        }
+    }
+
     #[test]
     fn test_sv2_signing_key_encode_decode() {
         let original_key = get_random_signing_key();
@@ -394,12 +513,23 @@ pub mod tests {
     }
 
     #[test]
-    fn test_sv2_keyset_domain_to_wire_conversion() {
+    fn test_sv2_keyset_domain_wire_conversion() {
         let original_keyset = get_random_keyset();
         let wire_keyset: Sv2KeySetWire = original_keyset.clone().into();
         let domain_keyset: Sv2KeySet = wire_keyset.clone().try_into().unwrap();
 
         assert_eq!(wire_keyset.id, domain_keyset.id);
         assert_eq!(original_keyset.keys, domain_keyset.keys);
+    }
+
+    #[test]
+    fn test_sv2_blind_sig_set_domain_wire_conversion() {
+        let original_sigset = get_random_sigset();
+        let wire_sigset: Sv2BlindSignatureSet = original_sigset.clone().into();
+        let domain_sigset: Sv2BlindSignatureSet = wire_sigset.clone().try_into().unwrap();
+
+        // TODO prolly need to add keyset id for easy validation
+        // assert_eq!(wire_sigset.id, domain_keyset.id);
+        assert_eq!(original_sigset.signatures, domain_sigset.signatures);
     }
 }
