@@ -1,5 +1,5 @@
 use super::super::mining_pool::Downstream;
-use cashu::{Sv2BlindSignature, Sv2BlindedMessage};
+use cashu::{KeysetId, Sv2BlindSignature, Sv2BlindSignatureSet, Sv2BlindSignatureSetWire, Sv2BlindedMessage};
 use cdk::nuts::{BlindSignature, BlindedMessage};
 use roles_logic_sv2::{
     errors::Error,
@@ -133,7 +133,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         new_shares_sum: 0,
                         // initialize to all zeros, will be updated later
                         hash: [0u8; 32].into(),
-                        blind_signature: Sv2BlindSignature::default(),
+                        blind_signatures: Sv2BlindSignatureSetWire::default(),
                     };
 
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
@@ -147,7 +147,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         new_shares_sum: 0,
                         // initialize to all zeros, will be updated later
                         hash: [0u8; 32].into(),
-                        blind_signature: Sv2BlindSignature::default(),
+                        blind_signatures: Sv2BlindSignatureSetWire::default(),
                     };
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
                 },
@@ -192,7 +192,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         last_sequence_number: m.sequence_number,
                         new_submits_accepted_count: 1,
                         new_shares_sum: 0,
-                        blind_signature: blinded_signature.into(),
+                        blind_signatures: cashu::convert_to_sv2_sigset_wire(blinded_signature),
                         // TODO is this ownership hack fixable?
                         hash: m.hash.inner_as_ref().to_owned().try_into()?,
                     };
@@ -210,7 +210,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         last_sequence_number: m.sequence_number,
                         new_submits_accepted_count: 1,
                         new_shares_sum: 0,
-                        blind_signature: blinded_signature.into(),
+                        blind_signatures: cashu::convert_to_sv2_sigset_wire(blinded_signature),
                         // TODO is this ownership hack fixable?
                         hash: m.hash.inner_as_ref().to_owned().try_into()?,
                     };

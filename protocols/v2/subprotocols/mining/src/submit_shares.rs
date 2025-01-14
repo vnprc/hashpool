@@ -5,7 +5,7 @@ use binary_sv2::binary_codec_sv2;
 use binary_sv2::{Deserialize, PubKey, Serialize, Str0255, B032};
 #[cfg(not(feature = "with_serde"))]
 use core::convert::TryInto;
-use crate::cashu::{Sv2BlindSignature, Sv2BlindedMessage};
+use crate::cashu::{Sv2BlindSignature, Sv2BlindSignatureSetWire, Sv2BlindedMessage};
 
 /// Message used by downstream to send result of its hashing work to an upstream.
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -94,7 +94,7 @@ pub struct SubmitSharesSuccess<'decoder> {
     pub hash: PubKey<'decoder>,
     // TODO we can't aggregate success messages without including all the blinded signatures
     /// blind signature
-    pub blind_signature: Sv2BlindSignature<'decoder>,
+    pub blind_signatures: Sv2BlindSignatureSetWire<'decoder>,
 }
 
 /// Message used by upstream to reject [`SubmitSharesStandard`] or [`SubmitSharesExtended`].

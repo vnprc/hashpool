@@ -15,7 +15,7 @@ use cdk::{nuts::{BlindSignature, KeySet}, wallet::Wallet};
 use codec_sv2::{HandshakeRole, Initiator};
 use error_handling::handle_result;
 use key_utils::Secp256k1PublicKey;
-use mining_sv2::cashu::{Sv2KeySet, Sv2KeySetWire};
+use mining_sv2::cashu::{self, Sv2KeySet, Sv2KeySetWire};
 use network_helpers_sv2::Connection;
 use roles_logic_sv2::{
     common_messages_sv2::{Protocol, SetupConnection},
@@ -755,14 +755,14 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
         m: roles_logic_sv2::mining_sv2::SubmitSharesSuccess,
     ) -> Result<roles_logic_sv2::handlers::mining::SendTo<Downstream>, RolesLogicError> {
         let wallet = self.wallet.clone();
-        let blind_signature = m.blind_signature;
+        let blind_signatures = m.blind_signatures;
         // TODO is it better to recalculate this value from the share or to pass it over the wire?
         let share_hash = m.hash.to_vec().to_hex();
         
         let result = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(
                 wallet.gen_ehash_proofs(
-                    BlindSignature::from(blind_signature),
+                    cashu::extract_blind_signature_from_sv2_wire(blind_signatures.as_static()),
                     &share_hash,
                 ),
             )
