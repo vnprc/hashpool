@@ -24,7 +24,7 @@ use super::super::{
 use error_handling::handle_result;
 use roles_logic_sv2::{channel_logic::channel_factory::OnNewShare, Error as RolesLogicError};
 use tracing::{debug, error, info, warn};
-use mining_sv2::cashu::{Sv2BlindedMessage, Sv2KeySet};
+use mining_sv2::cashu::{Sv2BlindedMessage, Sv2BlindedMessageSetWire, Sv2KeySet};
 
 // TODO consolidate these constants with the same constants in roles/pool/src/lib/mod.rs
 pub const HASH_CURRENCY_UNIT: &str = "HASH";
@@ -279,9 +279,8 @@ impl Bridge {
 
                         let secret = premint_secrets.secrets.first().unwrap();
 
-                        share.blinded_message = Sv2BlindedMessage::from(secret.blinded_message.clone());
+                        share.blinded_messages = mining_sv2::cashu::convert_to_sv2_msgset_wire(secret.blinded_message.clone());
     
-                        debug!("share.blinded_message: {:?}", share.blinded_message);
                         tx_sv2_submit_shares_ext.send(share).await?;
                     }
                     // We are in an extended channel; shares are extended
@@ -375,7 +374,7 @@ impl Bridge {
             extranonce: extranonce2.try_into()?,
             // initialize to all zeros, will be updated later
             hash: [0u8; 32].into(),
-            blinded_message: Sv2BlindedMessage::default(),
+            blinded_messages: Sv2BlindedMessageSetWire::default(),
         })
     }
 

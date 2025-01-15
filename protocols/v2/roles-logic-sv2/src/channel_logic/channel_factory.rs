@@ -8,7 +8,7 @@ use crate::{
 };
 
 use mining_sv2::{
-    cashu::{Sv2BlindedMessage, Sv2KeySet}, ExtendedExtranonce, NewExtendedMiningJob, NewMiningJob, OpenExtendedMiningChannelSuccess, OpenMiningChannelError, OpenStandardMiningChannelSuccess, SetCustomMiningJob, SetCustomMiningJobSuccess, SetNewPrevHash, SubmitSharesError, SubmitSharesExtended, SubmitSharesStandard, Target
+    cashu::{Sv2BlindedMessage, Sv2BlindedMessageSetWire, Sv2KeySet}, ExtendedExtranonce, NewExtendedMiningJob, NewMiningJob, OpenExtendedMiningChannelSuccess, OpenMiningChannelError, OpenStandardMiningChannelSuccess, SetCustomMiningJob, SetCustomMiningJobSuccess, SetNewPrevHash, SubmitSharesError, SubmitSharesExtended, SubmitSharesStandard, Target
 };
 
 use nohash_hasher::BuildNoHashHasher;
@@ -88,7 +88,7 @@ impl OnNewShare {
                         extranonce: extranonce.try_into().unwrap(),
                         // initialize to all zeros, will be updated later
                         hash: [0u8; 32].into(),
-                        blinded_message: Sv2BlindedMessage::default(),
+                        blinded_messages: Sv2BlindedMessageSetWire::default(),
                     };
                     *self = Self::SendSubmitShareUpstream((Share::Extended(share), *template_id));
                 }
@@ -107,7 +107,7 @@ impl OnNewShare {
                         extranonce: extranonce.try_into().unwrap(),
                         // initialize to all zeros, will be updated later
                         hash: [0u8; 32].into(),
-                        blinded_message: Sv2BlindedMessage::default(),
+                        blinded_messages: Sv2BlindedMessageSetWire::default(),
                     };
                     *self = Self::ShareMeetBitcoinTarget((
                         Share::Extended(share),

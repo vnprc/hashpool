@@ -184,7 +184,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         while self.solution_sender.try_send(solution.clone()).is_err() {};
                     }
 
-                    let blinded_message: BlindedMessage = m.blinded_message.into();
+                    let blinded_message: BlindedMessage = cashu::extract_blinded_msg_from_sv2_wire(m.blinded_messages.into_static());
                     let blinded_signature = self.get_blinded_signature(&blinded_message);
 
                     let success = SubmitSharesSuccess {
@@ -202,7 +202,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                 },
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetDownstreamTarget => {
 
-                    let blinded_message: BlindedMessage = m.blinded_message.into();
+                    let blinded_message: BlindedMessage = cashu::extract_blinded_msg_from_sv2_wire(m.blinded_messages.into_static());
                     let blinded_signature = self.get_blinded_signature(&blinded_message);
 
                     let success = SubmitSharesSuccess {

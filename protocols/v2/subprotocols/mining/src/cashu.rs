@@ -59,54 +59,191 @@ impl std::ops::Deref for KeysetId {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Sv2BlindedMessage<'decoder> {
-    pub amount: u64,
-    pub keyset_id: u64,
     pub parity_bit: bool,
     pub blinded_secret: PubKey<'decoder>,
-    // optional field, skip for now
-    // pub witness: Option<Witness>,
-}
-
-impl From<BlindedMessage> for Sv2BlindedMessage<'_> {
-    fn from(msg: BlindedMessage) -> Self {
-        let blinded_secret_bytes = msg.blinded_secret.to_bytes();
-        Self {
-            amount: msg.amount.into(),
-            keyset_id: KeysetId(msg.keyset_id).into(),
-            parity_bit: blinded_secret_bytes[0] == 0x03,
-            // unwrap is safe because blinded_secret is guaranteed to be 33 bytes
-            blinded_secret: PubKey::from(<[u8; 32]>::try_from(&blinded_secret_bytes[1..]).unwrap()),
-        }
-    }
-}
-
-impl From<Sv2BlindedMessage<'_>> for BlindedMessage {
-    fn from(msg: Sv2BlindedMessage) -> Self {
-        let mut pubkey_bytes = [0u8; 33];
-        pubkey_bytes[0] = if msg.parity_bit { 0x03 } else { 0x02 };
-        // copy_from_slice is safe because blinded_secret is guaranteed to be 32 bytes
-        pubkey_bytes[1..].copy_from_slice(&msg.blinded_secret.inner_as_ref());
-
-        BlindedMessage {
-            amount: msg.amount.into(),
-            keyset_id: *KeysetId::try_from(msg.keyset_id).unwrap(),
-            blinded_secret: cdk::nuts::PublicKey::from_slice(&pubkey_bytes).unwrap(),
-            witness: None,
-        }
-    }
 }
 
 // used for initialization
 impl<'decoder> Default for Sv2BlindedMessage<'decoder> {
     fn default() -> Self {
         Self {
-            amount: 0,
-            keyset_id: 0,
             parity_bit: false,
             blinded_secret: PubKey::from([0u8; 32]),
         }
+    }
+}
+
+pub trait FromSv2BlindedMessage {
+    fn from_sv2_blinded_message(
+        msg: Sv2BlindedMessage,
+        keyset_id: cdk::nuts::nut02::Id,
+        amount: Amount,
+    ) -> Self;
+}
+
+impl FromSv2BlindedMessage for BlindedMessage {
+    fn from_sv2_blinded_message(
+        sv2_msg: Sv2BlindedMessage,
+        keyset_id: cdk::nuts::nut02::Id,
+        amount: Amount,
+    ) -> Self {
+        let mut pubkey_bytes = [0u8; 33];
+        pubkey_bytes[0] = if sv2_msg.parity_bit { 0x03 } else { 0x02 };
+        pubkey_bytes[1..].copy_from_slice(&sv2_msg.blinded_secret.inner_as_ref());
+
+        BlindedMessage {
+            amount,
+            keyset_id,
+            blinded_secret: cdk::nuts::PublicKey::from_slice(&pubkey_bytes)
+                .expect("Invalid pubkey bytes"),
+            witness: None,
+        }
+    }
+}
+
+pub fn to_sv2_blinded_message(domain_msg: &BlindedMessage) -> Sv2BlindedMessage<'static> {
+    let mut pubkey_bytes = domain_msg.blinded_secret.to_bytes();
+    let parity_bit = pubkey_bytes[0] == 0x03;
+
+    // Construct an Sv2BlindedMessage without amount/keyset
+    Sv2BlindedMessage {
+        parity_bit,
+        // strip off the first byte, used to store parity
+        blinded_secret: PubKey::from_bytes(&mut pubkey_bytes[1..])
+            .expect("Invalid pubkey data")
+            .into_static(),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlindedMessageSet {
+    pub keyset_id: u64,
+    pub messages: [BlindedMessage; 64],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Sv2BlindedMessageSet<'a> {
+    pub keyset_id: u64,
+    pub messages: [Sv2BlindedMessage<'a>; 64],
+}
+
+impl<'a> Sv2BlindedMessageSet<'a> {
+    pub const MESSAGE_SIZE: usize = 33;
+    pub const NUM_MESSAGES: usize = 64;
+}
+
+impl<'a> Default for Sv2BlindedMessageSet<'a> {
+    fn default() -> Self {
+        let default_msg = Sv2BlindedMessage {
+            parity_bit: false,
+            blinded_secret: PubKey::from([0u8; 32]),
+        };
+        Self {
+            keyset_id: 0,
+            messages: core::array::from_fn(|_| default_msg.clone()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Sv2BlindedMessageSetWire<'decoder> {
+    pub keyset_id: u64,
+    pub messages: B064K<'decoder>,
+}
+
+impl<'a> Default for Sv2BlindedMessageSetWire<'a> {
+    fn default() -> Self {
+        Self {
+            keyset_id: 0,
+            messages: B064K::Owned(Vec::new()),
+        }
+    }
+}
+
+impl From<BlindedMessageSet> for Sv2BlindedMessageSet<'static> {
+    fn from(domain_set: BlindedMessageSet) -> Self {
+        let messages = core::array::from_fn(|i| {
+            to_sv2_blinded_message(&domain_set.messages[i])
+        });
+
+        Sv2BlindedMessageSet {
+            keyset_id: domain_set.keyset_id,
+            messages,
+        }
+    }
+}
+
+impl From<Sv2BlindedMessageSet<'_>> for BlindedMessageSet {
+    fn from(sv2_set: Sv2BlindedMessageSet) -> Self {
+        let keyset_id_obj = KeysetId::try_from(sv2_set.keyset_id)
+            .expect("Could not convert keyset_id to domain type");
+
+        let messages = core::array::from_fn(|i| {
+            // amount is set to powers of 2 based on array index
+            let amount = Amount::from(2^(i as u64));
+            BlindedMessage::from_sv2_blinded_message(
+                sv2_set.messages[i].clone(),
+                *keyset_id_obj,  // Deref KeysetId to cdk::nuts::nut02::Id
+                amount,
+            )
+        });
+
+        BlindedMessageSet {
+            keyset_id: sv2_set.keyset_id,
+            messages,
+        }
+    }
+}
+
+impl<'a> From<Sv2BlindedMessageSet<'a>> for Sv2BlindedMessageSetWire<'a> {
+    fn from(domain: Sv2BlindedMessageSet<'a>) -> Self {
+        let mut buffer = vec![0u8; Sv2BlindedMessageSet::MESSAGE_SIZE * Sv2BlindedMessageSet::NUM_MESSAGES];
+        for (i, msg) in domain.messages.iter().enumerate() {
+            let start = i * Sv2BlindedMessageSet::MESSAGE_SIZE;
+            let end = start + Sv2BlindedMessageSet::MESSAGE_SIZE;
+            msg.clone()
+                .to_bytes(&mut buffer[start..end])
+                .expect("Encoding of Sv2BlindedMessage should not fail");
+        }
+
+        let b064k = B064K::try_from(buffer)
+            .expect("Encoding 64 blinded messages into wire data should not fail");
+
+        Sv2BlindedMessageSetWire {
+            keyset_id: domain.keyset_id,
+            messages: b064k,
+        }
+    }
+}
+
+impl<'a> TryFrom<Sv2BlindedMessageSetWire<'a>> for Sv2BlindedMessageSet<'a> {
+    type Error = binary_sv2::Error;
+
+    fn try_from(wire: Sv2BlindedMessageSetWire<'a>) -> Result<Self, Self::Error> {
+        let raw = wire.messages.inner_as_ref();
+        let expected_len = Sv2BlindedMessageSet::MESSAGE_SIZE * Sv2BlindedMessageSet::NUM_MESSAGES;
+        if raw.len() != expected_len {
+            return Err(binary_sv2::Error::DecodableConversionError);
+        }
+
+        let mut msgs = core::array::from_fn(|_| Sv2BlindedMessage::default());
+        for (i, chunk) in raw.chunks(Sv2BlindedMessageSet::MESSAGE_SIZE).enumerate() {
+            let mut buf = [0u8; Sv2BlindedMessageSet::MESSAGE_SIZE];
+            buf.copy_from_slice(chunk);
+
+            let parsed = Sv2BlindedMessage::from_bytes(&mut buf)
+                .map_err(|_| binary_sv2::Error::DecodableConversionError)?
+                .into_static();
+
+            msgs[i] = parsed;
+        }
+
+        Ok(Sv2BlindedMessageSet {
+            keyset_id: wire.keyset_id,
+            messages: msgs,
+        })
     }
 }
 
@@ -455,7 +592,19 @@ impl<'a> IntoB032<'a> for [u8; 32] {
     }
 }
 
-// TODO delete this function when we're converted fully to domain and wire set structs
+fn index_to_amount(index: usize) -> u64 {
+    1u64 << index
+}
+
+fn amount_to_index(amount: u64) -> usize {
+    // check if amount value is a non-zero power of 2
+    if amount == 0 || amount.count_ones() != 1 {
+        panic!("invalid amount {}", amount);
+    }
+    amount.trailing_zeros() as usize
+}
+
+// TODO delete the following functions when we're converted fully to domain and wire set structs
 pub fn convert_to_sv2_sigset_wire(
     blinded_signature: BlindSignature,
 ) -> Sv2BlindSignatureSetWire<'static> {
@@ -521,12 +670,76 @@ pub fn extract_blind_signature_from_sv2_wire(
     }
 }
 
+pub fn convert_to_sv2_msgset_wire(
+    blinded_msg: BlindedMessage,
+) -> Sv2BlindedMessageSetWire<'static> {
+    use core::array::from_fn;
+
+    // Convert the `BlindSignature` to `Sv2BlindSignature`
+    let mut pubkey_bytes = [0u8; 33];
+    pubkey_bytes[0] = if blinded_msg.blinded_secret.to_bytes()[0] == 0x03 { 0x03 } else { 0x02 };
+    pubkey_bytes[1..].copy_from_slice(&blinded_msg.blinded_secret.to_bytes()[1..]);
+
+    let sv2_blind_msg = Sv2BlindedMessage {
+        parity_bit: pubkey_bytes[0] == 0x03,
+        blinded_secret: PubKey::from_bytes(&mut pubkey_bytes[1..])
+            .expect("Invalid public key bytes")
+            .into_static(),
+    };
+
+    // Create an array of default signatures, replacing the first with the converted one
+    let sv2_msgs = from_fn(|i| {
+        if i == 0 {
+            sv2_blind_msg.clone()
+        } else {
+            Sv2BlindedMessage::default()
+        }
+    });
+
+    // Create the `Sv2BlindSignatureSet`
+    let sv2_blinded_msg_set = Sv2BlindedMessageSet {
+        keyset_id: KeysetId(blinded_msg.keyset_id).into(),
+        messages: sv2_msgs,
+    };
+
+    // Convert the `Sv2BlindSignatureSet` to `Sv2BlindSignatureSetWire`
+    Sv2BlindedMessageSetWire::from(sv2_blinded_msg_set)
+}
+
+pub fn extract_blinded_msg_from_sv2_wire(
+    wire: Sv2BlindedMessageSetWire<'static>,
+) -> BlindedMessage {
+    // Convert `Sv2BlindSignatureSetWire` to `Sv2BlindSignatureSet`
+    let sv2_blinded_msg_set: Sv2BlindedMessageSet = wire.try_into().ok()
+        .expect("error extracting blind msg from domain set wire");
+
+    // Extract the first signature
+    let sv2_msg = sv2_blinded_msg_set.messages.get(0)
+        .expect("error extracting blind msg from domain set wire");
+
+    // Convert the first `Sv2BlindSignature` back to `BlindSignature`
+    let mut pubkey_bytes = [0u8; 33];
+    pubkey_bytes[0] = if sv2_msg.parity_bit { 0x03 } else { 0x02 };
+    pubkey_bytes[1..].copy_from_slice(&sv2_msg.blinded_secret.inner_as_ref());
+
+    let keyset_id = *KeysetId::try_from(sv2_blinded_msg_set.keyset_id)
+        .expect("error converting keyset from u64 to Id");
+
+    BlindedMessage {
+        amount: 0.into(), // Set the amount to a placeholder value as it is not provided
+        keyset_id,
+        blinded_secret: cdk::nuts::PublicKey::from_slice(&pubkey_bytes).ok()
+            .expect("error extracting blind sig from domain set wire"),
+        witness: None,
+    }
+}
+
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use rand::Rng;
 
     fn get_random_signing_key() -> Sv2SigningKey<'static> {
-        use rand::Rng;
         let mut rng = rand::thread_rng();
 
         let mut pubkey_bytes = [0u8; 32];
@@ -540,7 +753,6 @@ pub mod tests {
     }
 
     fn get_random_keyset() -> Sv2KeySet<'static> {
-        use rand::Rng;
         let mut rng = rand::thread_rng();
     
         let mut keys: [Sv2SigningKey<'static>; 64] = array::from_fn(|_| get_random_signing_key());
@@ -556,7 +768,6 @@ pub mod tests {
     }
 
     fn get_random_signature() -> Sv2BlindSignature<'static> {
-        use rand::Rng;
         let mut rng = rand::thread_rng();
 
         let mut signature_bytes = [0u8; 32];
@@ -569,7 +780,6 @@ pub mod tests {
     }
 
     fn get_random_sigset() -> Sv2BlindSignatureSet<'static> {
-        use rand::Rng;
         let mut rng = rand::thread_rng();
 
         let mut sigs: [Sv2BlindSignature<'static>; 64] = array::from_fn(|_| get_random_signature());
@@ -580,6 +790,32 @@ pub mod tests {
         Sv2BlindSignatureSet {
             keyset_id: rng.gen::<u64>(),
             signatures: sigs,
+        }
+    }
+
+    fn get_random_blinded_message() -> Sv2BlindedMessage<'static> {
+        let mut rng = rand::thread_rng();
+
+        let mut pubkey_bytes = [0u8; 32];
+        rng.fill(&mut pubkey_bytes[..]);
+
+        Sv2BlindedMessage {
+            blinded_secret: PubKey::from_bytes(&mut pubkey_bytes).unwrap().into_static(),
+            parity_bit: rng.gen(),
+        }
+    }
+
+    fn get_random_msgset() -> Sv2BlindedMessageSet<'static> {
+        let mut rng = rand::thread_rng();
+
+        let mut messages: [Sv2BlindedMessage<'static>; 64] = array::from_fn(|_| get_random_blinded_message());
+        for i in 0..64 {
+            messages[i] = get_random_blinded_message();
+        }
+
+        Sv2BlindedMessageSet {
+            keyset_id: rng.gen::<u64>(),
+            messages,
         }
     }
 
@@ -616,5 +852,15 @@ pub mod tests {
 
         assert_eq!(wire_sigset.keyset_id, domain_sigset.keyset_id);
         assert_eq!(original_sigset.signatures, domain_sigset.signatures);
+    }
+
+    #[test]
+    fn test_sv2_blinded_msg_set_domain_wire_conversion() {
+        let original_msgset = get_random_msgset();
+        let wire_msgset: Sv2BlindedMessageSetWire = original_msgset.clone().into();
+        let domain_msgset: Sv2BlindedMessageSet = wire_msgset.clone().try_into().unwrap();
+
+        assert_eq!(wire_msgset.keyset_id, domain_msgset.keyset_id);
+        assert_eq!(original_msgset.messages, domain_msgset.messages);
     }
 }
