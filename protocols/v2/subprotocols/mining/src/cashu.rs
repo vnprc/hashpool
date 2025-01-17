@@ -1,4 +1,4 @@
-use cdk::{amount::{Amount, AmountStr}, nuts::{BlindSignature, BlindedMessage, CurrencyUnit, KeySet, PublicKey}};
+use cdk::{amount::{Amount, AmountStr}, nuts::{BlindSignature, BlindedMessage, CurrencyUnit, KeySet, PreMintSecrets, PublicKey}};
 use core::array;
 use std::{collections::BTreeMap, convert::{TryFrom, TryInto}};
 pub use std::error::Error;
@@ -93,11 +93,13 @@ impl FromSv2BlindedMessage for BlindedMessage {
         pubkey_bytes[0] = if sv2_msg.parity_bit { 0x03 } else { 0x02 };
         pubkey_bytes[1..].copy_from_slice(&sv2_msg.blinded_secret.inner_as_ref());
 
+        let blinded_secret = cdk::nuts::PublicKey::from_slice(&pubkey_bytes)
+            .expect("Invalid pubkey bytes");
+
         BlindedMessage {
             amount,
             keyset_id,
-            blinded_secret: cdk::nuts::PublicKey::from_slice(&pubkey_bytes)
-                .expect("Invalid pubkey bytes"),
+            blinded_secret,
             witness: None,
         }
     }
@@ -120,7 +122,29 @@ pub fn to_sv2_blinded_message(domain_msg: &BlindedMessage) -> Sv2BlindedMessage<
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlindedMessageSet {
     pub keyset_id: u64,
-    pub messages: [BlindedMessage; 64],
+    pub messages: [Option<BlindedMessage>; 64],
+}
+
+impl TryFrom<PreMintSecrets> for BlindedMessageSet {
+    type Error = binary_sv2::Error;
+
+    fn try_from(pre_mint_secrets: PreMintSecrets) -> Result<Self, Self::Error> {
+        let mut messages: [Option<BlindedMessage>; 64] = core::array::from_fn(|_| None);
+
+        for pre_mint in &pre_mint_secrets.secrets {
+            let index = amount_to_index(pre_mint.amount.into());
+            if messages[index].is_some() {
+                // TODO use better error
+                return Err(binary_sv2::Error::DecodableConversionError);
+            }
+            messages[index] = Some(pre_mint.blinded_message.clone());
+        }
+
+        Ok(BlindedMessageSet {
+            keyset_id: u64::from(KeysetId(pre_mint_secrets.keyset_id)),
+            messages,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,7 +189,9 @@ impl<'a> Default for Sv2BlindedMessageSetWire<'a> {
 impl From<BlindedMessageSet> for Sv2BlindedMessageSet<'static> {
     fn from(domain_set: BlindedMessageSet) -> Self {
         let messages = core::array::from_fn(|i| {
-            to_sv2_blinded_message(&domain_set.messages[i])
+            domain_set.messages[i]
+                .as_ref()
+                .map_or(Sv2BlindedMessage::default(), |msg| to_sv2_blinded_message(msg))
         });
 
         Sv2BlindedMessageSet {
@@ -183,11 +209,15 @@ impl From<Sv2BlindedMessageSet<'_>> for BlindedMessageSet {
         let messages = core::array::from_fn(|i| {
             // amount is set to powers of 2 based on array index
             let amount = Amount::from(2^(i as u64));
-            BlindedMessage::from_sv2_blinded_message(
-                sv2_set.messages[i].clone(),
-                *keyset_id_obj,  // Deref KeysetId to cdk::nuts::nut02::Id
-                amount,
-            )
+            if sv2_set.messages[i] == Sv2BlindedMessage::default() {
+                None
+            } else {
+                Some(BlindedMessage::from_sv2_blinded_message(
+                    sv2_set.messages[i].clone(),
+                    *keyset_id_obj,
+                    amount,
+                ))
+            }
         });
 
         BlindedMessageSet {
@@ -658,23 +688,6 @@ pub fn extract_blind_signature_from_sv2_wire(
     }
 
     panic!("No valid blind signature found");
-}
-
-pub fn convert_to_sv2_msgset_wire(
-    blinded_msg: BlindedMessage,
-) -> Sv2BlindedMessageSetWire<'static> {
-    let mut messages = core::array::from_fn(|_| Sv2BlindedMessage::default());
-
-    // Determine the index for the given amount
-    let index = amount_to_index(u64::from(blinded_msg.amount));
-    messages[index] = to_sv2_blinded_message(&blinded_msg);
-
-    let sv2_msg_set = Sv2BlindedMessageSet {
-        keyset_id: KeysetId(blinded_msg.keyset_id).into(),
-        messages,
-    };
-
-    Sv2BlindedMessageSetWire::from(sv2_msg_set)
 }
 
 pub fn extract_blinded_msg_from_sv2_wire(

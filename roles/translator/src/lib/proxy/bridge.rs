@@ -24,7 +24,7 @@ use super::super::{
 use error_handling::handle_result;
 use roles_logic_sv2::{channel_logic::channel_factory::OnNewShare, Error as RolesLogicError};
 use tracing::{debug, error, info, warn};
-use mining_sv2::cashu::{Sv2BlindedMessageSetWire, Sv2KeySet};
+use mining_sv2::cashu::{BlindedMessageSet, Sv2BlindedMessageSet, Sv2BlindedMessageSetWire, Sv2KeySet};
 
 /// Bridge between the SV2 `Upstream` and SV1 `Downstream` responsible for the following messaging
 /// translation:
@@ -263,7 +263,7 @@ impl Bridge {
                 match share {
                     Share::Extended(mut share) => {
                         let premint_secrets = self_.safe_lock(|bridge| {
-                            match bridge.create_blinded_secret(&share) {
+                            match bridge.create_blinded_secrets(&share) {
                                 Ok(secrets) => secrets,
                                 Err(e) => {
                                     println!("Failed to create blinded secret: {:?}", e);
@@ -273,9 +273,17 @@ impl Bridge {
                             }
                         })?;
 
-                        let secret = premint_secrets.secrets.first().unwrap();
+                        let blinded_message_set = match BlindedMessageSet::try_from(premint_secrets) {
+                            Ok(set) => set,
+                            Err(e) => {
+                                error!("BlindedMessageSet conversion failed: {:?}", e);
+                                return Ok(());
+                            }
+                        };
+                        let sv2_blinded_message_set= Sv2BlindedMessageSet::from(blinded_message_set);
+                        let sv2_blinded_message_set_wire = Sv2BlindedMessageSetWire::from(sv2_blinded_message_set);
 
-                        share.blinded_messages = mining_sv2::cashu::convert_to_sv2_msgset_wire(secret.blinded_message.clone());
+                        share.blinded_messages = sv2_blinded_message_set_wire;
     
                         tx_sv2_submit_shares_ext.send(share).await?;
                     }
@@ -302,7 +310,7 @@ impl Bridge {
         Ok(())
     }
 
-    fn create_blinded_secret(
+    fn create_blinded_secrets(
         &mut self,
         share: &SubmitSharesExtended,
     ) -> Result<cdk::nuts::PreMintSecrets, Error<'static>> {
