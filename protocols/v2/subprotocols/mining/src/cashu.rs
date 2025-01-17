@@ -608,130 +608,95 @@ fn amount_to_index(amount: u64) -> usize {
 pub fn convert_to_sv2_sigset_wire(
     blinded_signature: BlindSignature,
 ) -> Sv2BlindSignatureSetWire<'static> {
-    use core::array::from_fn;
+    let mut signatures = core::array::from_fn(|_| Sv2BlindSignature::default());
 
-    // Convert the `BlindSignature` to `Sv2BlindSignature`
+    // Determine the index for the given amount
+    let index = amount_to_index(u64::from(blinded_signature.amount));
     let mut pubkey_bytes = [0u8; 33];
     pubkey_bytes[0] = if blinded_signature.c.to_bytes()[0] == 0x03 { 0x03 } else { 0x02 };
     pubkey_bytes[1..].copy_from_slice(&blinded_signature.c.to_bytes()[1..]);
 
-    let sv2_blind_signature = Sv2BlindSignature {
+    signatures[index] = Sv2BlindSignature {
         parity_bit: pubkey_bytes[0] == 0x03,
         blind_signature: PubKey::from_bytes(&mut pubkey_bytes[1..])
             .expect("Invalid public key bytes")
             .into_static(),
     };
 
-    // Create an array of default signatures, replacing the first with the converted one
-    let sv2_signatures = from_fn(|i| {
-        if i == 0 {
-            sv2_blind_signature.clone()
-        } else {
-            Sv2BlindSignature::default()
-        }
-    });
-
-    // Create the `Sv2BlindSignatureSet`
-    let sv2_signature_set = Sv2BlindSignatureSet {
+    let sv2_sig_set = Sv2BlindSignatureSet {
         keyset_id: KeysetId(blinded_signature.keyset_id).into(),
-        signatures: sv2_signatures,
+        signatures,
     };
 
-    // Convert the `Sv2BlindSignatureSet` to `Sv2BlindSignatureSetWire`
-    Sv2BlindSignatureSetWire::from(sv2_signature_set)
+    Sv2BlindSignatureSetWire::from(sv2_sig_set)
 }
 
 //TODO delete this function when we're converted fully to domain and wire set structs
 pub fn extract_blind_signature_from_sv2_wire(
     wire: Sv2BlindSignatureSetWire<'static>,
 ) -> BlindSignature {
-    // Convert `Sv2BlindSignatureSetWire` to `Sv2BlindSignatureSet`
-    let sv2_signature_set: Sv2BlindSignatureSet = wire.try_into().ok()
-        .expect("error extracting blind sig from domain set wire");
+    let sv2_sig_set: Sv2BlindSignatureSet = wire.try_into().expect("Invalid wire format");
+    let keyset_id = KeysetId::try_from(sv2_sig_set.keyset_id)
+        .expect("Invalid keyset ID");
 
-    // Extract the first signature
-    let sv2_signature = sv2_signature_set.signatures.get(0)
-        .expect("error extracting blind sig from domain set wire");
+    // Find the first non-default signature
+    for (index, sv2_sig) in sv2_sig_set.signatures.iter().enumerate() {
+        if *sv2_sig != Sv2BlindSignature::default() {
+            let amount = index_to_amount(index);
+            let mut pubkey_bytes = [0u8; 33];
+            pubkey_bytes[0] = if sv2_sig.parity_bit { 0x03 } else { 0x02 };
+            pubkey_bytes[1..].copy_from_slice(&sv2_sig.blind_signature.inner_as_ref());
 
-    // Convert the first `Sv2BlindSignature` back to `BlindSignature`
-    let mut pubkey_bytes = [0u8; 33];
-    pubkey_bytes[0] = if sv2_signature.parity_bit { 0x03 } else { 0x02 };
-    pubkey_bytes[1..].copy_from_slice(&sv2_signature.blind_signature.inner_as_ref());
-
-    let keyset_id = *KeysetId::try_from(sv2_signature_set.keyset_id)
-        .expect("error converting keyset from u64 to Id");
-
-    BlindSignature {
-        amount: 0.into(), // Set the amount to a placeholder value as it is not provided
-        keyset_id,
-        c: cdk::nuts::PublicKey::from_slice(&pubkey_bytes).ok()
-            .expect("error extracting blind sig from domain set wire"),
-        dleq: None, // Set dleq to None as it is not provided
+            return BlindSignature {
+                amount: amount.into(),
+                keyset_id: *keyset_id,
+                c: cdk::nuts::PublicKey::from_slice(&pubkey_bytes)
+                    .expect("Invalid public key bytes"),
+                dleq: None,
+            };
+        }
     }
+
+    panic!("No valid blind signature found");
 }
 
 pub fn convert_to_sv2_msgset_wire(
     blinded_msg: BlindedMessage,
 ) -> Sv2BlindedMessageSetWire<'static> {
-    use core::array::from_fn;
+    let mut messages = core::array::from_fn(|_| Sv2BlindedMessage::default());
 
-    // Convert the `BlindSignature` to `Sv2BlindSignature`
-    let mut pubkey_bytes = [0u8; 33];
-    pubkey_bytes[0] = if blinded_msg.blinded_secret.to_bytes()[0] == 0x03 { 0x03 } else { 0x02 };
-    pubkey_bytes[1..].copy_from_slice(&blinded_msg.blinded_secret.to_bytes()[1..]);
+    // Determine the index for the given amount
+    let index = amount_to_index(u64::from(blinded_msg.amount));
+    messages[index] = to_sv2_blinded_message(&blinded_msg);
 
-    let sv2_blind_msg = Sv2BlindedMessage {
-        parity_bit: pubkey_bytes[0] == 0x03,
-        blinded_secret: PubKey::from_bytes(&mut pubkey_bytes[1..])
-            .expect("Invalid public key bytes")
-            .into_static(),
-    };
-
-    // Create an array of default signatures, replacing the first with the converted one
-    let sv2_msgs = from_fn(|i| {
-        if i == 0 {
-            sv2_blind_msg.clone()
-        } else {
-            Sv2BlindedMessage::default()
-        }
-    });
-
-    // Create the `Sv2BlindSignatureSet`
-    let sv2_blinded_msg_set = Sv2BlindedMessageSet {
+    let sv2_msg_set = Sv2BlindedMessageSet {
         keyset_id: KeysetId(blinded_msg.keyset_id).into(),
-        messages: sv2_msgs,
+        messages,
     };
 
-    // Convert the `Sv2BlindSignatureSet` to `Sv2BlindSignatureSetWire`
-    Sv2BlindedMessageSetWire::from(sv2_blinded_msg_set)
+    Sv2BlindedMessageSetWire::from(sv2_msg_set)
 }
 
 pub fn extract_blinded_msg_from_sv2_wire(
     wire: Sv2BlindedMessageSetWire<'static>,
 ) -> BlindedMessage {
-    // Convert `Sv2BlindSignatureSetWire` to `Sv2BlindSignatureSet`
-    let sv2_blinded_msg_set: Sv2BlindedMessageSet = wire.try_into().ok()
-        .expect("error extracting blind msg from domain set wire");
+    let sv2_msg_set: Sv2BlindedMessageSet = wire.try_into().expect("Invalid wire format");
+    let keyset_id = KeysetId::try_from(sv2_msg_set.keyset_id)
+        .expect("Invalid keyset ID");
 
-    // Extract the first signature
-    let sv2_msg = sv2_blinded_msg_set.messages.get(0)
-        .expect("error extracting blind msg from domain set wire");
-
-    // Convert the first `Sv2BlindSignature` back to `BlindSignature`
-    let mut pubkey_bytes = [0u8; 33];
-    pubkey_bytes[0] = if sv2_msg.parity_bit { 0x03 } else { 0x02 };
-    pubkey_bytes[1..].copy_from_slice(&sv2_msg.blinded_secret.inner_as_ref());
-
-    let keyset_id = *KeysetId::try_from(sv2_blinded_msg_set.keyset_id)
-        .expect("error converting keyset from u64 to Id");
-
-    BlindedMessage {
-        amount: 0.into(), // Set the amount to a placeholder value as it is not provided
-        keyset_id,
-        blinded_secret: cdk::nuts::PublicKey::from_slice(&pubkey_bytes).ok()
-            .expect("error extracting blind sig from domain set wire"),
-        witness: None,
+    // Find the first non-default message
+    for (index, sv2_msg) in sv2_msg_set.messages.iter().enumerate() {
+        if *sv2_msg != Sv2BlindedMessage::default() {
+            let amount = index_to_amount(index);
+            return BlindedMessage::from_sv2_blinded_message(
+                sv2_msg.clone(),
+                *keyset_id,
+                amount.into(),
+            );
+        }
     }
+
+    panic!("No valid blinded message found");
 }
 
 #[cfg(test)]
