@@ -26,10 +26,6 @@ use roles_logic_sv2::{channel_logic::channel_factory::OnNewShare, Error as Roles
 use tracing::{debug, error, info, warn};
 use mining_sv2::cashu::{Sv2BlindedMessage, Sv2BlindedMessageSetWire, Sv2KeySet};
 
-// TODO consolidate these constants with the same constants in roles/pool/src/lib/mod.rs
-pub const HASH_CURRENCY_UNIT: &str = "HASH";
-pub const HASH_DERIVATION_PATH: u32 = 1337;
-
 /// Bridge between the SV2 `Upstream` and SV1 `Downstream` responsible for the following messaging
 /// translation:
 /// 1. SV1 `mining.submit` -> SV2 `SubmitSharesExtended`
