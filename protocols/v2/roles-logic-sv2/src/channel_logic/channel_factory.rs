@@ -8,7 +8,7 @@ use crate::{
 };
 
 use mining_sv2::{
-    cashu::{Sv2BlindedMessage, Sv2BlindedMessageSetWire, Sv2KeySet}, ExtendedExtranonce, NewExtendedMiningJob, NewMiningJob, OpenExtendedMiningChannelSuccess, OpenMiningChannelError, OpenStandardMiningChannelSuccess, SetCustomMiningJob, SetCustomMiningJobSuccess, SetNewPrevHash, SubmitSharesError, SubmitSharesExtended, SubmitSharesStandard, Target
+    cashu::{Sv2BlindedMessageSetWire, Sv2KeySet}, ExtendedExtranonce, NewExtendedMiningJob, NewMiningJob, OpenExtendedMiningChannelSuccess, OpenMiningChannelError, OpenStandardMiningChannelSuccess, SetCustomMiningJob, SetCustomMiningJobSuccess, SetNewPrevHash, SubmitSharesError, SubmitSharesExtended, SubmitSharesStandard, Target
 };
 
 use nohash_hasher::BuildNoHashHasher;

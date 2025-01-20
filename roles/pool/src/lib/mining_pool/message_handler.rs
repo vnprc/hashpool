@@ -1,5 +1,5 @@
 use super::super::mining_pool::Downstream;
-use cashu::{KeysetId, Sv2BlindSignature, Sv2BlindSignatureSet, Sv2BlindSignatureSetWire, Sv2BlindedMessage};
+use cashu::Sv2BlindSignatureSetWire;
 use cdk::nuts::{BlindSignature, BlindedMessage};
 use roles_logic_sv2::{
     errors::Error,

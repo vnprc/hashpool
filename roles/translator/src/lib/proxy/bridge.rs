@@ -24,7 +24,7 @@ use super::super::{
 use error_handling::handle_result;
 use roles_logic_sv2::{channel_logic::channel_factory::OnNewShare, Error as RolesLogicError};
 use tracing::{debug, error, info, warn};
-use mining_sv2::cashu::{Sv2BlindedMessage, Sv2BlindedMessageSetWire, Sv2KeySet};
+use mining_sv2::cashu::{Sv2BlindedMessageSetWire, Sv2KeySet};
 
 /// Bridge between the SV2 `Upstream` and SV1 `Downstream` responsible for the following messaging
 /// translation:

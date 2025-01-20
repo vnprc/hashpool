@@ -11,11 +11,11 @@ use crate::{
 use async_channel::{Receiver, Sender};
 use async_std::net::TcpStream;
 use binary_sv2::u256_from_int;
-use cdk::{nuts::{BlindSignature, KeySet}, wallet::Wallet};
+use cdk::{nuts::KeySet, wallet::Wallet};
 use codec_sv2::{HandshakeRole, Initiator};
 use error_handling::handle_result;
 use key_utils::Secp256k1PublicKey;
-use mining_sv2::cashu::{self, Sv2KeySet, Sv2KeySetWire};
+use mining_sv2::cashu::{self, Sv2KeySet};
 use network_helpers_sv2::Connection;
 use roles_logic_sv2::{
     common_messages_sv2::{Protocol, SetupConnection},
