@@ -1,5 +1,5 @@
 use super::super::mining_pool::Downstream;
-use cashu::Sv2BlindSignatureSetWire;
+use cashu::{BlindSignatureSet, BlindedMessageSet, Sv2BlindSignatureSet, Sv2BlindSignatureSetWire, Sv2BlindedMessageSet, Sv2BlindedMessageSetWire};
 use cdk::nuts::{BlindSignature, BlindedMessage};
 use roles_logic_sv2::{
     errors::Error,
@@ -11,7 +11,7 @@ use roles_logic_sv2::{
     template_distribution_sv2::SubmitSolution,
     utils::Mutex,
 };
-use std::{convert::TryInto, sync::Arc};
+use std::{convert::{TryFrom, TryInto}, sync::Arc};
 use tracing::error;
 
 impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> for Downstream {
@@ -184,15 +184,14 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         while self.solution_sender.try_send(solution.clone()).is_err() {};
                     }
 
-                    let blinded_message: BlindedMessage = cashu::extract_blinded_msg_from_sv2_wire(m.blinded_messages.into_static());
-                    let blinded_signature = self.get_blinded_signature(&blinded_message);
+                    let blind_signatures = self.sign_blinded_messages(m.blinded_messages.clone()).into_static();
 
                     let success = SubmitSharesSuccess {
                         channel_id: m.channel_id,
                         last_sequence_number: m.sequence_number,
                         new_submits_accepted_count: 1,
                         new_shares_sum: 0,
-                        blind_signatures: cashu::convert_to_sv2_sigset_wire(blinded_signature),
+                        blind_signatures,
                         // TODO is this ownership hack fixable?
                         hash: m.hash.inner_as_ref().to_owned().try_into()?,
                     };
@@ -201,16 +200,14 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
 
                 },
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetDownstreamTarget => {
-
-                    let blinded_message: BlindedMessage = cashu::extract_blinded_msg_from_sv2_wire(m.blinded_messages.into_static());
-                    let blinded_signature = self.get_blinded_signature(&blinded_message);
+                    let blind_signatures = self.sign_blinded_messages(m.blinded_messages.clone()).into_static();
 
                     let success = SubmitSharesSuccess {
                         channel_id: m.channel_id,
                         last_sequence_number: m.sequence_number,
                         new_submits_accepted_count: 1,
                         new_shares_sum: 0,
-                        blind_signatures: cashu::convert_to_sv2_sigset_wire(blinded_signature),
+                        blind_signatures,
                         // TODO is this ownership hack fixable?
                         hash: m.hash.inner_as_ref().to_owned().try_into()?,
                     };
@@ -238,19 +235,36 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
 }
 
 impl Downstream {
-    fn get_blinded_signature(&self, blinded_message: &BlindedMessage) -> BlindSignature {
-        // Clone `mint` to move into the blocking task
+    fn sign_blinded_messages(&self, blinded_messages: Sv2BlindedMessageSetWire) -> Sv2BlindSignatureSetWire {
         let mint_clone = Arc::clone(&self.mint);
 
         tokio::task::block_in_place(move || {
-            let blinded_sig_result = mint_clone.safe_lock(|mint| {
-                let blinded_sig_future = mint.blind_sign(&blinded_message);
-                // We use block_on here safely because it's within a block_in_place, which is allowed to block.
-                let blinded_signature = tokio::runtime::Handle::current().block_on(blinded_sig_future).unwrap();
-                blinded_signature
+            let blinded_signature_set = mint_clone.safe_lock(|mint| {
+                let sv2_blinded_message_set: Sv2BlindedMessageSet = Sv2BlindedMessageSet::try_from(blinded_messages.clone())
+                    .expect("Failed to convert Sv2BlindedMessageSetWire to Sv2BlindedMessageSet");
+                let blinded_message_set: BlindedMessageSet = sv2_blinded_message_set.into();
+
+                // sign each existing blinded message, preserving array positions
+                let mut signatures: [Option<BlindSignature>; 64] = core::array::from_fn(|_| None);
+                for (i, msg) in blinded_message_set.messages.iter().enumerate() {
+                    if let Some(blinded_message) = msg {
+                        let result_future = mint.blind_sign(blinded_message);
+                        signatures[i] = Some(tokio::runtime::Handle::current()
+                            .block_on(result_future)
+                            .expect("Failed to get blind signature"));
+                    }
+                }
+
+                BlindSignatureSet {
+                    keyset_id: blinded_message_set.keyset_id,
+                    signatures,
+                }
             });
 
-            blinded_sig_result.unwrap() // Handle the result of safe_lock
+            let blinded_signature_set = blinded_signature_set.expect("Failed to lock mint");
+
+            let sv2_blind_signature_set: Sv2BlindSignatureSet = blinded_signature_set.into();
+            sv2_blind_signature_set.into()
         })
     }
 }

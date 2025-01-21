@@ -207,15 +207,13 @@ impl From<Sv2BlindedMessageSet<'_>> for BlindedMessageSet {
             .expect("Could not convert keyset_id to domain type");
 
         let messages = core::array::from_fn(|i| {
-            // amount is set to powers of 2 based on array index
-            let amount = Amount::from(2^(i as u64));
             if sv2_set.messages[i] == Sv2BlindedMessage::default() {
                 None
             } else {
                 Some(BlindedMessage::from_sv2_blinded_message(
                     sv2_set.messages[i].clone(),
                     *keyset_id_obj,
-                    amount,
+                    Amount::from(index_to_amount(i)),
                 ))
             }
         });
@@ -307,7 +305,7 @@ impl<'a> Sv2BlindSignatureSet<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlindSignatureSet {
     pub keyset_id: u64,
-    pub signatures: [BlindSignature; 64],
+    pub signatures: [Option<BlindSignature>; 64],
 }
 
 impl<'a> Default for Sv2BlindSignatureSet<'a> {
@@ -344,8 +342,16 @@ impl From<Sv2BlindSignatureSet<'_>> for BlindSignatureSet {
     fn from(set: Sv2BlindSignatureSet) -> Self {
         let keyset_id = KeysetId::try_from(set.keyset_id).expect("Failed to convert keyset_id");
         let signatures = core::array::from_fn(|i| {
-            // TODO why is KeysetId interpreted as Id? fix it and remove this hack
-            BlindSignature::from_sv2(set.signatures[i].clone(), KeysetId(keyset_id.clone()), (i as u64) + 1)
+            if set.signatures[i] == Sv2BlindSignature::default() {
+                None
+            } else {
+                Some(BlindSignature::from_sv2(
+                    set.signatures[i].clone(),
+                    // TODO why is KeysetId interpreted as Id? fix it and remove this hack
+                    KeysetId(keyset_id.clone()),
+                    index_to_amount(i),
+                ))
+            }
         });
 
         BlindSignatureSet {
@@ -357,14 +363,17 @@ impl From<Sv2BlindSignatureSet<'_>> for BlindSignatureSet {
 
 impl<'a> From<BlindSignatureSet> for Sv2BlindSignatureSet<'a> {
     fn from(set: BlindSignatureSet) -> Self {
-        let keyset_id = set.keyset_id;
-        let signatures = core::array::from_fn(|i| Sv2BlindSignature {
-            parity_bit: set.signatures[i].c.to_bytes()[0] == 0x03,
-            blind_signature: PubKey::from(<[u8; 32]>::try_from(&set.signatures[i].c.to_bytes()[1..]).unwrap()),
+        let signatures = core::array::from_fn(|i| {
+            set.signatures[i].as_ref().map_or(Sv2BlindSignature::default(), |sig| {
+                Sv2BlindSignature {
+                    parity_bit: sig.c.to_bytes()[0] == 0x03,
+                    blind_signature: PubKey::from(<[u8; 32]>::try_from(&sig.c.to_bytes()[1..]).unwrap()),
+                }
+            })
         });
 
         Sv2BlindSignatureSet {
-            keyset_id,
+            keyset_id: set.keyset_id,
             signatures,
         }
     }
@@ -688,28 +697,6 @@ pub fn extract_blind_signature_from_sv2_wire(
     }
 
     panic!("No valid blind signature found");
-}
-
-pub fn extract_blinded_msg_from_sv2_wire(
-    wire: Sv2BlindedMessageSetWire<'static>,
-) -> BlindedMessage {
-    let sv2_msg_set: Sv2BlindedMessageSet = wire.try_into().expect("Invalid wire format");
-    let keyset_id = KeysetId::try_from(sv2_msg_set.keyset_id)
-        .expect("Invalid keyset ID");
-
-    // Find the first non-default message
-    for (index, sv2_msg) in sv2_msg_set.messages.iter().enumerate() {
-        if *sv2_msg != Sv2BlindedMessage::default() {
-            let amount = index_to_amount(index);
-            return BlindedMessage::from_sv2_blinded_message(
-                sv2_msg.clone(),
-                *keyset_id,
-                amount.into(),
-            );
-        }
-    }
-
-    panic!("No valid blinded message found");
 }
 
 #[cfg(test)]
