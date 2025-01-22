@@ -1,6 +1,6 @@
 use super::super::mining_pool::Downstream;
 use cashu::{BlindSignatureSet, BlindedMessageSet, Sv2BlindSignatureSet, Sv2BlindSignatureSetWire, Sv2BlindedMessageSet, Sv2BlindedMessageSetWire};
-use cdk::nuts::{BlindSignature, BlindedMessage};
+use cdk::{mint::Mint, nuts::BlindSignature};
 use roles_logic_sv2::{
     errors::Error,
     handlers::mining::{ParseDownstreamMiningMessages, SendTo, SupportedChannelTypes},
@@ -235,36 +235,49 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
 }
 
 impl Downstream {
-    fn sign_blinded_messages(&self, blinded_messages: Sv2BlindedMessageSetWire) -> Sv2BlindSignatureSetWire {
+    fn sign_blinded_messages(
+        &self,
+        blinded_messages: Sv2BlindedMessageSetWire,
+    ) -> Sv2BlindSignatureSetWire {
         let mint_clone = Arc::clone(&self.mint);
 
-        tokio::task::block_in_place(move || {
-            let blinded_signature_set = mint_clone.safe_lock(|mint| {
-                let sv2_blinded_message_set: Sv2BlindedMessageSet = Sv2BlindedMessageSet::try_from(blinded_messages.clone())
-                    .expect("Failed to convert Sv2BlindedMessageSetWire to Sv2BlindedMessageSet");
-                let blinded_message_set: BlindedMessageSet = sv2_blinded_message_set.into();
+        // convert to cdk structs
+        let sv2_blinded_message_set = Sv2BlindedMessageSet::try_from(blinded_messages.clone())
+            .expect("Failed to convert Sv2BlindedMessageSetWire to Sv2BlindedMessageSet");
+        let blinded_message_set: BlindedMessageSet = sv2_blinded_message_set.into();
 
-                // sign each existing blinded message, preserving array positions
-                let mut signatures: [Option<BlindSignature>; 64] = core::array::from_fn(|_| None);
-                for (i, msg) in blinded_message_set.messages.iter().enumerate() {
-                    if let Some(blinded_message) = msg {
-                        let result_future = mint.blind_sign(blinded_message);
-                        signatures[i] = Some(tokio::runtime::Handle::current()
-                            .block_on(result_future)
-                            .expect("Failed to get blind signature"));
-                    }
-                }
-
-                BlindSignatureSet {
-                    keyset_id: blinded_message_set.keyset_id,
-                    signatures,
-                }
+        // sign messages
+        let blinded_signature_set = tokio::task::block_in_place(move || {
+            let result = mint_clone.safe_lock(|mint| {
+                let signature_set = Self::sign_message_set(mint, &blinded_message_set);
+                signature_set
             });
+            result.expect("Failed to lock mint")
+        });
 
-            let blinded_signature_set = blinded_signature_set.expect("Failed to lock mint");
+        // convert back to wire format
+        let sv2_blind_signature_set: Sv2BlindSignatureSet = blinded_signature_set.into();
+        sv2_blind_signature_set.into()
+    }
 
-            let sv2_blind_signature_set: Sv2BlindSignatureSet = blinded_signature_set.into();
-            sv2_blind_signature_set.into()
-        })
+    fn sign_message_set(
+        mint: &Mint,
+        blinded_message_set: &BlindedMessageSet,
+    ) -> BlindSignatureSet {
+        let mut signatures: [Option<BlindSignature>; 64] = core::array::from_fn(|_| None);
+
+        for (i, msg) in blinded_message_set.messages.iter().enumerate() {
+            if let Some(blinded_message) = msg {
+                let signature = tokio::runtime::Handle::current()
+                    .block_on(mint.blind_sign(blinded_message))
+                    .expect("Failed to get blind signature");
+                signatures[i] = Some(signature);
+            }
+        }
+
+        BlindSignatureSet {
+            keyset_id: blinded_message_set.keyset_id,
+            signatures,
+        }
     }
 }
