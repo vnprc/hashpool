@@ -643,62 +643,6 @@ fn amount_to_index(amount: u64) -> usize {
     amount.trailing_zeros() as usize
 }
 
-// TODO delete the following functions when we're converted fully to domain and wire set structs
-pub fn convert_to_sv2_sigset_wire(
-    blinded_signature: BlindSignature,
-) -> Sv2BlindSignatureSetWire<'static> {
-    let mut signatures = core::array::from_fn(|_| Sv2BlindSignature::default());
-
-    // Determine the index for the given amount
-    let index = amount_to_index(u64::from(blinded_signature.amount));
-    let mut pubkey_bytes = [0u8; 33];
-    pubkey_bytes[0] = if blinded_signature.c.to_bytes()[0] == 0x03 { 0x03 } else { 0x02 };
-    pubkey_bytes[1..].copy_from_slice(&blinded_signature.c.to_bytes()[1..]);
-
-    signatures[index] = Sv2BlindSignature {
-        parity_bit: pubkey_bytes[0] == 0x03,
-        blind_signature: PubKey::from_bytes(&mut pubkey_bytes[1..])
-            .expect("Invalid public key bytes")
-            .into_static(),
-    };
-
-    let sv2_sig_set = Sv2BlindSignatureSet {
-        keyset_id: KeysetId(blinded_signature.keyset_id).into(),
-        signatures,
-    };
-
-    Sv2BlindSignatureSetWire::from(sv2_sig_set)
-}
-
-//TODO delete this function when we're converted fully to domain and wire set structs
-pub fn extract_blind_signature_from_sv2_wire(
-    wire: Sv2BlindSignatureSetWire<'static>,
-) -> BlindSignature {
-    let sv2_sig_set: Sv2BlindSignatureSet = wire.try_into().expect("Invalid wire format");
-    let keyset_id = KeysetId::try_from(sv2_sig_set.keyset_id)
-        .expect("Invalid keyset ID");
-
-    // Find the first non-default signature
-    for (index, sv2_sig) in sv2_sig_set.signatures.iter().enumerate() {
-        if *sv2_sig != Sv2BlindSignature::default() {
-            let amount = index_to_amount(index);
-            let mut pubkey_bytes = [0u8; 33];
-            pubkey_bytes[0] = if sv2_sig.parity_bit { 0x03 } else { 0x02 };
-            pubkey_bytes[1..].copy_from_slice(&sv2_sig.blind_signature.inner_as_ref());
-
-            return BlindSignature {
-                amount: amount.into(),
-                keyset_id: *keyset_id,
-                c: cdk::nuts::PublicKey::from_slice(&pubkey_bytes)
-                    .expect("Invalid public key bytes"),
-                dleq: None,
-            };
-        }
-    }
-
-    panic!("No valid blind signature found");
-}
-
 #[cfg(test)]
 pub mod tests {
     use super::*;

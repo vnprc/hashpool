@@ -317,7 +317,6 @@ impl Bridge {
         // TODO is it better to recalculate this value from the share or to pass it over the wire?
         let share_hash = share.hash.to_vec().to_hex();
         let work = Self::calculate_work(share.hash.to_vec().try_into()?);
-        println!("share found with work {}", work);
 
         tokio::task::block_in_place(|| {
             let wallet_clone = self.wallet.clone();

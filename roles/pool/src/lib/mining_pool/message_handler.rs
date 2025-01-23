@@ -281,3 +281,5 @@ impl Downstream {
         }
     }
 }
+
+//TODO unit test sign_message_set and sign_blinded_messages

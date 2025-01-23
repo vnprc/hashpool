@@ -15,7 +15,7 @@ use cdk::{nuts::KeySet, wallet::Wallet};
 use codec_sv2::{HandshakeRole, Initiator};
 use error_handling::handle_result;
 use key_utils::Secp256k1PublicKey;
-use mining_sv2::cashu::{self, Sv2KeySet};
+use mining_sv2::cashu::{BlindSignatureSet, Sv2BlindSignatureSet, Sv2KeySet};
 use network_helpers_sv2::Connection;
 use roles_logic_sv2::{
     common_messages_sv2::{Protocol, SetupConnection},
@@ -755,22 +755,34 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
         m: roles_logic_sv2::mining_sv2::SubmitSharesSuccess,
     ) -> Result<roles_logic_sv2::handlers::mining::SendTo<Downstream>, RolesLogicError> {
         let wallet = self.wallet.clone();
-        let blind_signatures = m.blind_signatures;
+
+        let sv2_blind_signatures: Sv2BlindSignatureSet = match m.blind_signatures.try_into() {
+            Ok(signatures) => signatures,
+            Err(e) => {
+                // TODO use a better error
+                return Err(RolesLogicError::KeysetError(format!("Error minting ehash {:?}", e)));
+            }
+        };
+        let blind_signature_set: BlindSignatureSet = sv2_blind_signatures.into();
+
         // TODO is it better to recalculate this value from the share or to pass it over the wire?
         let share_hash = m.hash.to_vec().to_hex();
         
         let result = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(
                 wallet.gen_ehash_proofs(
-                    cashu::extract_blind_signature_from_sv2_wire(blind_signatures.as_static()),
+                    blind_signature_set.signatures,
                     &share_hash,
                 ),
             )
         });
         
         match result {
-            Ok(amount) => info!("Hashpool minted an ehash token for share {} with difficulty value {:?}", share_hash, amount),
-            Err(e) => println!("Error minting ehash {:?}", e),
+            Ok(amount) => info!("Hashpool minted ehash tokens for share {} with value {}", share_hash, u64::from(amount)),
+            Err(e) => {
+                // TODO use a better error
+                return Err(RolesLogicError::KeysetError(format!("Error minting ehash {:?}", e)));
+            }
         }
 
         Ok(SendTo::None(None))
