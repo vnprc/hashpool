@@ -649,7 +649,7 @@ const WIRE_ITEM_SIZE: usize = 33;
 /// common trait implemented by domain items
 /// allowing them to be stored in a 64-element array
 /// keyed by power-of-two amounts
-pub trait DomainItem<'decoder>: Clone + Serialize + Deserialize<'decoder> {
+pub trait DomainItem<'decoder>: Clone {
     type WireType: Default + Clone + PartialEq + Eq + Serialize + Deserialize<'decoder>;
 
     fn from_wire(
@@ -758,7 +758,10 @@ impl<'decoder> binary_sv2::Decodable<'decoder> for WireArray<'decoder> {
     }
 }
 
-impl<T: for<'decoder> DomainItem<'decoder>> From<DomainArray<T>> for WireArray<'_> {
+impl<T> From<DomainArray<T>> for WireArray<'_> 
+where
+    for<'d> T: DomainItem<'d>,
+{
     fn from(domain: DomainArray<T>) -> Self {
         let mut buffer = vec![0u8; WIRE_ITEM_SIZE * 64];
 
@@ -782,6 +785,88 @@ impl<T: for<'decoder> DomainItem<'decoder>> From<DomainArray<T>> for WireArray<'
             keyset_id: domain.keyset_id,
             data: b064k,
         }
+    }
+}
+
+impl<T> TryFrom<WireArray<'_>> for DomainArray<T>
+where
+    for <'d> T: DomainItem<'d>,
+{
+    type Error = binary_sv2::Error;
+
+    fn try_from(wire: WireArray<'_>) -> Result<Self, Self::Error> {
+        let raw = wire.data.inner_as_ref();
+        // TODO evaluate T::WireType::SIZE as an alternative to this constant
+        let expected_len = WIRE_ITEM_SIZE * 64;
+        if raw.len() != expected_len {
+            return Err(binary_sv2::Error::DecodableConversionError);
+        }
+
+        let keyset_id_obj =
+            KeysetId::try_from(wire.keyset_id).map_err(|_| binary_sv2::Error::DecodableConversionError)?;
+
+        let mut result = DomainArray::new(wire.keyset_id);
+
+        for (i, chunk) in raw.chunks(WIRE_ITEM_SIZE).enumerate() {
+            let mut buf = [0u8; WIRE_ITEM_SIZE];
+            buf.copy_from_slice(chunk);
+
+            let wire_item = T::WireType::from_bytes(&mut buf)
+                .map_err(|_| binary_sv2::Error::DecodableConversionError)?;
+
+            if wire_item != T::WireType::default() {
+                let domain_item = T::from_wire(wire_item, *keyset_id_obj, i);
+                result.items[i] = Some(domain_item);
+            }
+        }
+
+        Ok(result)
+    }
+}
+
+// TODO replace existing types with these
+// pub type BlindedMessageSet = DomainArray<BlindedMessage>;
+// pub type Sv2BlindedMessageSetWire<'decoder> = WireArray<'decoder>;
+
+impl<'decoder> DomainItem<'decoder> for BlindedMessage {
+    type WireType = Sv2BlindedMessage<'decoder>;
+
+    fn from_wire(
+        wire_obj: Self::WireType,
+        keyset_id: cdk::nuts::nut02::Id,
+        amount_index: usize,
+    ) -> Self {
+        let amount = Amount::from(index_to_amount(amount_index));
+        let mut pubkey_bytes = [0u8; 33];
+        pubkey_bytes[0] = if wire_obj.parity_bit { 0x03 } else { 0x02 };
+        pubkey_bytes[1..].copy_from_slice(&wire_obj.blinded_secret.inner_as_ref());
+
+        let blinded_secret =
+            cdk::nuts::PublicKey::from_slice(&pubkey_bytes).expect("Invalid pubkey bytes");
+
+        BlindedMessage {
+            amount,
+            keyset_id,
+            blinded_secret,
+            witness: None,
+        }
+    }
+
+    fn to_wire(&self) -> Self::WireType {
+        let mut pubkey_bytes = self.blinded_secret.to_bytes();
+        let parity_bit = pubkey_bytes[0] == 0x03;
+        let pubkey_data = &mut pubkey_bytes[1..];
+
+        Sv2BlindedMessage {
+            parity_bit,
+            blinded_secret: PubKey::from_bytes(pubkey_data)
+                .expect("Invalid pubkey data")
+                .into_static(),
+        }
+    }
+
+    fn get_amount(&self) -> u64 {
+        self.amount.into()
     }
 }
 
