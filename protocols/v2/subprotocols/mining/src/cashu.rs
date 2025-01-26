@@ -1,5 +1,4 @@
 use cdk::{amount::{Amount, AmountStr}, nuts::{BlindSignature, BlindedMessage, CurrencyUnit, KeySet, PreMintSecrets, PublicKey}};
-use decodable::{DecodableField, FieldMarker};
 use core::array;
 use std::{collections::BTreeMap, convert::{TryFrom, TryInto}};
 pub use std::error::Error;
@@ -692,70 +691,12 @@ impl<T: for<'decoder> DomainItem<'decoder>> DomainArray<T> {
 }
 
 /// wire struct for transmitting 64 domain items in a single B064K
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WireArray<'decoder> {
     pub keyset_id: u64,
-    pub data: B064K<'decoder>,
-}
-
-// manually implement encodable and decodable
-// because for some unknown reason it won't compile using the derive traits
-// even though there are two exact replicas of this struct
-// that do compile with those derivations. wtf???
-
-#[cfg(not(feature = "with_serde"))]
-impl<'decoder> binary_sv2::Encodable for WireArray<'decoder> {
-    fn to_bytes(self, dst: &mut [u8]) -> Result<usize, binary_sv2::Error> {
-        // keyset_id
-        if dst.len() < 8 {
-            // TODO better error?
-            return Err(binary_sv2::Error::DecodableConversionError);
-        }
-        dst[0..8].copy_from_slice(&self.keyset_id.to_le_bytes());
-        let mut offset = 8;
-
-        let inner = self.data.inner_as_ref();
-        let needed = offset + inner.len();
-        if needed > dst.len() {
-            // TODO better error?
-            return Err(binary_sv2::Error::DecodableConversionError);
-        }
-        dst[offset..needed].copy_from_slice(inner);
-        offset += inner.len();
-
-        Ok(offset)
-    }
-}
-
-#[cfg(not(feature = "with_serde"))]
-impl<'decoder> binary_sv2::Decodable<'decoder> for WireArray<'decoder> {
-    fn from_bytes(data: &'decoder mut [u8]) -> Result<Self, binary_sv2::Error> {
-        // keyset_id
-        if data.len() < 8 {
-            return Err(binary_sv2::Error::DecodableConversionError);
-        }
-        let keyset_id_le: [u8; 8] = data[0..8].try_into().unwrap();
-        let keyset_id = u64::from_le_bytes(keyset_id_le);
-
-        let rest = &data[8..];
-        let data_b064k = B064K::try_from(rest.to_vec())
-            .map_err(|_| binary_sv2::Error::DecodableConversionError)?;
-
-        Ok(WireArray {
-            keyset_id,
-            data: data_b064k,
-        })
-    }
-
-    fn get_structure(_data: &[u8]) -> Result<Vec<FieldMarker>, binary_sv2::Error> {
-        // don't use dynamic structure info
-        Ok(vec![])
-    }
-
-    fn from_decoded_fields(_data: Vec<DecodableField<'decoder>>) -> Result<Self, binary_sv2::Error> {
-        //TODO better error?
-        Err(binary_sv2::Error::DecodableConversionError)
-    }
+    // WARNING you can't call this field 'data'
+    // or you get obscure compile errors unrelated to the field name
+    pub encoded_data: B064K<'decoder>,
 }
 
 impl<T> From<DomainArray<T>> for WireArray<'_> 
@@ -783,7 +724,7 @@ where
         let b064k = B064K::try_from(buffer).expect("domain items exceed B064K");
         Self {
             keyset_id: domain.keyset_id,
-            data: b064k,
+            encoded_data: b064k,
         }
     }
 }
@@ -795,7 +736,7 @@ where
     type Error = binary_sv2::Error;
 
     fn try_from(wire: WireArray<'_>) -> Result<Self, Self::Error> {
-        let raw = wire.data.inner_as_ref();
+        let raw = wire.encoded_data.inner_as_ref();
         // TODO evaluate T::WireType::SIZE as an alternative to this constant
         let expected_len = WIRE_ITEM_SIZE * 64;
         if raw.len() != expected_len {
