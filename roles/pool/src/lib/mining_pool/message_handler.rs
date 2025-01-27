@@ -1,5 +1,5 @@
 use super::super::mining_pool::Downstream;
-use cashu::{BlindSignatureSet, BlindedMessageSet, Sv2BlindSignatureSet, Sv2BlindSignatureSetWire, Sv2BlindedMessageSet, Sv2BlindedMessageSetWire};
+use cashu::{BlindSignatureSet, BlindedMessageSet, Sv2BlindSignatureSetWire, Sv2BlindedMessageSetWire};
 use cdk::{mint::Mint, nuts::BlindSignature};
 use roles_logic_sv2::{
     errors::Error,
@@ -242,9 +242,8 @@ impl Downstream {
         let mint_clone = Arc::clone(&self.mint);
 
         // convert to cdk structs
-        let sv2_blinded_message_set = Sv2BlindedMessageSet::try_from(blinded_messages.clone())
-            .expect("Failed to convert Sv2BlindedMessageSetWire to Sv2BlindedMessageSet");
-        let blinded_message_set: BlindedMessageSet = sv2_blinded_message_set.into();
+        let blinded_message_set = BlindedMessageSet::try_from(blinded_messages.clone())
+            .expect("Failed to convert Sv2BlindedMessageSetWire to BlindedMessageSet");
 
         // sign messages
         let blinded_signature_set = tokio::task::block_in_place(move || {
@@ -256,28 +255,27 @@ impl Downstream {
         });
 
         // convert back to wire format
-        let sv2_blind_signature_set: Sv2BlindSignatureSet = blinded_signature_set.into();
-        sv2_blind_signature_set.into()
+        blinded_signature_set.into()
     }
 
     fn sign_message_set(
         mint: &Mint,
         blinded_message_set: &BlindedMessageSet,
     ) -> BlindSignatureSet {
-        let mut signatures: [Option<BlindSignature>; 64] = core::array::from_fn(|_| None);
+        let mut items: [Option<BlindSignature>; 64] = core::array::from_fn(|_| None);
 
-        for (i, msg) in blinded_message_set.messages.iter().enumerate() {
+        for (i, msg) in blinded_message_set.items.iter().enumerate() {
             if let Some(blinded_message) = msg {
                 let signature = tokio::runtime::Handle::current()
                     .block_on(mint.blind_sign(blinded_message))
                     .expect("Failed to get blind signature");
-                signatures[i] = Some(signature);
+                items[i] = Some(signature);
             }
         }
 
         BlindSignatureSet {
             keyset_id: blinded_message_set.keyset_id,
-            signatures,
+            items,
         }
     }
 }

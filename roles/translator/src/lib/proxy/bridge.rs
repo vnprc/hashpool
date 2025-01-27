@@ -24,7 +24,7 @@ use super::super::{
 use error_handling::handle_result;
 use roles_logic_sv2::{channel_logic::channel_factory::OnNewShare, Error as RolesLogicError};
 use tracing::{debug, error, info, warn};
-use mining_sv2::cashu::{BlindedMessageSet, Sv2BlindedMessageSet, Sv2BlindedMessageSetWire, Sv2KeySet};
+use mining_sv2::cashu::{BlindedMessageSet, Sv2BlindedMessageSetWire, Sv2KeySet};
 
 /// Bridge between the SV2 `Upstream` and SV1 `Downstream` responsible for the following messaging
 /// translation:
@@ -280,8 +280,7 @@ impl Bridge {
                                 return Ok(());
                             }
                         };
-                        let sv2_blinded_message_set= Sv2BlindedMessageSet::from(blinded_message_set);
-                        let sv2_blinded_message_set_wire = Sv2BlindedMessageSetWire::from(sv2_blinded_message_set);
+                        let sv2_blinded_message_set_wire= Sv2BlindedMessageSetWire::from(blinded_message_set);
 
                         share.blinded_messages = sv2_blinded_message_set_wire;
     
