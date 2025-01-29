@@ -222,7 +222,7 @@ impl Downstream {
         address: SocketAddr,
     ) -> PoolResult<Arc<Mutex<Self>>> {
         let mint = pool.safe_lock(|p| p.mint.clone())?;
-        let setup_connection = Arc::new(Mutex::new(SetupConnectionHandler::new(mint)));
+        let setup_connection = Arc::new(Mutex::new(SetupConnectionHandler::new()));
         let downstream_data =
             SetupConnectionHandler::setup(setup_connection, &mut receiver, &mut sender, address)
                 .await?;

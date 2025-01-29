@@ -4,7 +4,6 @@ use super::super::{
 };
 use async_channel::{Receiver, Sender};
 use cdk::mint::Mint;
-use mining_sv2::cashu::KeysetId;
 use roles_logic_sv2::{
     common_messages_sv2::{
         has_requires_std_job, has_version_rolling, has_work_selection, SetupConnection,
@@ -22,12 +21,11 @@ use tracing::{debug, error};
 
 pub struct SetupConnectionHandler {
     header_only: Option<bool>,
-    mint: Arc<Mutex<Mint>>,
 }
 
 impl SetupConnectionHandler {
-    pub fn new(mint: Arc<Mutex<Mint>>) -> Self {
-        Self { header_only: None, mint }
+    pub fn new() -> Self {
+        Self { header_only: None }
     }
     pub async fn setup(
         self_: Arc<Mutex<Self>>,
