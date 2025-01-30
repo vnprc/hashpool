@@ -996,7 +996,6 @@ pub struct PoolChannelFactory {
     pool_signature: String,
     // extedned_channel_id -> SetCustomMiningJob
     negotiated_jobs: HashMap<u32, SetCustomMiningJob<'static>, BuildNoHashHasher<u32>>,
-    keyset: Arc<Mutex<Sv2KeySet<'static>>>,
 }
 
 impl PoolChannelFactory {
@@ -1038,7 +1037,6 @@ impl PoolChannelFactory {
             pool_coinbase_outputs,
             pool_signature,
             negotiated_jobs: HashMap::with_hasher(BuildNoHashHasher::default()),
-            keyset,
         }
     }
     /// Calls [`ChannelFactory::add_standard_channel`]
