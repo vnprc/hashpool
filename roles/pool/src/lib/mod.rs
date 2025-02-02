@@ -26,7 +26,6 @@ pub const HASH_DERIVATION_PATH: u32 = 1337;
 #[derive(Clone)]
 pub struct PoolSv2<'decoder> {
     config: Configuration,
-    mint: Option<Arc<Mutex<Mint>>>,
     keyset: Option<Arc<Mutex<Sv2KeySet<'decoder>>>>,
 }
 
@@ -45,7 +44,6 @@ impl PoolSv2<'_> {
     pub fn new(config: Configuration) -> PoolSv2<'static> {
         PoolSv2 {
             config,
-            mint: None,
             keyset: None,
         }
     }
