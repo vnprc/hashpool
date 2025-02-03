@@ -1318,7 +1318,6 @@ pub struct ProxyExtendedChannelFactory {
     pool_signature: String,
     // Id assigned to the extended channel by upstream
     extended_channel_id: u32,
-    keyset: Arc<Mutex<Sv2KeySet<'static>>>,
 }
 
 impl ProxyExtendedChannelFactory {
@@ -1374,7 +1373,6 @@ impl ProxyExtendedChannelFactory {
             pool_coinbase_outputs,
             pool_signature,
             extended_channel_id,
-            keyset,
         }
     }
     /// Calls [`ChannelFactory::add_standard_channel`]
