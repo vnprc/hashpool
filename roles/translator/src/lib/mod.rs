@@ -220,7 +220,6 @@ impl TranslatorSv2 {
         };
         let task_collector_init_task = task_collector.clone();
         let wallet = self.wallet.clone();
-        let premint_secrets = self.premint_secrets.clone();
         // Spawn a task to do all of this init work so that the main thread
         // can listen for signals and failures on the status channel. This
         // allows for the tproxy to fail gracefully if any of these init tasks
