@@ -186,7 +186,8 @@ pub async fn handle_error(
         Error::Sv1MessageTooLong => {
             send_status(sender, e, error_handling::ErrorBranch::Break).await
         }
-        // TODO reevaluate these errors
-        Error::WalletError(error) => todo!(),
+        Error::WalletError(_) => {
+            send_status(sender, e, error_handling::ErrorBranch::Break).await
+        }
     }
 }
