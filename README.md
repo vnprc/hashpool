@@ -15,7 +15,7 @@ devenv shell
 devenv up
 ```
 
-![Screenshot 2024-12-05 at 10 49 14 AM](https://github.com/user-attachments/assets/145e8f3d-17e4-49c7-a974-7c46db321fee)
+![Screenshot 2025-02-05 at 10 10 20 PM](https://github.com/user-attachments/assets/0c0563e4-0bf8-4f77-8287-8c9577d84ddf)
 
 ## Development Environment Setup
 
