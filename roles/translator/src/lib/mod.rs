@@ -1,5 +1,5 @@
 use async_channel::{bounded, unbounded};
-use cdk::{nuts::PreMintSecrets, wallet::Wallet};
+use cdk::wallet::Wallet;
 use futures::FutureExt;
 use rand::Rng;
 pub use roles_logic_sv2::utils::Mutex;
@@ -37,7 +37,6 @@ pub struct TranslatorSv2 {
     config: ProxyConfig,
     reconnect_wait_time: u64,
     wallet: Arc<Wallet>,
-    premint_secrets: Arc<Mutex<Option<PreMintSecrets>>>,
 }
 
 fn create_wallet() -> Arc<Wallet> {
@@ -57,12 +56,10 @@ impl TranslatorSv2 {
     pub fn new(config: ProxyConfig) -> Self {
         let mut rng = rand::thread_rng();
         let wait_time = rng.gen_range(0..=3000);
-        let premint_secrets = Arc::new(Mutex::new(None));
         Self {
             config,
             reconnect_wait_time: wait_time,
             wallet: create_wallet(),
-            premint_secrets: premint_secrets,
         }
     }
 
