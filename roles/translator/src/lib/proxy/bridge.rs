@@ -223,13 +223,12 @@ impl Bridge {
         self_: Arc<Mutex<Self>>,
         share: SubmitShareWithChannelId,
     ) -> ProxyResult<'static, ()> {
-        let (tx_sv2_submit_shares_ext, target_mutex, tx_status, wallet) = self_
+        let (tx_sv2_submit_shares_ext, target_mutex, tx_status) = self_
             .safe_lock(|s| {
                 (
                     s.tx_sv2_submit_shares_ext.clone(),
                     s.target.clone(),
                     s.tx_status.clone(),
-                    s.wallet.clone(),
                 )
             })
             .map_err(|_| PoisonLock)?;
