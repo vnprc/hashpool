@@ -148,10 +148,6 @@ impl PoolSv2<'_> {
     async fn create_mint(&self) -> Mint {
         const NUM_KEYS: u8 = 64;
 
-        let nuts = Nuts::new().nut07(true);
-
-        let mint_info = MintInfo::new().nuts(nuts);
-
         // TODO securely import mnemonic
         let mnemonic = Mnemonic::generate(12).unwrap();
 
@@ -168,11 +164,7 @@ impl PoolSv2<'_> {
         ]));
 
         let mint = Mint::new(
-            // TODO is mint_url necessary?
-            "http://localhost:8000",
             &mnemonic.to_seed_normalized(""),
-            mint_info,
-            QuoteTTL::new(1000, 1000),
             Arc::new(MintMemoryDatabase::default()),
             HashMap::new(),
             currency_units,

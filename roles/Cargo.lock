@@ -742,6 +742,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "325918d6fe32f23b19878fe4b34794ae41fc19ddbe53b10571a4874d44ffd39b"
 
 [[package]]
+name = "cashu"
+version = "0.7.1"
+source = "git+https://github.com/vnprc/cdk?rev=2023939a#2023939a9eb4fa9d1b1cbb88bb5907c75550caae"
+dependencies = [
+ "bitcoin 0.32.5",
+ "cbor-diag",
+ "ciborium",
+ "instant",
+ "lightning-invoice",
+ "once_cell",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "thiserror 2.0.4",
+ "tracing",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "cbor-diag"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -773,20 +793,19 @@ dependencies = [
 
 [[package]]
 name = "cdk"
-version = "0.6.0"
-source = "git+https://github.com/vnprc/cdk?rev=296c0dcd#296c0dcde56b8d7a26bd25fc8d12e7b88970ab6c"
+version = "0.7.1"
+source = "git+https://github.com/vnprc/cdk?rev=2023939a#2023939a9eb4fa9d1b1cbb88bb5907c75550caae"
 dependencies = [
  "anyhow",
  "async-trait",
  "bech32 0.9.1",
  "bitcoin 0.32.5",
  "cbor-diag",
+ "cdk-common",
  "ciborium",
  "futures",
  "getrandom",
- "instant",
  "lightning-invoice",
- "once_cell",
  "regex",
  "reqwest",
  "serde",
@@ -796,6 +815,29 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tokio-tungstenite",
+ "tracing",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "cdk-common"
+version = "0.7.1"
+source = "git+https://github.com/vnprc/cdk?rev=2023939a#2023939a9eb4fa9d1b1cbb88bb5907c75550caae"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bitcoin 0.32.5",
+ "cashu",
+ "cbor-diag",
+ "ciborium",
+ "futures",
+ "instant",
+ "lightning-invoice",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "thiserror 2.0.4",
  "tracing",
  "url",
  "uuid",
@@ -3896,9 +3938,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "1.11.0"
+version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8c5f0a0af699448548ad1a2fbf920fb4bee257eae39953ba95cb84891a0446a"
+checksum = "b3758f5e68192bb96cc8f9b7e2c2cfdabb435499a28499a42f8f984092adad4b"
 dependencies = [
  "getrandom",
  "serde",
