@@ -1,5 +1,6 @@
 use async_channel::{Receiver, Sender};
 use cdk::wallet::Wallet;
+use cdk::nuts::CurrencyUnit;
 use roles_logic_sv2::{
     channel_logic::channel_factory::{ExtendedChannelKind, ProxyExtendedChannelFactory, Share},
     mining_sv2::{
@@ -319,10 +320,11 @@ impl Bridge {
         tokio::task::block_in_place(|| {
             let wallet_clone = self.wallet.clone();
             tokio::runtime::Handle::current()
-                .block_on(wallet_clone.gen_ehash_premint_secrets(
+                .block_on(wallet_clone.create_premint_secrets(
                     work,
                     &share_hash,
-                    "http://localhost:8000"
+                    "http://localhost:8000",
+                    CurrencyUnit::Custom("HASH".to_string()),
                 ))
                 .map_err(Error::WalletError)
         })

@@ -769,7 +769,7 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
         
         let result = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(
-                wallet.gen_ehash_proofs(
+                wallet.verify_and_store_proofs(
                     blind_signature_set.items,
                     &share_hash,
                 ),
