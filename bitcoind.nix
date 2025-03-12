@@ -6,8 +6,8 @@
   src = pkgs.fetchFromGitHub {
     owner = "Sjors";
     repo = "bitcoin";
-    rev = "737c02ef0cf36fa5b5f921b3937003bcee6e184d"; # sv2 branch
-    hash = "sha256-OLSCaj1CAK3L29VZIW4ZB4TGD/PLQrUjbctYvtrzzyE=";
+    rev = "b4eb739e5d76e2b62fd37bae5da8acfa75484879"; # sv2 branch
+    hash = "sha256-vRPVOjGt1bYQUWZycweaYI6y22O1K1QAaCh5u3rfP6Q=";
   };
 in
   pkgs.bitcoind.overrideAttrs (oldAttrs: {
