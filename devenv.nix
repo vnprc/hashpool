@@ -9,8 +9,17 @@
     pkgs = pkgs;
     lib = lib;
   };
+
+  # Function to add logging logic to any command
+  withLogging = command: logFile: "mkdir -p ${config.devenv.root}/logs && ${command} 2>&1 | tee -a ${config.devenv.root}/logs/${logFile}";
 in {
   env.BITCOIND_DATADIR = config.devenv.root + "/.devenv/state/bitcoind";
+
+  # Ensure logs directory exists before processes run
+  tasks.create-logs-dir = {
+    exec = "mkdir -p ${config.devenv.root}/logs";
+    before = ["devenv:enterShell"];
+  };
 
   # https://devenv.sh/packages/
   packages =
@@ -26,36 +35,31 @@ in {
 
   # https://devenv.sh/processes/
   processes = {
-    run-local-pool.exec = "run-local-pool";
-    run-job-server.exec = "run-job-server";
-    run-job-client.exec = "run-job-client";
-    run-translator-proxy.exec = "run-translator-proxy";
-    bitcoind-testnet.exec = "bitcoind-testnet";
-    run-miner.exec = ''
-      echo "Waiting for translator proxy on port 34255..."
-      while ! nc -z localhost 34255; do
-        sleep 1
-      done
-      echo "Translator proxy is up, starting miner..."
-      cd roles/test-utils/mining-device-sv1 && cargo run
-    '';
+    run-local-pool = {exec = withLogging "run-local-pool" "run-local-pool.log";};
+    run-job-server = {exec = withLogging "run-job-server" "run-job-server.log";};
+    run-job-client = {exec = withLogging "run-job-client" "run-job-client.log";};
+    run-translator-proxy = {exec = withLogging "run-translator-proxy" "run-translator-proxy.log";};
+    bitcoind-testnet = {exec = withLogging "bitcoind-testnet" "bitcoind-testnet.log";};
+    run-miner = {
+      exec = withLogging ''
+        echo "Waiting for translator proxy on port 34255..."
+        while ! nc -z localhost 34255; do
+          sleep 1
+        done
+        echo "Translator proxy is up, starting miner..."
+        cd roles/test-utils/mining-device-sv1
+        cargo run
+      '' "run-miner.log";
+    };
   };
 
-  # https://devenv.sh/basics/
-  # https://devenv.sh/services/
-  # services.postgres.enable = true;
   # https://devenv.sh/scripts/
   scripts = {
-    run-local-pool.exec = "cargo -C roles/pool -Z unstable-options run -- -c $DEVENV_ROOT/roles/pool/config-examples/pool-config-local-tp-example.toml";
-    run-job-server.exec = "cargo -C roles/jd-server -Z unstable-options run -- -c $DEVENV_ROOT/roles/jd-server/config-examples/jds-config-local-example.toml";
-    run-job-client.exec = "cargo -C roles/jd-client -Z unstable-options run -- -c $DEVENV_ROOT/roles/jd-client/config-examples/jdc-config-local-example.toml";
-    run-translator-proxy.exec = "cargo -C roles/translator -Z unstable-options run -- -c $DEVENV_ROOT/roles/translator/config-examples/tproxy-config-local-jdc-example.toml";
-    bitcoind-testnet.exec = "bitcoind -testnet4 -sv2 -sv2port=8442 -debug=sv2 -conf=$DEVENV_ROOT/bitcoin.conf -datadir=$BITCOIND_DATADIR";
-  };
-
-  tasks."bitcoind:make_datadir" = {
-    exec = ''mkdir -p $BITCOIND_DATADIR'';
-    before = ["devenv:enterShell"];
+    run-local-pool.exec = withLogging "cargo -C roles/pool -Z unstable-options run -- -c $DEVENV_ROOT/roles/pool/config-examples/pool-config-local-tp-example.toml" "run-local-pool.log";
+    run-job-server.exec = withLogging "cargo -C roles/jd-server -Z unstable-options run -- -c $DEVENV_ROOT/roles/jd-server/config-examples/jds-config-local-example.toml" "run-job-server.log";
+    run-job-client.exec = withLogging "cargo -C roles/jd-client -Z unstable-options run -- -c $DEVENV_ROOT/roles/jd-client/config-examples/jdc-config-local-example.toml" "run-job-client.log";
+    run-translator-proxy.exec = withLogging "cargo -C roles/translator -Z unstable-options run -- -c $DEVENV_ROOT/roles/translator/config-examples/tproxy-config-local-jdc-example.toml" "run-translator-proxy.log";
+    bitcoind-testnet.exec = withLogging "bitcoind -testnet4 -sv2 -sv2port=8442 -debug=sv2 -conf=$DEVENV_ROOT/bitcoin.conf -datadir=$BITCOIND_DATADIR" "bitcoind-testnet.log";
   };
 
   pre-commit.hooks = {

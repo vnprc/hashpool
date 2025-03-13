@@ -19,6 +19,8 @@ cobertura.xml
 /roles/*/*-config.toml
 /examples/*/Cargo.lock
 /scripts/sv2.h
+/logs
+
 # Devenv
 .devenv*
 devenv.local.nix
