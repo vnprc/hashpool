@@ -13,16 +13,15 @@
     ...
   }: let
     system = "x86_64-linux";
-    pkgs = import nixpkgs {
-      inherit system;
-      lib = nixpkgs.lib;
-    };
+    pkgs = import nixpkgs {inherit system;};
+    lib = nixpkgs.lib;
   in {
     devShells.${system}.default = devenv.lib.mkShell {
       inherit pkgs;
 
       inputs = {
         nixpkgs = nixpkgs;
+        devenv = devenv;
         self = self;
       };
 
@@ -41,15 +40,12 @@
             just
             coreutils
             netcat
-            (import ./bitcoind.nix {
-              inherit pkgs;
-              lib = pkgs.lib;
-            })
+            (import ./bitcoind.nix {inherit pkgs lib;}) # ✅ Explicitly pass lib
           ];
 
           env.BITCOIND_DATADIR = pkgs.lib.mkForce "$DEVENV_ROOT/.devenv/state/bitcoind";
 
-          tasks."create-logs-dir" = {
+          tasks.createlogsdir = {
             exec = pkgs.lib.mkForce "mkdir -p $DEVENV_ROOT/logs";
             before = ["enterShell"];
           };
@@ -114,6 +110,18 @@
           '';
         }
       ];
+    };
+
+    packages.${system}.devenv-up = devenv.lib.mkShell {
+      inherit pkgs;
+
+      inputs = {
+        nixpkgs = nixpkgs;
+        devenv = devenv;
+        self = self;
+      };
+
+      modules = [./devenv.nix];
     };
   };
 }

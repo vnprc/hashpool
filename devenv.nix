@@ -19,7 +19,7 @@ in {
   env.BITCOIND_DATADIR = config.devenv.root + "/.devenv/state/bitcoind";
 
   # Ensure logs directory exists before processes run
-  tasks.create-logs-dir = {
+  tasks.createlogsdir = {
     exec = "mkdir -p ${config.devenv.root}/logs";
     before = ["devenv:enterShell"];
   };
@@ -66,13 +66,6 @@ in {
   };
 
   enterShell = ''
-    echo Just
-    echo ====
-    just --list
-    echo
-    echo Running Processes
-    echo =================
-    ${lib.concatStringsSep "\n" (map (name: "echo \"${name}\"") processNames)}
-    echo
+    just --list || true
   '';
 }
