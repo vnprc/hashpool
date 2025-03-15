@@ -18,6 +18,11 @@
       lib = nixpkgs.lib;
     };
   in {
+    packages.${system} = {
+      devenv-up = self.devShells.${system}.default.config.procfileScript;
+      devenv-test = self.devShells.${system}.default.config.test;
+    };
+
     devShells.${system}.default = devenv.lib.mkShell {
       inherit pkgs;
 
