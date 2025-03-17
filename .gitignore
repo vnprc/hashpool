@@ -23,7 +23,6 @@ cobertura.xml
 
 # Devenv
 .devenv*
-devenv.local.nix
 **/Cargo.toml.bak
 
 # direnv
