@@ -27,6 +27,7 @@ restore-deps:
         mv "$bakfile" "$origfile"; \
     done
 
+# update bitcoind.nix with latest rev & hash
 update-bitcoind:
     @echo "Fetching latest commit hash for sv2 branch..."
     @LATEST_COMMIT=$(curl -s "https://api.github.com/repos/Sjors/bitcoin/commits/sv2" | jq -r ".sha") && \
