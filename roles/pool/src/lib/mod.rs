@@ -15,7 +15,7 @@ use template_receiver::TemplateRx;
 use tracing::{error, info, warn};
 
 use tokio::select;
-use cdk::{cdk_database::mint_memory::MintMemoryDatabase, nuts::{CurrencyUnit, MintInfo, Nuts}, Mint, types::QuoteTTL};
+use cdk::{cdk_database::mint_memory::MintMemoryDatabase, nuts::CurrencyUnit, Mint};
 use bip39::Mnemonic;
 use bitcoin::bip32::{ChildNumber, DerivationPath};
 
