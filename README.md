@@ -55,17 +55,6 @@ The development environment initializes a containerized system with the followin
 
 ---
 
-## Setting Up Local Development Environment (Optional)
-
-1. Copy the default local environment file:
-   ```bash
-   cp devenv.local.nix.default devenv.local.nix
-   ```
-
-2. Update the path to your local cdk checkout
-
----
-
 ## Contribution
 
 This project is very early. PRs and bug reports are very welcome!
