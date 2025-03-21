@@ -93,7 +93,6 @@ pub struct SubmitSharesSuccess<'decoder> {
     // block template header hash, used to index the blinded secret
     pub hash: PubKey<'decoder>,
     // TODO we can't aggregate success messages without including all the blinded signatures
-    /// blind signature
     pub blind_signatures: Sv2BlindSignatureSetWire<'decoder>,
 }
 
