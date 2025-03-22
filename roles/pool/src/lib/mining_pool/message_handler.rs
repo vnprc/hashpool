@@ -133,7 +133,8 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         new_shares_sum: 0,
                         // initialize to all zeros, will be updated later
                         hash: [0u8; 32].into(),
-                        blind_signatures: Sv2BlindSignatureSetWire::default(),
+                        quote_id: Vec::new().try_into()?,
+                        amount: 0_u64,
                     };
 
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
@@ -147,7 +148,8 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         new_shares_sum: 0,
                         // initialize to all zeros, will be updated later
                         hash: [0u8; 32].into(),
-                        blind_signatures: Sv2BlindSignatureSetWire::default(),
+                        quote_id: Vec::new().try_into()?,
+                        amount: 0_u64,
                     };
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
                 },
@@ -184,32 +186,46 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         while self.solution_sender.try_send(solution.clone()).is_err() {};
                     }
 
-                    let blind_signatures = self.sign_blinded_messages(m.blinded_messages.clone()).into_static();
+                    // let blind_signatures = self.sign_blinded_messages(m.blinded_messages.clone()).into_static();
+                    // TODO use cdk to create quote, return quote ID
+                    let quote_id = "blahblahblah"
+                        .as_bytes()
+                        .to_vec()
+                        .try_into()?;
 
                     let success = SubmitSharesSuccess {
                         channel_id: m.channel_id,
                         last_sequence_number: m.sequence_number,
                         new_submits_accepted_count: 1,
                         new_shares_sum: 0,
-                        blind_signatures,
                         // TODO is this ownership hack fixable?
                         hash: m.hash.inner_as_ref().to_owned().try_into()?,
+                        quote_id,
+                        // TODO where do we get amount?
+                        amount: 0_u64,
                     };
 
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
 
                 },
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetDownstreamTarget => {
-                    let blind_signatures = self.sign_blinded_messages(m.blinded_messages.clone()).into_static();
+                    // let blind_signatures = self.sign_blinded_messages(m.blinded_messages.clone()).into_static();
+                    // TODO use cdk to create quote, return quote ID
+                    let quote_id = "blahblahblah"
+                        .as_bytes()
+                        .to_vec()
+                        .try_into()?;
 
                     let success = SubmitSharesSuccess {
                         channel_id: m.channel_id,
                         last_sequence_number: m.sequence_number,
                         new_submits_accepted_count: 1,
                         new_shares_sum: 0,
-                        blind_signatures,
                         // TODO is this ownership hack fixable?
                         hash: m.hash.inner_as_ref().to_owned().try_into()?,
+                        quote_id,
+                        // TODO where do we get amount?
+                        amount: 0_u64,
                     };
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
                 },
@@ -233,51 +249,3 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
         Ok(SendTo::Respond(Mining::SetCustomMiningJobSuccess(m)))
     }
 }
-
-impl Downstream {
-    fn sign_blinded_messages(
-        &self,
-        blinded_messages: Sv2BlindedMessageSetWire,
-    ) -> Sv2BlindSignatureSetWire {
-        let mint_clone = Arc::clone(&self.mint);
-
-        // convert to cdk structs
-        let blinded_message_set = BlindedMessageSet::try_from(blinded_messages.clone())
-            .expect("Failed to convert Sv2BlindedMessageSetWire to BlindedMessageSet");
-
-        // sign messages
-        let blinded_signature_set = tokio::task::block_in_place(move || {
-            let result = mint_clone.safe_lock(|mint| {
-                let signature_set = Self::sign_message_set(mint, &blinded_message_set);
-                signature_set
-            });
-            result.expect("Failed to lock mint")
-        });
-
-        // convert back to wire format
-        blinded_signature_set.into()
-    }
-
-    fn sign_message_set(
-        mint: &Mint,
-        blinded_message_set: &BlindedMessageSet,
-    ) -> BlindSignatureSet {
-        let mut items: [Option<BlindSignature>; 64] = core::array::from_fn(|_| None);
-
-        for (i, msg) in blinded_message_set.items.iter().enumerate() {
-            if let Some(blinded_message) = msg {
-                let signature = tokio::runtime::Handle::current()
-                    .block_on(mint.blind_sign(blinded_message))
-                    .expect("Failed to get blind signature");
-                items[i] = Some(signature);
-            }
-        }
-
-        BlindSignatureSet {
-            keyset_id: blinded_message_set.keyset_id,
-            items,
-        }
-    }
-}
-
-//TODO unit test sign_message_set and sign_blinded_messages

@@ -756,33 +756,23 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
     ) -> Result<roles_logic_sv2::handlers::mining::SendTo<Downstream>, RolesLogicError> {
         let wallet = self.wallet.clone();
 
-        let blind_signature_set: BlindSignatureSet = match m.blind_signatures.try_into() {
-            Ok(signatures) => signatures,
-            Err(e) => {
+        let quote_id = {
+            let bytes = &m.quote_id.inner_as_ref().to_vec();
+            String::from_utf8(bytes.to_vec())
                 // TODO use a better error
-                return Err(RolesLogicError::KeysetError(format!("Error minting ehash {:?}", e)));
-            }
+                .map_err(|e| RolesLogicError::KeysetError(format!("Invalid UTF-8 in quote_id: {:?}", e)))?
         };
 
         // TODO is it better to recalculate this value from the share or to pass it over the wire?
         let share_hash = m.hash.to_vec().to_hex();
+        let amount = 0_u64;  // TODO determine actual amount
         
-        let result = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(
-                wallet.verify_and_store_proofs(
-                    blind_signature_set.items,
-                    &share_hash,
-                ),
-            )
-        });
-        
-        match result {
-            Ok(amount) => info!("Hashpool minted ehash tokens for share {} with value {}", share_hash, u64::from(amount)),
-            Err(e) => {
-                // TODO use a better error
-                return Err(RolesLogicError::KeysetError(format!("Error minting ehash {:?}", e)));
-            }
-        }
+        info!(
+            "Hashpool minted ehash tokens for share {} with value {} quote_id {}",
+            share_hash,
+            amount,
+            quote_id
+        );
 
         Ok(SendTo::None(None))
     }
