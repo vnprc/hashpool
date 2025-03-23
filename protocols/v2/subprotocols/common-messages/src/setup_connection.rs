@@ -330,8 +330,6 @@ pub struct SetupConnectionSuccess {
     ///
     /// Each [`SetupConnection::protocol`] field has its own values/flags.
     pub flags: u32,
-    // try to use an array of 8 bytes and all hell breaks loose
-    // pub keyset_id: u64,
 }
 
 /// Message used by an upstream role to reject a connection setup request from a downstream role.
