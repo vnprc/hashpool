@@ -92,7 +92,7 @@ pub struct SubmitSharesSuccess<'decoder> {
     pub new_shares_sum: u64,
     // block template header hash, used to index the blinded secret
     pub hash: PubKey<'decoder>,
-    // TODO we can't aggregate success messages without including all the blinded signatures
+    // TODO find the right type for this field
     pub quote_id: B0255<'decoder>,
     pub amount: u64,
 }

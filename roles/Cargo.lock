@@ -744,7 +744,7 @@ checksum = "325918d6fe32f23b19878fe4b34794ae41fc19ddbe53b10571a4874d44ffd39b"
 [[package]]
 name = "cashu"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=1f33ba2d#1f33ba2d684685ddc36c1352e3d82fad85752fe9"
+source = "git+https://github.com/vnprc/cdk?rev=209dfe94#209dfe942595b5fc27065ae2db3ca4aad7d3247b"
 dependencies = [
  "bitcoin 0.32.5",
  "cbor-diag",
@@ -794,7 +794,7 @@ dependencies = [
 [[package]]
 name = "cdk"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=1f33ba2d#1f33ba2d684685ddc36c1352e3d82fad85752fe9"
+source = "git+https://github.com/vnprc/cdk?rev=209dfe94#209dfe942595b5fc27065ae2db3ca4aad7d3247b"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -823,7 +823,7 @@ dependencies = [
 [[package]]
 name = "cdk-common"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=1f33ba2d#1f33ba2d684685ddc36c1352e3d82fad85752fe9"
+source = "git+https://github.com/vnprc/cdk?rev=209dfe94#209dfe942595b5fc27065ae2db3ca4aad7d3247b"
 dependencies = [
  "anyhow",
  "async-trait",

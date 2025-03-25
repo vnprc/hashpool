@@ -186,12 +186,25 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         while self.solution_sender.try_send(solution.clone()).is_err() {};
                     }
 
-                    // let blind_signatures = self.sign_blinded_messages(m.blinded_messages.clone()).into_static();
-                    // TODO use cdk to create quote, return quote ID
-                    let quote_id = "blahblahblah"
-                        .as_bytes()
-                        .to_vec()
-                        .try_into()?;
+                    let quote_request = cdk::nuts::nut04::MintQuoteMiningShareRequest {
+                        amount: 0_u64.into(),
+                        unit: cdk::nuts::CurrencyUnit::Custom("HASH".to_string()),
+                        header_hash: "pretend this is a hash".to_string(),
+                        description: None,
+                        pubkey: None,
+                    };
+
+                    let mint_clone = Arc::clone(&self.mint);
+                    let quote_id = tokio::task::block_in_place(move || {
+                        let result = mint_clone.safe_lock(|mint| {
+                            let quote = tokio::runtime::Handle::current()
+                                .block_on(mint.get_mint_mining_share_quote(quote_request))
+                                .expect("Failed to get blind signature");
+
+                            quote.quote
+                        });
+                        result.expect("Failed to lock mint")
+                    });
 
                     let success = SubmitSharesSuccess {
                         channel_id: m.channel_id,
@@ -200,7 +213,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         new_shares_sum: 0,
                         // TODO is this ownership hack fixable?
                         hash: m.hash.inner_as_ref().to_owned().try_into()?,
-                        quote_id,
+                        quote_id: quote_id.as_bytes().to_vec().try_into()?,
                         // TODO where do we get amount?
                         amount: 0_u64,
                     };
@@ -209,12 +222,25 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
 
                 },
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetDownstreamTarget => {
-                    // let blind_signatures = self.sign_blinded_messages(m.blinded_messages.clone()).into_static();
-                    // TODO use cdk to create quote, return quote ID
-                    let quote_id = "blahblahblah"
-                        .as_bytes()
-                        .to_vec()
-                        .try_into()?;
+                    let quote_request = cdk::nuts::nut04::MintQuoteMiningShareRequest {
+                        amount: 0_u64.into(),
+                        unit: cdk::nuts::CurrencyUnit::Custom("HASH".to_string()),
+                        header_hash: "pretend this is a hash".to_string(),
+                        description: None,
+                        pubkey: None,
+                    };
+
+                    let mint_clone = Arc::clone(&self.mint);
+                    let quote_id = tokio::task::block_in_place(move || {
+                        let result = mint_clone.safe_lock(|mint| {
+                            let quote = tokio::runtime::Handle::current()
+                                .block_on(mint.get_mint_mining_share_quote(quote_request))
+                                .expect("Failed to get blind signature");
+
+                            quote.quote
+                        });
+                        result.expect("Failed to lock mint")
+                    });
 
                     let success = SubmitSharesSuccess {
                         channel_id: m.channel_id,
@@ -223,7 +249,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         new_shares_sum: 0,
                         // TODO is this ownership hack fixable?
                         hash: m.hash.inner_as_ref().to_owned().try_into()?,
-                        quote_id,
+                        quote_id: quote_id.to_string().as_bytes().to_vec().try_into()?,
                         // TODO where do we get amount?
                         amount: 0_u64,
                     };
