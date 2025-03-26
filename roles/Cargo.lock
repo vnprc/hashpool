@@ -508,7 +508,7 @@ dependencies = [
  "base64 0.21.7",
  "bech32 0.11.0",
  "bitcoin-internals 0.3.0",
- "bitcoin-io",
+ "bitcoin-io 0.1.3",
  "bitcoin-units",
  "bitcoin_hashes 0.14.0",
  "hex-conservative 0.2.1",
@@ -533,10 +533,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "bitcoin-internals"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b854212e29b96c8f0fe04cab11d57586c8f3257de0d146c76cb3b42b3eb9118"
+
+[[package]]
 name = "bitcoin-io"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b47c4ab7a93edb0c7198c5535ed9b52b63095f4e9b45279c6736cec4b856baf"
+
+[[package]]
+name = "bitcoin-io"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26792cd2bf245069a1c5acb06aa7ad7abe1de69b507c90b490bca81e0665d0ee"
+dependencies = [
+ "bitcoin-internals 0.4.0",
+]
 
 [[package]]
 name = "bitcoin-private"
@@ -594,8 +609,19 @@ version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bb18c03d0db0247e147a21a6faafd5a7eb851c743db062de72018b6b7e8e4d16"
 dependencies = [
- "bitcoin-io",
+ "bitcoin-io 0.1.3",
  "hex-conservative 0.2.1",
+ "serde",
+]
+
+[[package]]
+name = "bitcoin_hashes"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e5d09f16329cd545d7e6008b2c6b2af3a90bc678cf41ac3d2f6755943301b16"
+dependencies = [
+ "bitcoin-io 0.2.0",
+ "hex-conservative 0.3.0",
  "serde",
 ]
 
@@ -744,9 +770,10 @@ checksum = "325918d6fe32f23b19878fe4b34794ae41fc19ddbe53b10571a4874d44ffd39b"
 [[package]]
 name = "cashu"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=209dfe94#209dfe942595b5fc27065ae2db3ca4aad7d3247b"
+source = "git+https://github.com/vnprc/cdk?rev=f38631dc#f38631dc43a4ad7b4a513026672e8c7bc8f046c4"
 dependencies = [
  "bitcoin 0.32.5",
+ "bitcoin_hashes 0.16.0",
  "cbor-diag",
  "ciborium",
  "instant",
@@ -794,7 +821,7 @@ dependencies = [
 [[package]]
 name = "cdk"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=209dfe94#209dfe942595b5fc27065ae2db3ca4aad7d3247b"
+source = "git+https://github.com/vnprc/cdk?rev=f38631dc#f38631dc43a4ad7b4a513026672e8c7bc8f046c4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -823,7 +850,7 @@ dependencies = [
 [[package]]
 name = "cdk-common"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=209dfe94#209dfe942595b5fc27065ae2db3ca4aad7d3247b"
+source = "git+https://github.com/vnprc/cdk?rev=f38631dc#f38631dc43a4ad7b4a513026672e8c7bc8f046c4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1598,6 +1625,15 @@ name = "hex-conservative"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5313b072ce3c597065a808dbf612c4c8e8590bdbf8b579508bf7a762c5eae6cd"
+dependencies = [
+ "arrayvec",
+]
+
+[[package]]
+name = "hex-conservative"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4afe881d0527571892c4034822e59bb10c6c991cce6abe8199b6f5cf10766f55"
 dependencies = [
  "arrayvec",
 ]
@@ -2617,6 +2653,7 @@ dependencies = [
  "binary_sv2",
  "bip39",
  "bitcoin 0.32.5",
+ "bitcoin_hashes 0.16.0",
  "buffer_sv2",
  "cdk",
  "codec_sv2",

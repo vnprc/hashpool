@@ -1,6 +1,5 @@
 use super::super::mining_pool::Downstream;
-use cashu::{BlindSignatureSet, BlindedMessageSet, Sv2BlindSignatureSetWire, Sv2BlindedMessageSetWire};
-use cdk::{mint::Mint, nuts::BlindSignature};
+use bitcoin_hashes::sha256::Hash;
 use roles_logic_sv2::{
     errors::Error,
     handlers::mining::{ParseDownstreamMiningMessages, SendTo, SupportedChannelTypes},
@@ -11,7 +10,7 @@ use roles_logic_sv2::{
     template_distribution_sv2::SubmitSolution,
     utils::Mutex,
 };
-use std::{convert::{TryFrom, TryInto}, sync::Arc};
+use std::{convert::TryInto, sync::Arc};
 use tracing::error;
 
 impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> for Downstream {
@@ -189,7 +188,8 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                     let quote_request = cdk::nuts::nut04::MintQuoteMiningShareRequest {
                         amount: 0_u64.into(),
                         unit: cdk::nuts::CurrencyUnit::Custom("HASH".to_string()),
-                        header_hash: "pretend this is a hash".to_string(),
+                        header_hash: Hash::from_slice(m.hash.inner_as_ref())
+                            .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid header hash: {e}")))?,
                         description: None,
                         pubkey: None,
                     };
@@ -225,7 +225,8 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                     let quote_request = cdk::nuts::nut04::MintQuoteMiningShareRequest {
                         amount: 0_u64.into(),
                         unit: cdk::nuts::CurrencyUnit::Custom("HASH".to_string()),
-                        header_hash: "pretend this is a hash".to_string(),
+                        header_hash: Hash::from_slice(m.hash.inner_as_ref())
+                            .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid header hash: {e}")))?,
                         description: None,
                         pubkey: None,
                     };
