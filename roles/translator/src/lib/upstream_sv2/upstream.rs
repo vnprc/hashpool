@@ -15,7 +15,7 @@ use cdk::{nuts::KeySet, wallet::Wallet};
 use codec_sv2::{HandshakeRole, Initiator};
 use error_handling::handle_result;
 use key_utils::Secp256k1PublicKey;
-use mining_sv2::cashu::{BlindSignatureSet, Sv2KeySet};
+use mining_sv2::cashu::{calculate_work, Sv2KeySet};
 use network_helpers_sv2::Connection;
 use roles_logic_sv2::{
     common_messages_sv2::{Protocol, SetupConnection},
@@ -754,6 +754,7 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
         &mut self,
         m: roles_logic_sv2::mining_sv2::SubmitSharesSuccess,
     ) -> Result<roles_logic_sv2::handlers::mining::SendTo<Downstream>, RolesLogicError> {
+        // TODO save quote id to wallet
         let wallet = self.wallet.clone();
 
         let quote_id = {
@@ -765,10 +766,10 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
 
         // TODO is it better to recalculate this value from the share or to pass it over the wire?
         let share_hash = m.hash.to_vec().to_hex();
-        let amount = 0_u64;  // TODO determine actual amount
+        let amount = calculate_work(m.hash.inner_as_ref().try_into().expect("not 32 bytes"));
         
         info!(
-            "Hashpool minted ehash tokens for share {} with value {} quote_id {}",
+            "Hashpool created a quote for share {} with value {} quote_id {}",
             share_hash,
             amount,
             quote_id
