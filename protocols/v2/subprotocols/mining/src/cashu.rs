@@ -529,6 +529,23 @@ impl<'decoder> DomainItem<'decoder> for BlindSignature {
     }
 }
 
+// TODO find a better place for this
+pub fn calculate_work(hash: [u8; 32]) -> u64 {
+    let mut work = 0u64;
+
+    for byte in hash {
+        if byte == 0 {
+            work += 8; // Each zero byte adds 8 bits of work
+        } else {
+            // Count the leading zeros in the current byte
+            work += byte.leading_zeros() as u64;
+            break; // Stop counting after the first non-zero byte
+        }
+    }
+
+    work
+}
+
 #[cfg(test)]
 pub mod tests {
     use super::*;

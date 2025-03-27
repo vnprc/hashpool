@@ -25,7 +25,7 @@ use super::super::{
 use error_handling::handle_result;
 use roles_logic_sv2::{channel_logic::channel_factory::OnNewShare, Error as RolesLogicError};
 use tracing::{debug, error, info, warn};
-use mining_sv2::cashu::{BlindedMessageSet, Sv2BlindedMessageSetWire, Sv2KeySet};
+use mining_sv2::cashu::{calculate_work, BlindedMessageSet, Sv2BlindedMessageSetWire, Sv2KeySet};
 
 /// Bridge between the SV2 `Upstream` and SV1 `Downstream` responsible for the following messaging
 /// translation:
@@ -315,7 +315,7 @@ impl Bridge {
     ) -> Result<cdk::nuts::PreMintSecrets, Error<'static>> {
         // TODO is it better to recalculate this value from the share or to pass it over the wire?
         let share_hash = share.hash.to_vec().to_hex();
-        let work = Self::calculate_work(share.hash.to_vec().try_into()?);
+        let work = calculate_work(share.hash.to_vec().try_into()?);
 
         tokio::task::block_in_place(|| {
             let wallet_clone = self.wallet.clone();
@@ -328,22 +328,6 @@ impl Bridge {
                 ))
                 .map_err(Error::WalletError)
         })
-    }
-
-    fn calculate_work(hash: [u8; 32]) -> u64 {
-        let mut work = 0u64;
-    
-        for byte in hash {
-            if byte == 0 {
-                work += 8; // Each zero byte adds 8 bits of work
-            } else {
-                // Count the leading zeros in the current byte
-                work += byte.leading_zeros() as u64;
-                break; // Stop counting after the first non-zero byte
-            }
-        }
-    
-        work
     }
 
     /// Translates a SV1 `mining.submit` message to a SV2 `SubmitSharesExtended` message.

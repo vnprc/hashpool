@@ -1,5 +1,6 @@
 use super::super::mining_pool::Downstream;
 use bitcoin_hashes::sha256::Hash;
+use mining_sv2::cashu::calculate_work;
 use roles_logic_sv2::{
     errors::Error,
     handlers::mining::{ParseDownstreamMiningMessages, SendTo, SupportedChannelTypes},
@@ -185,11 +186,13 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         while self.solution_sender.try_send(solution.clone()).is_err() {};
                     }
 
+                    let header_hash = Hash::from_slice(m.hash.inner_as_ref())
+                        .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid header hash: {e}")))?;
+
                     let quote_request = cdk::nuts::nut04::MintQuoteMiningShareRequest {
-                        amount: 0_u64.into(),
+                        amount: calculate_work(header_hash.to_byte_array()).into(),
                         unit: cdk::nuts::CurrencyUnit::Custom("HASH".to_string()),
-                        header_hash: Hash::from_slice(m.hash.inner_as_ref())
-                            .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid header hash: {e}")))?,
+                        header_hash,
                         description: None,
                         pubkey: None,
                     };
@@ -222,8 +225,11 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
 
                 },
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetDownstreamTarget => {
+                    let header_hash = Hash::from_slice(m.hash.inner_as_ref())
+                        .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid header hash: {e}")))?;
+
                     let quote_request = cdk::nuts::nut04::MintQuoteMiningShareRequest {
-                        amount: 0_u64.into(),
+                        amount: calculate_work(header_hash.to_byte_array()).into(),
                         unit: cdk::nuts::CurrencyUnit::Custom("HASH".to_string()),
                         header_hash: Hash::from_slice(m.hash.inner_as_ref())
                             .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid header hash: {e}")))?,
