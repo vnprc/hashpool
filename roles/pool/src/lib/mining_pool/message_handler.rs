@@ -256,7 +256,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         new_shares_sum: 0,
                         // TODO is this ownership hack fixable?
                         hash: m.hash.inner_as_ref().to_owned().try_into()?,
-                        quote_id: quote_id.to_string().as_bytes().to_vec().try_into()?,
+                        quote_id: quote_id.as_bytes().to_vec().try_into()?,
                         // TODO where do we get amount?
                         amount: 0_u64,
                     };

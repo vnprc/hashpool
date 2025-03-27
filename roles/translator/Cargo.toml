@@ -47,7 +47,7 @@ rand = "0.8.4"
 bitcoin = "0.30"
 mining_sv2 = { version = "^1.0.0", path = "../../protocols/v2/subprotocols/mining" }
 cdk = { git = "https://github.com/vnprc/cdk", rev = "f38631dc" }
-
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 sha2 = "0.10.6"

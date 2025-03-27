@@ -758,10 +758,11 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
         let wallet = self.wallet.clone();
 
         let quote_id = {
-            let bytes = &m.quote_id.inner_as_ref().to_vec();
-            String::from_utf8(bytes.to_vec())
+            let bytes = m.quote_id.inner_as_ref();
+            let uuid = uuid::Uuid::from_slice(bytes)
                 // TODO use a better error
-                .map_err(|e| RolesLogicError::KeysetError(format!("Invalid UTF-8 in quote_id: {:?}", e)))?
+                .map_err(|e| RolesLogicError::KeysetError(format!("Invalid UUID bytes: {:?}", e)))?;
+            uuid
         };
 
         // TODO is it better to recalculate this value from the share or to pass it over the wire?
