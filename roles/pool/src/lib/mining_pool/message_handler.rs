@@ -134,7 +134,6 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         // initialize to all zeros, will be updated later
                         hash: [0u8; 32].into(),
                         quote_id: Vec::new().try_into()?,
-                        amount: 0_u64,
                     };
 
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
@@ -149,7 +148,6 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         // initialize to all zeros, will be updated later
                         hash: [0u8; 32].into(),
                         quote_id: Vec::new().try_into()?,
-                        amount: 0_u64,
                     };
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
                 },
@@ -217,8 +215,6 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         // TODO is this ownership hack fixable?
                         hash: m.hash.inner_as_ref().to_owned().try_into()?,
                         quote_id: quote_id.as_bytes().to_vec().try_into()?,
-                        // TODO where do we get amount?
-                        amount: 0_u64,
                     };
 
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
@@ -227,9 +223,10 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetDownstreamTarget => {
                     let header_hash = Hash::from_slice(m.hash.inner_as_ref())
                         .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid header hash: {e}")))?;
+                    let amount = calculate_work(header_hash.to_byte_array());
 
                     let quote_request = cdk::nuts::nut04::MintQuoteMiningShareRequest {
-                        amount: calculate_work(header_hash.to_byte_array()).into(),
+                        amount: amount.into(),
                         unit: cdk::nuts::CurrencyUnit::Custom("HASH".to_string()),
                         header_hash: Hash::from_slice(m.hash.inner_as_ref())
                             .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid header hash: {e}")))?,
@@ -257,8 +254,6 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         // TODO is this ownership hack fixable?
                         hash: m.hash.inner_as_ref().to_owned().try_into()?,
                         quote_id: quote_id.as_bytes().to_vec().try_into()?,
-                        // TODO where do we get amount?
-                        amount: 0_u64,
                     };
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
                 },

@@ -95,7 +95,6 @@ pub struct SubmitSharesSuccess<'decoder> {
     // TODO bring this down to 16 bytes
     // not worth battling the encoding macros to define a new type
     pub quote_id: B032<'decoder>,
-    pub amount: u64,
 }
 
 /// Message used by upstream to reject [`SubmitSharesStandard`] or [`SubmitSharesExtended`].
