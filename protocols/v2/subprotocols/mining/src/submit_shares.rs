@@ -2,10 +2,10 @@
 use alloc::vec::Vec;
 #[cfg(not(feature = "with_serde"))]
 use binary_sv2::binary_codec_sv2;
-use binary_sv2::{Deserialize, PubKey, Serialize, Str0255, B0255, B032};
+use binary_sv2::{Deserialize, PubKey, Serialize, Str0255, B032};
 #[cfg(not(feature = "with_serde"))]
 use core::convert::TryInto;
-use crate::cashu::{Sv2BlindSignatureSetWire, Sv2BlindedMessageSetWire};
+use crate::cashu::Sv2BlindedMessageSetWire;
 
 /// Message used by downstream to send result of its hashing work to an upstream.
 #[derive(Serialize, Deserialize, Debug, Clone)]
