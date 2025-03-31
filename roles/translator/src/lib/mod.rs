@@ -41,8 +41,6 @@ pub struct TranslatorSv2 {
 
 fn create_wallet() -> Arc<Wallet> {
     use cdk::cdk_database::WalletMemoryDatabase;
-    use cdk::wallet::Wallet;
-    use rand::Rng;
     use cdk::nuts::CurrencyUnit;
 
     let seed = rand::thread_rng().gen::<[u8; 32]>();
