@@ -11,6 +11,7 @@ members = [
     "jd-client",
     "jd-server",
     "tests-integration",
+    "mint",
 ]
 
 [profile.dev]

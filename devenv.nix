@@ -35,7 +35,10 @@ in {
     ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [pkgs.darwin.apple_sdk.frameworks.Security];
 
   # https://devenv.sh/languages/
-  languages.rust.enable = true;
+  languages.rust = {
+    enable = true;
+    channel = "nightly";
+  };
 
   # https://devenv.sh/processes/
   processes = {
@@ -58,6 +61,11 @@ in {
           sleep 5
         done
       '' "miner.log";
+    };
+    cdk-mintd = {
+      exec = withLogging ''
+        cargo -C roles/mint -Z unstable-options run -- -c $DEVENV_ROOT/roles/mint/config/mint.config.toml
+      '' "mint.log";
     };
   };
 

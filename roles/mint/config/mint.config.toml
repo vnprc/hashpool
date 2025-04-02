@@ -1,0 +1,24 @@
+[info]
+listen_host = "127.0.0.1"
+listen_port = 3338
+url = "http://127.0.0.1:3338"
+mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+
+[mint_info]
+name = "Hashpool Mint"
+description = "cashu mint to expose ehash and ecash operations to end user wallets"
+
+[database]
+engine = "sqlite"
+
+[ln]
+ln_backend = "fakewallet"
+
+[fake_wallet]
+supported_units = ["sat"]
+fee_percent = 0.02
+reserve_fee_min = 2
+# These two have defaults, but we’ll include them explicitly for clarity
+# min_delay_time = 1
+# max_delay_time = 3
+
