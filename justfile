@@ -8,22 +8,13 @@ up:
 
 # point cdk cargo dependencies to local repo
 local-cdk:
-    @if [ -z "$CDK_PATH" ]; then \
-        echo "Error: CDK_PATH is not set. Please set it before running this command."; \
-        echo "Example: export CDK_PATH=/absolute/path/to/cdk/crates/cdk"; \
-        exit 1; \
-    fi; \
-    echo "Using CDK_PATH: $CDK_PATH"; \
-    find . -name "Cargo.toml" -exec grep -l 'cdk = { git = "https://github.com/vnprc/cdk", rev = "[^"]*" }' {} + | while IFS= read -r file; do \
-        echo "Updating $file"; \
-        sed -i.bak "s|cdk = { git = \"https://github.com/vnprc/cdk\", rev = \"[^\"]*\" }|cdk = { path = \"$CDK_PATH\" }|" "$file"; \
-    done
+    ./scripts/patch-cdk-path.sh
 
 # restore cargo dependencies from .bak files
 restore-deps:
     find . -name "Cargo.toml.bak" | while IFS= read -r bakfile; do \
         origfile="${bakfile%.bak}"; \
-        echo "Restoring $origfile from $bakfile"; \
+        echo "✅ Restoring $origfile from $bakfile"; \
         mv "$bakfile" "$origfile"; \
     done
 
