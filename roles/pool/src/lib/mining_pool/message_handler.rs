@@ -1,6 +1,6 @@
 use super::super::mining_pool::Downstream;
 use bitcoin_hashes::sha256::Hash;
-use mining_sv2::cashu::calculate_work;
+use mining_sv2::cashu::{calculate_work, BlindedMessageSet};
 use roles_logic_sv2::{
     errors::Error,
     handlers::mining::{ParseDownstreamMiningMessages, SendTo, SupportedChannelTypes},
@@ -11,7 +11,7 @@ use roles_logic_sv2::{
     template_distribution_sv2::SubmitSolution,
     utils::Mutex,
 };
-use std::{convert::TryInto, sync::Arc};
+use std::{convert::{TryFrom, TryInto}, sync::Arc};
 use tracing::error;
 
 impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> for Downstream {
@@ -195,11 +195,18 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         pubkey: None,
                     };
 
+                    let blinded_message_set = BlindedMessageSet::try_from(m.blinded_messages.clone())
+                    .expect("Failed to convert Sv2BlindedMessageSetWire to BlindedMessageSet");
+
+                    let blinded_message_vec = blinded_message_set.items.iter()
+                        .filter_map(|item| item.clone())
+                        .collect();
+
                     let mint_clone = Arc::clone(&self.mint);
                     let quote_id = tokio::task::block_in_place(move || {
                         let result = mint_clone.safe_lock(|mint| {
                             let quote = tokio::runtime::Handle::current()
-                                .block_on(mint.get_mint_mining_share_quote(quote_request))
+                                .block_on(mint.create_paid_mint_mining_share_quote(quote_request, blinded_message_vec))
                                 .expect("Failed to get blind signature");
 
                             quote.quote
@@ -234,11 +241,18 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         pubkey: None,
                     };
 
+                    let blinded_message_set = BlindedMessageSet::try_from(m.blinded_messages.clone())
+                    .expect("Failed to convert Sv2BlindedMessageSetWire to BlindedMessageSet");
+
+                    let blinded_message_vec = blinded_message_set.items.iter()
+                        .filter_map(|item| item.clone())
+                        .collect();
+
                     let mint_clone = Arc::clone(&self.mint);
                     let quote_id = tokio::task::block_in_place(move || {
                         let result = mint_clone.safe_lock(|mint| {
                             let quote = tokio::runtime::Handle::current()
-                                .block_on(mint.get_mint_mining_share_quote(quote_request))
+                                .block_on(mint.create_paid_mint_mining_share_quote(quote_request, blinded_message_vec))
                                 .expect("Failed to get blind signature");
 
                             quote.quote
