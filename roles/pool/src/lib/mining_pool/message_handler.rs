@@ -244,11 +244,15 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                     let blinded_message_set = BlindedMessageSet::try_from(m.blinded_messages.clone())
                     .expect("Failed to convert Sv2BlindedMessageSetWire to BlindedMessageSet");
 
-                    let blinded_message_vec = blinded_message_set.items.iter()
+                    let blinded_message_vec: Vec<cdk::nuts::BlindedMessage> = blinded_message_set.items.iter()
                         .filter_map(|item| item.clone())
                         .collect();
 
                     let mint_clone = Arc::clone(&self.mint);
+
+                    // TODO write this event to redis:
+                    println!("JSON PAYLOAD: {:?}", mining_sv2::cashu::format_quote_event_json(&quote_request, &blinded_message_vec));
+
                     let quote_id = tokio::task::block_in_place(move || {
                         let result = mint_clone.safe_lock(|mint| {
                             let quote = tokio::runtime::Handle::current()

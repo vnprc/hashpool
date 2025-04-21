@@ -3035,6 +3035,7 @@ dependencies = [
  "cdk",
  "const_sv2",
  "derive_codec_sv2",
+ "serde_json",
 ]
 
 [[package]]
