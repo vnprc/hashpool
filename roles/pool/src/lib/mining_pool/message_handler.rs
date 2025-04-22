@@ -251,7 +251,8 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                     let mint_clone = Arc::clone(&self.mint);
 
                     // TODO write this event to redis:
-                    println!("JSON PAYLOAD: {}", mining_sv2::cashu::format_quote_event_json(&quote_request, &blinded_message_vec));
+                    let json = mining_sv2::cashu::format_quote_event_json(&quote_request, &blinded_message_vec);
+                    tokio::spawn(enqueue_quote_event(json));
 
                     let quote_id = tokio::task::block_in_place(move || {
                         let result = mint_clone.safe_lock(|mint| {
@@ -294,4 +295,23 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
         };
         Ok(SendTo::Respond(Mining::SetCustomMiningJobSuccess(m)))
     }
+}
+
+// TODO move this code to a more appropriate module
+const REDIS_KEY_CREATE_QUOTE: &str = "mint:quotes:create";
+const REDIS_URL: &str = "redis://localhost:6379";
+
+async fn enqueue_quote_event(payload: String) {
+    let client = redis::Client::open(REDIS_URL).expect("Invalid Redis URL");
+    let mut conn = client
+        .get_multiplexed_async_connection()
+        .await
+        .expect("Failed to connect to Redis");
+
+    let _: () = redis::cmd("RPUSH")
+        .arg(REDIS_KEY_CREATE_QUOTE)
+        .arg(payload)
+        .query_async(&mut conn)
+        .await
+        .expect("Failed to push to Redis");
 }
