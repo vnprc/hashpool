@@ -564,7 +564,7 @@ pub fn format_quote_event_json(req: &MintQuoteMiningShareRequest, msgs: &[Blinde
 
         match &req.unit {
             CurrencyUnit::Custom(s) => write!(w, "\"unit\":\"{}\",", s).unwrap(),
-            _ => write!(w, "\"unit\":\"UNKNOWN\",").unwrap(),
+            currency_unit => write!(w, "\"unit\":\"{}\",", currency_unit).unwrap(),
         }
 
         write!(
