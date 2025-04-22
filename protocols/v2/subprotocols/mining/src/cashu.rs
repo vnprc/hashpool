@@ -546,6 +546,8 @@ pub fn calculate_work(hash: [u8; 32]) -> u64 {
     work
 }
 
+// SRI encodings are totally fucked. Just do it manually.
+// TODO delete this function. Probably use serde after upgrading to SRI 1.3
 use cdk::nuts::nut04::MintQuoteMiningShareRequest;
 
 pub fn format_quote_event_json(req: &MintQuoteMiningShareRequest, msgs: &[BlindedMessage]) -> String {
@@ -604,7 +606,7 @@ pub fn format_quote_event_json(req: &MintQuoteMiningShareRequest, msgs: &[Blinde
 
         match &m.witness {
             Some(w) => {
-                let json = serde_json::to_string(w).unwrap();
+                let json = serde_json::to_value(w).unwrap();
                 write!(out, "{}", json).unwrap();
                 out.push('}');
             }
@@ -612,7 +614,7 @@ pub fn format_quote_event_json(req: &MintQuoteMiningShareRequest, msgs: &[Blinde
         }
     }
 
-    out.push_str("]}");
+    out.push_str("]}}");
     out
 }
 

@@ -251,7 +251,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                     let mint_clone = Arc::clone(&self.mint);
 
                     // TODO write this event to redis:
-                    println!("JSON PAYLOAD: {:?}", mining_sv2::cashu::format_quote_event_json(&quote_request, &blinded_message_vec));
+                    println!("JSON PAYLOAD: {}", mining_sv2::cashu::format_quote_event_json(&quote_request, &blinded_message_vec));
 
                     let quote_id = tokio::task::block_in_place(move || {
                         let result = mint_clone.safe_lock(|mint| {
