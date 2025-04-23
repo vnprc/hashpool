@@ -3089,7 +3089,11 @@ dependencies = [
  "cdk-redb",
  "cdk-sqlite",
  "home",
+ "redis 0.23.3",
+ "serde",
+ "serde_json",
  "tokio",
+ "tokio-stream",
  "tracing",
  "tracing-subscriber",
 ]
@@ -3569,7 +3573,7 @@ dependencies = [
  "nohash-hasher",
  "noise_sv2",
  "rand",
- "redis",
+ "redis 0.25.4",
  "roles_logic_sv2",
  "serde",
  "stratum-common",
@@ -3887,6 +3891,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ea0a72cd7140de9fc3e318823b883abf819c20d478ec89ce880466dc2ef263c6"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "redis"
+version = "0.23.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f49cdc0bb3f412bf8e7d1bd90fe1d9eb10bc5c399ba90973c14662a27b3f8ba"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "combine",
+ "futures-util",
+ "itoa",
+ "percent-encoding",
+ "pin-project-lite",
+ "ryu",
+ "sha1_smol",
+ "socket2 0.4.10",
+ "tokio",
+ "tokio-util",
+ "url",
 ]
 
 [[package]]

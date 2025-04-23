@@ -552,57 +552,47 @@ use cdk::nuts::nut04::MintQuoteMiningShareRequest;
 
 pub fn format_quote_event_json(req: &MintQuoteMiningShareRequest, msgs: &[BlindedMessage]) -> String {
     use std::fmt::Write;
-    use cdk::nuts:: CurrencyUnit;
+    use cdk::nuts::CurrencyUnit;
     use cdk::util::hex;
     use serde_json;
 
-    let mut quote_part = String::new();
-    {
-        let w: &mut dyn Write = &mut quote_part;
+    let mut out = String::new();
+    out.push_str("{\"quote_request\":{");
 
-        write!(w, "{{\"amount\":{},", req.amount.to_string()).unwrap();
-
-        match &req.unit {
-            CurrencyUnit::Custom(s) => write!(w, "\"unit\":\"{}\",", s).unwrap(),
-            currency_unit => write!(w, "\"unit\":\"{}\",", currency_unit).unwrap(),
-        }
-
-        write!(
-            w,
-            "\"header_hash\":\"{}\",",
-            hex::encode(req.header_hash.to_byte_array())
-        )
-        .unwrap();
-
-        match &req.description {
-            Some(d) => write!(w, "\"description\":\"{}\",", d).unwrap(),
-            None => write!(w, "\"description\":null,").unwrap(),
-        }
-
-        match &req.pubkey {
-            Some(pk) => write!(w, "\"pubkey\":\"{}\"", hex::encode(pk.to_bytes())).unwrap(),
-            None => write!(w, "\"pubkey\":null").unwrap(),
-        }
+    match &req.unit {
+        CurrencyUnit::Custom(s) => write!(out, "\"unit\":\"{}\",", s).unwrap(),
+        currency_unit => write!(out, "\"unit\":\"{}\",", currency_unit).unwrap(),
     }
 
-    let mut out = String::new();
-    out.push_str("{\"quote_request\":");
-    out.push_str(&quote_part);
-    out.push_str(",\"blinded_messages\":[");
+    write!(
+        out,
+        "\"amount\":{},\"header_hash\":\"{}\",",
+        req.amount.to_string(),
+        hex::encode(req.header_hash.to_byte_array())
+    ).unwrap();
 
+    match &req.description {
+        Some(d) => write!(out, "\"description\":\"{}\",", d).unwrap(),
+        None => write!(out, "\"description\":null,").unwrap(),
+    }
+
+    match &req.pubkey {
+        Some(pk) => write!(out, "\"pubkey\":\"{}\"", hex::encode(pk.to_bytes())).unwrap(),
+        None => write!(out, "\"pubkey\":null").unwrap(),
+    }
+
+    out.push_str("},\"blinded_messages\":[");
     for (i, m) in msgs.iter().enumerate() {
         if i > 0 {
             out.push(',');
         }
-
         write!(
             out,
-            "{{\"amount\":{},\"keyset_id\":\"{}\",\"blinded_secret\":\"{}\",\"witness\":",
+            "{{\"amount\":{},\"id\":\"{}\",\"B_\":\"{}\",\"witness\":",
             m.amount.to_string(),
             hex::encode(m.keyset_id.to_bytes()),
             hex::encode(m.blinded_secret.to_bytes())
-        )
-        .unwrap();
+        ).unwrap();
 
         match &m.witness {
             Some(w) => {
@@ -613,8 +603,7 @@ pub fn format_quote_event_json(req: &MintQuoteMiningShareRequest, msgs: &[Blinde
             None => out.push_str("null}"),
         }
     }
-
-    out.push_str("]}}");
+    out.push_str("]}");
     out
 }
 

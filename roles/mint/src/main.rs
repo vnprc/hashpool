@@ -109,10 +109,85 @@ async fn main() -> Result<()> {
         }
     });
 
+    // TODO move this code to a more appropriate module
+    const REDIS_KEY_CREATE_QUOTE: &str = "mint:quotes:create";
+    const REDIS_URL: &str = "redis://localhost:6379";
+
+    // redis polling loop
+    tokio::spawn({
+        let mint = mint.clone();
+        async move {
+            loop {
+                match redis::Client::open(REDIS_URL) {
+                    Ok(client) => match client.get_async_connection().await {
+                        Ok(mut conn) => {
+                            loop {
+                                let res: redis::RedisResult<Option<(String, String)>> = redis::cmd("BRPOP")
+                                    .arg(REDIS_KEY_CREATE_QUOTE)
+                                    .arg("0")
+                                    .query_async(&mut conn)
+                                    .await;
+
+                                match res {
+                                    Ok(Some((_, payload))) => {
+                                        let val: serde_json::Value = serde_json::from_str(&payload).unwrap();
+                                        let quote_part = &val["quote_request"];
+                                        if let Some(obj) = quote_part.as_object() {
+                                            let keys: Vec<_> = obj.keys().collect();
+                                            println!("quote_request fields: {:?}", keys);
+                                        } else {
+                                            println!("quote_request is not an object!");
+                                        }
+
+                                        match serde_json::from_str::<QuoteRequestEnvelope>(&payload) {
+                                            Ok(envelope) => {
+                                                match mint.create_paid_mint_mining_share_quote(envelope.quote_request, envelope.blinded_messages).await {
+                                                    Ok(resp) => tracing::info!("Quote created: {:?}", resp),
+                                                    Err(err) => tracing::warn!("Failed to create quote: {}", err),
+                                                }
+                                            }
+                                            Err(e) => {
+                                                tracing::warn!("Failed to parse quote request from Redis: {}", e);
+                                            }
+                                        }
+                                    }
+                                    Ok(None) => continue,
+                                    Err(e) => {
+                                        tracing::warn!("Redis BRPOP error: {:?}", e);
+                                        break; // Reconnect on failure
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to connect to Redis: {:?}", e);
+                            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        }
+                    },
+                    Err(e) => {
+                        tracing::warn!("Redis client setup failed: {:?}", e);
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    }
+                }
+            }
+        }
+    });
+
     info!("Mint listening on {}:{}", settings.info.listen_host, settings.info.listen_port);
     axum::Server::bind(&format!("{}:{}", settings.info.listen_host, settings.info.listen_port).parse()?)
         .serve(router.into_make_service())
         .await?;
 
     Ok(())
+}
+
+// TODO move this somewhere more appropriate. Into cdk probably
+use cdk::nuts::nut04::MintQuoteMiningShareRequest;
+use cdk::nuts::BlindedMessage;
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+struct QuoteRequestEnvelope {
+    quote_request: MintQuoteMiningShareRequest,
+    blinded_messages: Vec<BlindedMessage>,
 }

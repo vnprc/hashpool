@@ -11,6 +11,10 @@ tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 bip39 = "2.0"
+redis = { version = "0.23", features = ["tokio-comp"] }
+tokio-stream = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 cdk = { git = "https://github.com/vnprc/cdk.git", package = "cdk", rev = "d0f09176" }
 cdk-axum = { git = "https://github.com/vnprc/cdk.git", package = "cdk-axum", rev = "d0f09176" }
