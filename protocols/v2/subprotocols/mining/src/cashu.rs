@@ -250,7 +250,7 @@ impl<'a> TryFrom<KeySet> for Sv2KeySet<'a> {
 
         // sanity check
         if sv2_keys.len() != 64 {
-            return Err("Expected KeySet to have exactly 64 keys".into());
+            return Err(format!("Expected KeySet to have exactly 64 keys. Keys found: {}", sv2_keys.len()).into());
         }
 
         let keys: [Sv2SigningKey<'a>; 64] = sv2_keys

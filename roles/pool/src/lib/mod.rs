@@ -9,15 +9,20 @@ use async_channel::{bounded, unbounded};
 
 use error::PoolError;
 use mining_pool::{get_coinbase_output, Configuration, Pool};
-use mining_sv2::cashu::Sv2KeySet;
+use mining_sv2::cashu::{KeysetId, Sv2KeySet};
 use roles_logic_sv2::utils::Mutex;
 use template_receiver::TemplateRx;
 use tracing::{error, info, warn};
 
 use tokio::select;
-use cdk::{cdk_database::mint_memory::MintMemoryDatabase, nuts::CurrencyUnit, Mint};
+use cdk::{cdk_database::mint_memory::MintMemoryDatabase, nuts::{CurrencyUnit, KeySet, Keys}, Mint, Amount, amount::AmountStr};
 use bip39::Mnemonic;
 use bitcoin::bip32::{ChildNumber, DerivationPath};
+
+use std::collections::BTreeMap;
+use cdk::util::hex;
+use cdk::nuts::PublicKey;
+use std::convert::TryFrom;
 
 // TODO consolidate these constants with the same constants in roles/pool/src/lib/mod.rs
 pub const HASH_CURRENCY_UNIT: &str = "HASH";
@@ -80,11 +85,36 @@ impl PoolSv2<'_> {
             return Err(e);
         }
     
+        use redis::Commands;
+        use std::{thread, time::Duration};
+
+        let redis_url = "redis://localhost:6379";
+        let redis_key = "mint:keyset:active";
+
+        let client = redis::Client::open(redis_url).expect("invalid redis URL");
+        let mut conn = client.get_connection().expect("failed to connect to redis");
+
+        let keyset_json: String = loop {
+            match conn.get::<_, String>(redis_key) {
+                Ok(s) => break s,
+                Err(e) => {
+                    warn!("Waiting for keyset in redis: {}", e);
+                    thread::sleep(Duration::from_secs(1));
+                }
+            }
+        };
+
+        let keyset = Self::decode_keyset_json(&keyset_json);
+
+        let sv2_keyset: Sv2KeySet = keyset.clone().try_into()
+            .expect("Failed to convert KeySet into Sv2KeySet");
+
+        self.keyset = Some(Arc::new(Mutex::new(sv2_keyset)));
+        info!("Loaded keyset {} from Redis", keyset.id);
+
+        // TODO delete mint
         let mint = self.create_mint().await;
-        let keyset_id = mint.keysets().await.unwrap().keysets.first().unwrap().id;
-        let keyset = mint.keyset(&keyset_id).await.unwrap().unwrap();
         let mint = Some(Arc::new(Mutex::new(mint)));
-        self.keyset = Some(Arc::new(Mutex::new(keyset.try_into().unwrap())));
 
         let pool = Pool::start(
             config.clone(),
@@ -145,6 +175,7 @@ impl PoolSv2<'_> {
         }
     }
 
+    // TODO delete me
     async fn create_mint(&self) -> Mint {
         const NUM_KEYS: u8 = 64;
 
@@ -174,5 +205,74 @@ impl PoolSv2<'_> {
 
         mint
     }
+
+    // SRI encodings are completely fucked just do it live
+    pub fn decode_keyset_json(raw: &str) -> KeySet {
+        let s = raw.trim().trim_start_matches('{').trim_end_matches('}');
+    
+        let mut id = None;
+        let mut unit = None;
+        let mut keys_json = None;
+    
+        for part in s.split(",\"") {
+            let entry = part.trim_start_matches('"');
+            if entry.starts_with("id") {
+                let val = entry.trim_start_matches("id\":\"").trim_end_matches('"');
+                let id_bytes = hex::decode(val).expect("invalid hex in id");
+                let mut padded = [0u8; 8];
+                padded[(8 - id_bytes.len())..].copy_from_slice(&id_bytes);
+                let id_u64 = u64::from_be_bytes(padded);
+                id = Some(KeysetId::try_from(id_u64).expect("invalid Id").0);
+            } else if entry.starts_with("unit") {
+                let val = entry.trim_start_matches("unit\":\"").trim_end_matches('"');
+                unit = Some(CurrencyUnit::Custom(val.to_ascii_uppercase()));
+            } else if entry.starts_with("keys\":{") {
+                // fix: handle nested braces manually
+                let keys_start = raw.find("\"keys\":{").expect("keys not found") + 7;
+                let mut brace_count = 0;
+                let mut end = keys_start;
+                let chars: Vec<char> = raw.chars().collect();
+                for i in keys_start..chars.len() {
+                    match chars[i] {
+                        '{' => brace_count += 1,
+                        '}' => {
+                            brace_count -= 1;
+                            if brace_count == 0 {
+                                end = i;
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                keys_json = Some(&raw[keys_start..=end]);
+                break;
+            }
+        }
+    
+        let id = id.expect("missing id");
+        let unit = unit.expect("missing unit");
+        let keys_str = keys_json.expect("missing keys")
+            .trim_start_matches('{')
+            .trim_end_matches('}');
+    
+        let mut keys_map = BTreeMap::new();
+        for entry in keys_str.split("\",\"") {
+            let cleaned = entry.replace('\"', "");
+            let mut parts = cleaned.splitn(2, ':');
+            let amount = parts.next().expect("missing amount").parse::<u64>().expect("invalid amount");
+            let pubkey_hex = parts.next().expect("missing pubkey");
+            let pubkey_bytes = hex::decode(pubkey_hex).expect("bad pubkey hex");
+            let pubkey = PublicKey::from_slice(&pubkey_bytes).expect("bad pubkey");
+    
+            keys_map.insert(AmountStr::from(Amount::from(amount)), pubkey);
+        }
+    
+        KeySet {
+            id,
+            unit,
+            keys: Keys::new(keys_map),
+        }
+    }    
 
 }

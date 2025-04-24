@@ -1,12 +1,14 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::str::FromStr;
 
 use axum::Router;
+use cdk::cdk_database::mint_memory::MintMemoryDatabase;
 use cdk::cdk_database::{self, MintDatabase};
-use cdk::mint::{MintBuilder, MintMeltLimits};
+use cdk::mint::{Mint, MintBuilder, MintMeltLimits};
 use cdk::nuts::nut17::SupportedMethods;
-use cdk::nuts::PaymentMethod;
+use cdk::nuts::{CurrencyUnit, PaymentMethod};
 use cdk::types::QuoteTTL;
 use cdk_axum::cache::HttpCache;
 use cdk_mintd::config::{self, LnBackend, DatabaseEngine};
@@ -18,6 +20,7 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 use bip39::Mnemonic;
 use anyhow::{Result, bail};
+use bitcoin::bip32::{ChildNumber, DerivationPath};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -61,38 +64,70 @@ async fn main() -> Result<()> {
         }
     };
 
-    let mint_info = settings.mint_info.clone();
-    let info = settings.info.clone();
-    let mut mint_builder = MintBuilder::new()
-        .with_localstore(db)
-        .with_name(mint_info.name)
-        .with_description(mint_info.description)
-        .with_seed(Mnemonic::from_str(&info.mnemonic)?.to_seed_normalized("").to_vec());
+    // TODO go back to the builder pattern and config file
+    // figure out how to specify num keys
 
-    let melt_limits = MintMeltLimits {
-        mint_min: settings.ln.min_mint,
-        mint_max: settings.ln.max_mint,
-        melt_min: settings.ln.min_melt,
-        melt_max: settings.ln.max_melt,
-    };
+    // let mint_info = settings.mint_info.clone();
+    // let info = settings.info.clone();
+    // let mut mint_builder = MintBuilder::new()
+    //     .with_localstore(db)
+    //     .with_name(mint_info.name)
+    //     .with_description(mint_info.description)
+    //     .with_seed(Mnemonic::from_str(&info.mnemonic)?.to_seed_normalized("").to_vec());
 
-    if settings.ln.ln_backend == LnBackend::FakeWallet {
-        let fake_cfg = settings.clone().fake_wallet.expect("FakeWallet config required");
-        for unit in &fake_cfg.supported_units {
-            let ln = fake_cfg.setup(&mut vec![], &settings, unit.clone()).await?;
-            mint_builder = mint_builder
-                .add_ln_backend(unit.clone(), PaymentMethod::Bolt11, melt_limits, Arc::new(ln))
-                .add_supported_websockets(SupportedMethods::new(PaymentMethod::Bolt11, unit.clone()));
-        }
-    } else {
-        bail!("Only fakewallet backend supported in this minimal launcher");
-    }
+    // let melt_limits = MintMeltLimits {
+    //     mint_min: settings.ln.min_mint,
+    //     mint_max: settings.ln.max_mint,
+    //     melt_min: settings.ln.min_melt,
+    //     melt_max: settings.ln.max_melt,
+    // };
+
+    // if settings.ln.ln_backend == LnBackend::FakeWallet {
+    //     let fake_cfg = settings.clone().fake_wallet.expect("FakeWallet config required");
+    //     for unit in &fake_cfg.supported_units {
+    //         let ln = fake_cfg.setup(&mut vec![], &settings, unit.clone()).await?;
+    //         mint_builder = mint_builder
+    //             .add_ln_backend(unit.clone(), PaymentMethod::Bolt11, melt_limits, Arc::new(ln))
+    //             .add_supported_websockets(SupportedMethods::new(PaymentMethod::Bolt11, unit.clone()));
+    //     }
+    // } else {
+    //     bail!("Only fakewallet backend supported in this minimal launcher");
+    // }
+
+    pub const HASH_CURRENCY_UNIT: &str = "HASH";
+    pub const HASH_DERIVATION_PATH: u32 = 1337;
+    const NUM_KEYS: u8 = 64;
+
+    // TODO securely import mnemonic
+    let mnemonic = Mnemonic::generate(12).unwrap();
+
+    let hash_currency_unit = CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string());
+
+    let mut currency_units = HashMap::new();
+    currency_units.insert(hash_currency_unit.clone(), (0, NUM_KEYS));
+
+    let mut derivation_paths = HashMap::new();
+    derivation_paths.insert(hash_currency_unit, DerivationPath::from(vec![
+        ChildNumber::from_hardened_idx(0).expect("Failed to create purpose index 0"),
+        ChildNumber::from_hardened_idx(HASH_DERIVATION_PATH).expect(&format!("Failed to create coin type index {}", HASH_DERIVATION_PATH)),
+        ChildNumber::from_hardened_idx(0).expect("Failed to create account index 0"),
+    ]));
 
     let cache: HttpCache = settings.info.http_cache.into();
-    let mint = Arc::new(mint_builder.add_cache(
-        Some(cache.ttl.as_secs()),
-        vec![],
-    ).build().await?);
+
+    // let mint = Arc::new(mint_builder.add_cache(
+    //     Some(cache.ttl.as_secs()),
+    //     vec![],
+    // ).build().await?);
+
+    let mint = Arc::new(Mint::new(
+        &mnemonic.to_seed_normalized(""),
+        Arc::new(MintMemoryDatabase::default()),
+        HashMap::new(),
+        currency_units,
+        derivation_paths,
+    )
+    .await.unwrap());
 
     mint.check_pending_mint_quotes().await?;
     mint.check_pending_melt_quotes().await?;
@@ -109,11 +144,36 @@ async fn main() -> Result<()> {
         }
     });
 
+    // publish keyset to redis
+    use redis::AsyncCommands;
+    use serde_json;
+
+    let keysets = mint.keysets().await.unwrap();
+    let keyset_id = keysets.keysets.first().unwrap().id;
+    let keyset = mint.keyset(&keyset_id).await.unwrap().unwrap();
+
+    // Serialize full keyset
+    let keyset_json = serde_json::to_string(&keyset).expect("Failed to serialize keyset");
+
+    let redis_client = redis::Client::open(REDIS_URL)?;
+    let mut redis_conn = redis_client.get_async_connection().await?;
+
+    let redis_key = format!("mint:keyset:active");
+
+    // Cache and broadcast
+    redis_conn.set(&redis_key, &keyset_json).await?;
+
+    tracing::info!(
+        "Published keyset {} to Redis key '{}",
+        keyset_id,
+        redis_key,
+    );
+
     // TODO move this code to a more appropriate module
     const REDIS_KEY_CREATE_QUOTE: &str = "mint:quotes:create";
     const REDIS_URL: &str = "redis://localhost:6379";
 
-    // redis polling loop
+    // quote polling loop
     tokio::spawn({
         let mint = mint.clone();
         async move {

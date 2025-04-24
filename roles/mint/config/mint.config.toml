@@ -15,7 +15,7 @@ engine = "sqlite"
 ln_backend = "fakewallet"
 
 [fake_wallet]
-supported_units = ["sat"]
+supported_units = ["sat", "HASH"]
 fee_percent = 0.02
 reserve_fee_min = 2
 # These two have defaults, but we’ll include them explicitly for clarity

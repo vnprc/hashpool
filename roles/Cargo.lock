@@ -3083,6 +3083,7 @@ dependencies = [
  "anyhow",
  "axum",
  "bip39",
+ "bitcoin 0.32.5",
  "cdk",
  "cdk-axum",
  "cdk-mintd",
