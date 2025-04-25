@@ -152,6 +152,21 @@ pub struct Sv2KeySet<'a> {
 impl<'a> Sv2KeySet<'a> {
     pub const KEY_SIZE: usize = 41;
     pub const NUM_KEYS: usize = 64;
+
+    pub fn into_static(self) -> Sv2KeySet<'static> {
+        let static_keys: [Sv2SigningKey<'static>; 64] = self
+            .keys
+            .iter()
+            .map(|k| k.clone().into_static())
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("Expected exactly 64 signing keys");
+
+        Sv2KeySet {
+            id: self.id,
+            keys: static_keys,
+        }
+    }
 }
 
 impl<'a> TryFrom<Sv2KeySetWire<'a>> for [Sv2SigningKey<'a>; 64] {

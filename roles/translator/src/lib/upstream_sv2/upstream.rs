@@ -703,11 +703,17 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
         let keyset = KeySet::try_from(sv2_keyset)
             .map_err(|e| RolesLogicError::KeysetError(e.to_string()))?;
 
-        tokio::spawn(async move {
-            if let Err(e) = wallet_clone.add_keyset(keyset.keys, true, 0).await {
-                warn!("Failed to add keyset to wallet: {:?}", e);
-            };
-        });
+            tokio::spawn(async move {
+                match wallet_clone.add_keyset(keyset.keys, true, 0).await {
+                    Ok(_) => {
+                        info!("Added keyset {} to wallet.", keyset.id);
+                    }
+                    Err(e) => {
+                        warn!("Failed to add keyset to wallet: {:?}", e);
+                    }
+                };
+            });
+            
 
         let m = Mining::OpenExtendedMiningChannelSuccess(m_static);
         Ok(SendTo::None(Some(m)))
@@ -754,25 +760,6 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
         &mut self,
         m: roles_logic_sv2::mining_sv2::SubmitSharesSuccess,
     ) -> Result<roles_logic_sv2::handlers::mining::SendTo<Downstream>, RolesLogicError> {
-        let quote_id = {
-            let bytes = m.quote_id.inner_as_ref();
-            let uuid = uuid::Uuid::from_slice(bytes)
-                // TODO use a better error
-                .map_err(|e| RolesLogicError::KeysetError(format!("Invalid UUID bytes: {:?}", e)))?;
-            uuid
-        };
-
-        // TODO is it better to recalculate this value from the share or to pass it over the wire?
-        let share_hash = m.hash.to_vec().to_hex();
-        let amount = calculate_work(m.hash.inner_as_ref().try_into().expect("not 32 bytes"));
-        
-        info!(
-            "Hashpool created a quote for share {} with value {} quote_id {}",
-            share_hash,
-            amount,
-            quote_id
-        );
-
         Ok(SendTo::None(None))
     }
 

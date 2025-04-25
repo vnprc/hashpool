@@ -287,7 +287,7 @@ impl ChannelFactory {
             let keyset = self.keyset.safe_lock(|keyset| {
                 keyset.clone()
             }).map_err(|e| Error::PoisonLock(e.to_string()))?;
-
+println!("new_extended_channel() keyset {:?}", keyset);
             let success = OpenExtendedMiningChannelSuccess {
                 request_id,
                 channel_id,
@@ -1009,6 +1009,7 @@ impl PoolChannelFactory {
         pool_signature: String,
         keyset: Arc<Mutex<Sv2KeySet<'static>>>,
     ) -> Self {
+        println!("channel_factory keyset {:?}", keyset);
         let inner = ChannelFactory {
             ids,
             standard_channels_for_non_hom_downstreams: HashMap::with_hasher(
@@ -1766,6 +1767,10 @@ impl ProxyExtendedChannelFactory {
         new_target: Target,
     ) -> Option<bool> {
         self.inner.update_target_for_channel(channel_id, new_target)
+    }
+
+    pub fn update_keyset(&mut self, new_keyset: Arc<Mutex<Sv2KeySet<'static>>>) {
+        self.inner.keyset = new_keyset;
     }
 }
 

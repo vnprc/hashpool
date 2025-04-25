@@ -125,40 +125,59 @@ impl Bridge {
         &mut self,
         hash_rate: f32,
     ) -> ProxyResult<'static, OpenSv1Downstream> {
-        match self.channel_factory.new_extended_channel(0, hash_rate, 0) {
-            Ok(messages) => {
-                for message in messages {
-                    match message {
-                        Mining::OpenExtendedMiningChannelSuccess(success) => {
-                            let extranonce = success.extranonce_prefix.to_vec();
-                            let extranonce2_len = success.extranonce_size;
-                            self.target
-                                .safe_lock(|t| *t = success.target.to_vec())
-                                .map_err(|_e| PoisonLock)?;
-                            return Ok(OpenSv1Downstream {
-                                channel_id: success.channel_id,
-                                last_notify: self.last_notify.clone(),
-                                extranonce,
-                                target: self.target.clone(),
-                                extranonce2_len,
-                            });
-                        }
-                        Mining::OpenMiningChannelError(e) => error!("Error opening Sv1 mining connection: {:?}", e),
-                        Mining::SetNewPrevHash(_) => (),
-                        Mining::NewExtendedMiningJob(_) => (),
-                        _ => unreachable!(),
-                    }
+        let messages = self
+            .channel_factory
+            .new_extended_channel(0, hash_rate, 0)
+            .map_err(|_| Error::SubprotocolMining("Bridge: failed to open new extended channel".to_string()))?;
+    
+        // Temp holders extracted from success
+        let (channel_id, extranonce, extranonce2_len, target_vec, keyset_wire) = {
+            let mut found = None;
+            for message in messages {
+                if let Mining::OpenExtendedMiningChannelSuccess(success) = message {
+                    found = Some((
+                        success.channel_id,
+                        success.extranonce_prefix.to_vec(),
+                        success.extranonce_size,
+                        success.target.to_vec(),
+                        success.keyset.to_owned(),
+                    ));
+                    break;
                 }
             }
-            Err(_) => {
-                return Err(Error::SubprotocolMining(
-                    "Bridge: failed to open new extended channel".to_string(),
-                ))
-            }
+            found.ok_or_else(|| Error::SubprotocolMining("Bridge: No successful OpenExtendedMiningChannel message".to_string()))?
         };
-        Err(Error::SubprotocolMining(
-            "Bridge: Invalid mining message when opening downstream connection".to_string(),
-        ))
+    
+        // Now safe to mutate self
+        self.target
+            .safe_lock(|t| *t = target_vec)
+            .map_err(|_| PoisonLock)?;
+    
+        let keyset_domain = Sv2KeySet::try_from(keyset_wire.into_static()).unwrap();
+        let keyset_static = keyset_domain.clone().into_static();
+        let keyset_mutex = Arc::new(Mutex::new(keyset_static));
+    
+        self.channel_factory.update_keyset(keyset_mutex);
+    
+        let keyset: cdk::nuts::KeySet = keyset_domain.try_into().unwrap();
+    
+        tokio::task::block_in_place(|| {
+            let wallet_clone = self.wallet.clone();
+            tokio::task::block_in_place(move || {
+                let handle = tokio::runtime::Handle::current();
+                handle.block_on(async {
+                    wallet_clone.add_keyset(keyset.keys, true, 0).await
+                })
+            })
+        }).unwrap();
+    
+        Ok(OpenSv1Downstream {
+            channel_id,
+            last_notify: self.last_notify.clone(),
+            extranonce,
+            target: self.target.clone(),
+            extranonce2_len,
+        })
     }
 
     /// Starts the tasks that receive SV1 and SV2 messages to be translated and sent to their

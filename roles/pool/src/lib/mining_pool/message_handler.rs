@@ -133,7 +133,6 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         new_shares_sum: 0,
                         // initialize to all zeros, will be updated later
                         hash: [0u8; 32].into(),
-                        quote_id: Vec::new().try_into()?,
                     };
 
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
@@ -147,7 +146,6 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         new_shares_sum: 0,
                         // initialize to all zeros, will be updated later
                         hash: [0u8; 32].into(),
-                        quote_id: Vec::new().try_into()?,
                     };
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
                 },
@@ -198,21 +196,12 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                     let blinded_message_set = BlindedMessageSet::try_from(m.blinded_messages.clone())
                     .expect("Failed to convert Sv2BlindedMessageSetWire to BlindedMessageSet");
 
-                    let blinded_message_vec = blinded_message_set.items.iter()
+                    let blinded_message_vec: Vec<cdk::nuts::BlindedMessage> = blinded_message_set.items.iter()
                         .filter_map(|item| item.clone())
                         .collect();
 
-                    let mint_clone = Arc::clone(&self.mint);
-                    let quote_id = tokio::task::block_in_place(move || {
-                        let result = mint_clone.safe_lock(|mint| {
-                            let quote = tokio::runtime::Handle::current()
-                                .block_on(mint.create_paid_mint_mining_share_quote(quote_request, blinded_message_vec))
-                                .expect("Failed to get blind signature");
-
-                            quote.quote
-                        });
-                        result.expect("Failed to lock mint")
-                    });
+                    let json = mining_sv2::cashu::format_quote_event_json(&quote_request, &blinded_message_vec);
+                    tokio::spawn(enqueue_quote_event(json));
 
                     let success = SubmitSharesSuccess {
                         channel_id: m.channel_id,
@@ -221,7 +210,6 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         new_shares_sum: 0,
                         // TODO is this ownership hack fixable?
                         hash: m.hash.inner_as_ref().to_owned().try_into()?,
-                        quote_id: quote_id.as_bytes().to_vec().try_into()?,
                     };
 
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
@@ -248,22 +236,8 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         .filter_map(|item| item.clone())
                         .collect();
 
-                    let mint_clone = Arc::clone(&self.mint);
-
-                    // TODO write this event to redis:
                     let json = mining_sv2::cashu::format_quote_event_json(&quote_request, &blinded_message_vec);
                     tokio::spawn(enqueue_quote_event(json));
-
-                    let quote_id = tokio::task::block_in_place(move || {
-                        let result = mint_clone.safe_lock(|mint| {
-                            let quote = tokio::runtime::Handle::current()
-                                .block_on(mint.create_paid_mint_mining_share_quote(quote_request, blinded_message_vec))
-                                .expect("Failed to get blind signature");
-
-                            quote.quote
-                        });
-                        result.expect("Failed to lock mint")
-                    });
 
                     let success = SubmitSharesSuccess {
                         channel_id: m.channel_id,
@@ -272,7 +246,6 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         new_shares_sum: 0,
                         // TODO is this ownership hack fixable?
                         hash: m.hash.inner_as_ref().to_owned().try_into()?,
-                        quote_id: quote_id.as_bytes().to_vec().try_into()?,
                     };
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
                 },
