@@ -754,9 +754,6 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
         &mut self,
         m: roles_logic_sv2::mining_sv2::SubmitSharesSuccess,
     ) -> Result<roles_logic_sv2::handlers::mining::SendTo<Downstream>, RolesLogicError> {
-        // TODO save quote id to wallet
-        let wallet = self.wallet.clone();
-
         let quote_id = {
             let bytes = m.quote_id.inner_as_ref();
             let uuid = uuid::Uuid::from_slice(bytes)
