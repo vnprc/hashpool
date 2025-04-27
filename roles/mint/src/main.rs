@@ -51,21 +51,21 @@ async fn main() -> Result<()> {
 
     std::fs::create_dir_all(&work_dir)?;
 
-    let db: Arc<dyn MintDatabase<Err = cdk_database::Error> + Send + Sync> = match settings.database.engine {
-        DatabaseEngine::Sqlite => {
-            let path = work_dir.join("cdk-mintd.sqlite");
-            let sqlite = MintSqliteDatabase::new(&path).await?;
-            sqlite.migrate().await;
-            Arc::new(sqlite)
-        }
-        DatabaseEngine::Redb => {
-            let path = work_dir.join("cdk-mintd.redb");
-            Arc::new(MintRedbDatabase::new(&path)?)
-        }
-    };
-
     // TODO go back to the builder pattern and config file
     // figure out how to specify num keys
+
+    // let db: Arc<dyn MintDatabase<Err = cdk_database::Error> + Send + Sync> = match settings.database.engine {
+    //     DatabaseEngine::Sqlite => {
+    //         let path = work_dir.join("cdk-mintd.sqlite");
+    //         let sqlite = MintSqliteDatabase::new(&path).await?;
+    //         sqlite.migrate().await;
+    //         Arc::new(sqlite)
+    //     }
+    //     DatabaseEngine::Redb => {
+    //         let path = work_dir.join("cdk-mintd.redb");
+    //         Arc::new(MintRedbDatabase::new(&path)?)
+    //     }
+    // };
 
     // let mint_info = settings.mint_info.clone();
     // let info = settings.info.clone();
