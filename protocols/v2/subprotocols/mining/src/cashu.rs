@@ -1,4 +1,4 @@
-use cdk::{amount::{Amount, AmountStr}, nuts::{BlindSignature, BlindedMessage, CurrencyUnit, KeySet, PreMintSecrets, PublicKey}};
+use cdk::{amount::{Amount, AmountStr}, nuts::{BlindSignature, BlindedMessage, CurrencyUnit, KeySet, PreMintSecrets, PublicKey, Keys}};
 use core::array;
 use std::{collections::BTreeMap, convert::{TryFrom, TryInto}};
 pub use std::error::Error;
@@ -191,7 +191,7 @@ impl<'a> TryFrom<&[Sv2SigningKey<'a>; 64]> for Sv2KeySetWire<'a> {
             .map_err(|_| binary_sv2::Error::DecodableConversionError)?;
 
         Ok(Sv2KeySetWire {
-            id: 0, // ID can be set later by the caller
+            id: calculate_keyset_id(keys),
             keys: encoded_keys,
         })
     }
@@ -606,6 +606,50 @@ pub fn format_quote_event_json(req: &MintQuoteMiningShareRequest, msgs: &[Blinde
     out.push_str("]}");
     out
 }
+
+fn sv2_signing_keys_to_keys(keys: &[Sv2SigningKey]) -> Option<Keys> {
+    let mut map = BTreeMap::new();
+    for (i, k) in keys.iter().enumerate() {
+        let mut pubkey_bytes = [0u8; 33];
+        pubkey_bytes[0] = if k.parity_bit { 0x03 } else { 0x02 };
+        pubkey_bytes[1..].copy_from_slice(k.pubkey.inner_as_ref());
+
+        match PublicKey::from_slice(&pubkey_bytes) {
+            Ok(pubkey) => {
+                map.insert(
+                    AmountStr::from(Amount::from(k.amount)),
+                    pubkey,
+                );
+            }
+            Err(e) => {
+                // TODO how do we error log from here?
+                println!("ERROR sv2_signing_keys_to_keys: Failed to parse public key for key {}: {:?}", i, e);
+                return None;
+            }
+        }
+    }
+    Some(Keys::new(map))
+}
+
+fn calculate_keyset_id(keys: &[Sv2SigningKey]) -> u64 {
+    match sv2_signing_keys_to_keys(keys) {
+        Some(keys_map) => {
+            let id = cdk::nuts::nut02::Id::from(&keys_map);
+            let id_bytes = id.to_bytes();
+
+            let mut padded = [0u8; 8];
+            padded[..id_bytes.len()].copy_from_slice(&id_bytes);
+
+            u64::from_be_bytes(padded)
+        }
+        None => {
+            // TODO how do we error log from here?
+            println!("ERROR calculate_keyset_id: Failed to generate Keys, defaulting keyset ID to 0");
+            0
+        }
+    }
+}
+
 
 #[cfg(test)]
 pub mod tests {
