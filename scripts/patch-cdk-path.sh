@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${IN_DEVENV:-}" != "1" ]]; then
+  echo "Error: Not inside devenv shell. Run 'devenv shell' first."
+  exit 1
+fi
+
 if [[ -z "${CDK_PATH:-}" ]]; then
   echo "Error: CDK_PATH is not set."
   echo "Example: export CDK_PATH=/absolute/path/to/cdk/crates/cdk"

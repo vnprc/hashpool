@@ -22,6 +22,7 @@ in {
   env.BITCOIND_DATADIR = config.devenv.root + "/.devenv/state/bitcoind";
   env.REDIS_HOST = "localhost";
   env.REDIS_PORT = "6379";
+  env.IN_DEVENV = "1";
 
   # Ensure logs directory exists before processes run
   tasks.create-logs-dir = {
