@@ -5,6 +5,10 @@
   inputs,
   ...
 }: let
+  REDIS_PORT = "6379";
+  MINTD_PORT = "3338";
+  POOL_PORT = "34254";
+  PROXY_PORT = "34255";
   bitcoind = import ./bitcoind.nix {
     pkgs = pkgs;
     lib = lib;
@@ -21,7 +25,7 @@
 in {
   env.BITCOIND_DATADIR = config.devenv.root + "/.devenv/state/bitcoind";
   env.REDIS_HOST = "localhost";
-  env.REDIS_PORT = "6379";
+  env.REDIS_PORT = REDIS_PORT;
   env.IN_DEVENV = "1";
 
   # Ensure logs directory exists before processes run
@@ -50,18 +54,45 @@ in {
   # https://devenv.sh/processes/
   processes = {
     redis = {exec = withLogging "mkdir -p ${config.devenv.root}/.devenv/state/redis && redis-server --dir ${config.devenv.root}/.devenv/state/redis --port $REDIS_PORT" "redis.log";};
-    local-pool = {exec = withLogging "cargo -C roles/pool -Z unstable-options run -- -c $DEVENV_ROOT/roles/pool/config-examples/pool-config-local-tp-example.toml" "local-pool.log";};
-    job-server = {exec = withLogging "cargo -C roles/jd-server -Z unstable-options run -- -c $DEVENV_ROOT/roles/jd-server/config-examples/jds-config-local-example.toml" "job-server.log";};
-    job-client = {exec = withLogging "cargo -C roles/jd-client -Z unstable-options run -- -c $DEVENV_ROOT/roles/jd-client/config-examples/jdc-config-local-example.toml" "job-client.log";};
-    translator-proxy = {exec = withLogging "cargo -C roles/translator -Z unstable-options run -- -c $DEVENV_ROOT/roles/translator/config-examples/tproxy-config-local-jdc-example.toml" "translator-proxy.log";};
-    bitcoind-testnet = {exec = withLogging "bitcoind -testnet4 -sv2 -sv2port=8442 -debug=sv2 -conf=$DEVENV_ROOT/bitcoin.conf -datadir=$BITCOIND_DATADIR" "bitcoind-testnet.log";};
-    miner = {
+    pool = {
       exec = withLogging ''
-        echo "Waiting for translator proxy on port 34255..."
-        while ! nc -z localhost 34255; do
+        echo "Waiting for Mintd..."
+        while ! nc -z localhost ${MINTD_PORT}; do
           sleep 1
         done
-        echo "Translator proxy is up, starting miner..."
+        echo "Mintd is up. Starting Local Pool..."
+        cargo -C roles/pool -Z unstable-options run -- -c $DEVENV_ROOT/roles/pool/config-examples/pool-config-local-tp-example.toml
+      '' "pool.log";
+    };
+    jd-server = {
+      exec = withLogging ''
+        echo "Waiting for Pool..."
+        while ! nc -z localhost ${POOL_PORT}; do
+          sleep 1
+        done
+        echo "Pool is up. Starting Job Server..."
+        cargo -C roles/jd-server -Z unstable-options run -- -c $DEVENV_ROOT/roles/jd-server/config-examples/jds-config-local-example.toml
+      '' "jd-server.log";
+    };
+    jd-client = {exec = withLogging "cargo -C roles/jd-client -Z unstable-options run -- -c $DEVENV_ROOT/roles/jd-client/config-examples/jdc-config-local-example.toml" "job-client.log";};
+    proxy = {
+      exec = withLogging ''
+        echo "Waiting for Pool..."
+        while ! nc -z localhost ${POOL_PORT}; do
+          sleep 1
+        done
+        echo "Pool is up. Starting Proxy..."
+        cargo -C roles/translator -Z unstable-options run -- -c $DEVENV_ROOT/roles/translator/config-examples/tproxy-config-local-jdc-example.toml
+      '' "proxy.log";
+    };
+    bitcoind = {exec = withLogging "bitcoind -testnet4 -sv2 -sv2port=8442 -debug=sv2 -conf=$DEVENV_ROOT/bitcoin.conf -datadir=$BITCOIND_DATADIR" "bitcoind-testnet.log";};
+    miner = {
+      exec = withLogging ''
+        echo "Waiting for proxy..."
+        while ! nc -z localhost ${PROXY_PORT}; do
+          sleep 1
+        done
+        echo "Proxy is up, starting miner..."
         cd roles/test-utils/mining-device-sv1
         while true; do
           RUST_LOG=debug stdbuf -oL cargo run 2>&1 | tee -a ${config.devenv.root}/logs/miner.log
@@ -70,8 +101,13 @@ in {
         done
       '' "miner.log";
     };
-    cdk-mintd = {
+    mint = {
       exec = withLogging ''
+        echo "Waiting for Redis on port ${REDIS_PORT}..."
+        while ! nc -z localhost ${REDIS_PORT}; do
+          sleep 1
+        done
+        echo "Redis is up. Starting Mintd..."
         cargo -C roles/mint -Z unstable-options run -- -c $DEVENV_ROOT/roles/mint/config/mint.config.toml
       '' "mint.log";
     };
