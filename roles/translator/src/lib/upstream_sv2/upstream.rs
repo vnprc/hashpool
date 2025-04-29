@@ -754,23 +754,14 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
         &mut self,
         m: roles_logic_sv2::mining_sv2::SubmitSharesSuccess,
     ) -> Result<roles_logic_sv2::handlers::mining::SendTo<Downstream>, RolesLogicError> {
-        let quote_id = {
-            let bytes = m.quote_id.inner_as_ref();
-            let uuid = uuid::Uuid::from_slice(bytes)
-                // TODO use a better error
-                .map_err(|e| RolesLogicError::KeysetError(format!("Invalid UUID bytes: {:?}", e)))?;
-            uuid
-        };
-
         // TODO is it better to recalculate this value from the share or to pass it over the wire?
         let share_hash = m.hash.to_vec().to_hex();
         let amount = calculate_work(m.hash.inner_as_ref().try_into().expect("not 32 bytes"));
         
         info!(
-            "Hashpool created a quote for share {} with value {} quote_id {}",
+            "Hashpool created a quote for share {} with value {}",
             share_hash,
             amount,
-            quote_id
         );
 
         Ok(SendTo::None(None))

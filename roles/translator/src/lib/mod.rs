@@ -44,7 +44,7 @@ fn create_wallet() -> Arc<Wallet> {
     use cdk::nuts::CurrencyUnit;
 
     let seed = rand::thread_rng().gen::<[u8; 32]>();
-    let mint_url = "https://testnut.cashu.space";
+    let mint_url = "http://127.0.0.1:3338";
 
     let localstore = WalletMemoryDatabase::default();
     Arc::new(Wallet::new(mint_url, CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string()), Arc::new(localstore), &seed, None).unwrap())

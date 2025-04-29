@@ -182,7 +182,6 @@ pub struct Downstream {
     downstream_data: CommonDownstreamData,
     solution_sender: Sender<SubmitSolution<'static>>,
     channel_factory: Arc<Mutex<PoolChannelFactory>>,
-    mint: Arc<Mutex<Mint>>,
 }
 
 // TODO remove after porting mint to use Sv2 data types
@@ -207,7 +206,7 @@ pub struct Pool {
     channel_factory: Arc<Mutex<PoolChannelFactory>>,
     last_prev_hash_template_id: u64,
     status_tx: status::Sender,
-    mint: Arc<Mutex<Mint>>,
+    keyset: Arc<Mutex<Sv2KeySet<'static>>>,
 }
 
 impl Downstream {
@@ -231,8 +230,6 @@ impl Downstream {
             true => channel_factory.safe_lock(|c| c.new_standard_id_for_hom())?,
         };
 
-        let mint = pool.safe_lock(|p| p.mint.clone())?;
-
         let self_ = Arc::new(Mutex::new(Downstream {
             id,
             receiver,
@@ -240,7 +237,6 @@ impl Downstream {
             downstream_data,
             solution_sender,
             channel_factory,
-            mint,
         }));
 
         let cloned = self_.clone();
@@ -616,7 +612,7 @@ impl Pool {
         solution_sender: Sender<SubmitSolution<'static>>,
         sender_message_received_signal: Sender<()>,
         status_tx: status::Sender,
-        mint: Arc<Mutex<Mint>>,
+        keyset: Sv2KeySet<'static>,
     ) -> Arc<Mutex<Self>> {
         let extranonce_len = 32;
         let range_0 = std::ops::Range { start: 0, end: 0 };
@@ -633,24 +629,7 @@ impl Pool {
         let share_per_min = 1.0;
         let kind = roles_logic_sv2::channel_logic::channel_factory::ExtendedChannelKind::Pool;
 
-        // Clone `mint` to move into the blocking task
-        let mint_clone = Arc::clone(&mint);
-
-        // We need to run this blocking operation asynchronously
-        let keyset = tokio::task::block_in_place(move || {
-            let keyset_result = mint_clone.safe_lock(|m| {
-                let pubkeys_future = m.pubkeys();
-                // We use block_on here safely because it's within a block_in_place, which is allowed to block.
-                let pubkeys = tokio::runtime::Handle::current()
-                    .block_on(pubkeys_future)
-                    .unwrap();
-                let first_keyset = pubkeys.keysets.first().unwrap().to_owned();
-                Sv2KeySet::try_from(first_keyset).unwrap()
-            });
-
-            keyset_result.unwrap() // Handle the result of safe_lock
-        });
-        info!("KEYSET ID: {:}", keyset.id);
+        let keyset = Arc::new(Mutex::new(keyset.clone()));
 
         let channel_factory = Arc::new(Mutex::new(PoolChannelFactory::new(
             ids,
@@ -660,7 +639,7 @@ impl Pool {
             kind,
             pool_coinbase_outputs.expect("Invalid coinbase output in config"),
             config.pool_signature.clone(),
-            Arc::new(Mutex::new(keyset)),
+            keyset.clone(),
         )));
         let pool = Arc::new(Mutex::new(Pool {
             downstreams: HashMap::with_hasher(BuildNoHashHasher::default()),
@@ -669,7 +648,7 @@ impl Pool {
             channel_factory,
             last_prev_hash_template_id: 0,
             status_tx: status_tx.clone(),
-            mint: mint.clone(),
+            keyset,
         }));
 
         let cloned = pool.clone();

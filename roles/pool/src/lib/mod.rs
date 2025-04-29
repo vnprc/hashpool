@@ -109,12 +109,7 @@ impl PoolSv2<'_> {
         let sv2_keyset: Sv2KeySet = keyset.clone().try_into()
             .expect("Failed to convert KeySet into Sv2KeySet");
 
-        self.keyset = Some(Arc::new(Mutex::new(sv2_keyset)));
         info!("Loaded keyset {} from Redis", keyset.id);
-
-        // TODO delete mint
-        let mint = self.create_mint().await;
-        let mint = Some(Arc::new(Mutex::new(mint)));
 
         let pool = Pool::start(
             config.clone(),
@@ -123,7 +118,7 @@ impl PoolSv2<'_> {
             s_solution,
             s_message_recv_signal,
             status::Sender::DownstreamListener(status_tx),
-            mint.unwrap().clone(),
+            sv2_keyset,
         );
 
         // Start the error handling loop
