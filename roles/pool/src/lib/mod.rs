@@ -3,7 +3,7 @@ pub mod mining_pool;
 pub mod status;
 pub mod template_receiver;
 
-use std::{collections::HashMap, convert::TryInto, net::SocketAddr, sync::Arc};
+use std::{convert::TryInto, net::SocketAddr, sync::Arc};
 
 use async_channel::{bounded, unbounded};
 
@@ -15,9 +15,7 @@ use template_receiver::TemplateRx;
 use tracing::{error, info, warn};
 
 use tokio::select;
-use cdk::{cdk_database::mint_memory::MintMemoryDatabase, nuts::{CurrencyUnit, KeySet, Keys}, Mint, Amount, amount::AmountStr};
-use bip39::Mnemonic;
-use bitcoin::bip32::{ChildNumber, DerivationPath};
+use cdk::{nuts::{CurrencyUnit, KeySet, Keys}, Amount, amount::AmountStr};
 
 use std::collections::BTreeMap;
 use cdk::util::hex;
@@ -168,37 +166,6 @@ impl PoolSv2<'_> {
                 }
             }
         }
-    }
-
-    // TODO delete me
-    async fn create_mint(&self) -> Mint {
-        const NUM_KEYS: u8 = 64;
-
-        // TODO securely import mnemonic
-        let mnemonic = Mnemonic::generate(12).unwrap();
-
-        let hash_currency_unit = CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string());
-
-        let mut currency_units = HashMap::new();
-        currency_units.insert(hash_currency_unit.clone(), (0, NUM_KEYS));
-
-        let mut derivation_paths = HashMap::new();
-        derivation_paths.insert(hash_currency_unit, DerivationPath::from(vec![
-            ChildNumber::from_hardened_idx(0).expect("Failed to create purpose index 0"),
-            ChildNumber::from_hardened_idx(HASH_DERIVATION_PATH).expect(&format!("Failed to create coin type index {}", HASH_DERIVATION_PATH)),
-            ChildNumber::from_hardened_idx(0).expect("Failed to create account index 0"),
-        ]));
-
-        let mint = Mint::new(
-            &mnemonic.to_seed_normalized(""),
-            Arc::new(MintMemoryDatabase::default()),
-            HashMap::new(),
-            currency_units,
-            derivation_paths,
-        )
-        .await.unwrap();
-
-        mint
     }
 
     // SRI encodings are completely fucked just do it live

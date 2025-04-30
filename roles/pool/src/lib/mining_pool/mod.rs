@@ -4,7 +4,6 @@ use super::{
 };
 use async_channel::{Receiver, Sender};
 use binary_sv2::U256;
-use cdk::mint::Mint;
 use codec_sv2::{HandshakeRole, Responder, StandardEitherFrame, StandardSv2Frame};
 use error_handling::handle_result;
 use key_utils::{Secp256k1PublicKey, Secp256k1SecretKey, SignatureService};
