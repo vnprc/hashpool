@@ -17,7 +17,7 @@
   # Function to add logging logic to any command
   withLogging = command: logFile: ''
     mkdir -p ${config.devenv.root}/logs
-    ${command} 2>&1 | stdbuf -oL tee -a ${config.devenv.root}/logs/${logFile}
+    sh -c ${lib.escapeShellArg command} 2>&1 | stdbuf -oL tee -a ${config.devenv.root}/logs/${logFile}
   '';
 
   # Get all process names dynamically
