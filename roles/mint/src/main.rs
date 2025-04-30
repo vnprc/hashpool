@@ -202,7 +202,25 @@ async fn main() -> Result<()> {
                                         match serde_json::from_str::<QuoteRequestEnvelope>(&payload) {
                                             Ok(envelope) => {
                                                 match mint.create_paid_mint_mining_share_quote(envelope.quote_request, envelope.blinded_messages).await {
-                                                    Ok(resp) => tracing::info!("Quote created: {:?}", resp),
+                                                    Ok(resp) => {
+                                                        tracing::info!("Quote created: {:?}", resp);
+
+                                                        let quote_id = resp.quote.to_string();
+                                                        let header_hash = resp.request.to_string();
+
+                                                        let quote_mapping_key = format!("mint:quotes:hash:{}", header_hash);
+                                                        match redis::Client::open(REDIS_URL) {
+                                                            Ok(client) => match client.get_async_connection().await {
+                                                                Ok(mut redis_conn) => {
+                                                                    if let Err(e) = redis_conn.set::<_, _, ()>(&quote_mapping_key, &quote_id).await {
+                                                                        tracing::warn!("Failed to write quote-header to Redis: {:?}", e);
+                                                                    }
+                                                                }
+                                                                Err(e) => tracing::warn!("Failed to get Redis connection: {:?}", e),
+                                                            },
+                                                            Err(e) => tracing::warn!("Failed to open Redis client: {:?}", e),
+                                                        };
+                                                    }
                                                     Err(err) => tracing::warn!("Failed to create quote: {}", err),
                                                 }
                                             }
