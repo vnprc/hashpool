@@ -39,22 +39,6 @@ pub struct TranslatorSv2 {
     wallet: Arc<Wallet>,
 }
 
-use serde::Serialize;
-
-#[derive(Serialize)]
-struct Output {
-    amount: u64,
-    id: String,
-    #[serde(rename = "B_")]
-    pubkey: String,
-}
-
-#[derive(Serialize)]
-struct QuotePayload {
-    quote: String,
-    outputs: Vec<Output>,
-}
-
 fn create_wallet() -> Arc<Wallet> {
     use cdk::cdk_database::WalletMemoryDatabase;
     use cdk::nuts::CurrencyUnit;
@@ -105,7 +89,7 @@ impl TranslatorSv2 {
         debug!("Starting up status listener");
         let wait_time = self.reconnect_wait_time;
 
-        self.spawn_quote_logger();
+        self.spawn_proof_sweeper();
 
         // Check all tasks if is_finished() is true, if so exit
         loop {
@@ -318,7 +302,7 @@ impl TranslatorSv2 {
             task_collector.safe_lock(|t| t.push((task.abort_handle(), "init task".to_string())));
     }
 
-    fn spawn_quote_logger(&self) {
+    fn spawn_proof_sweeper(&self) {
         let wallet = self.wallet.clone();
         task::spawn_blocking(move || {
             use redis::Commands;
@@ -353,8 +337,10 @@ impl TranslatorSv2 {
                 };
     
                 for quote in &quotes {
+                    // quote ID is set to share hash in the wallet, it's a UUID at the mint
                     let redis_key = format!("mint:quotes:hash:{}", quote.id);
     
+                    // get the UUID quote ID from the mint
                     let uuid: Option<String> = loop {
                         match conn.get(&redis_key) {
                             Ok(s) => break Some(s),
@@ -370,44 +356,26 @@ impl TranslatorSv2 {
                         continue;
                     };
     
-                    let premint_secrets = match rt.block_on(wallet.localstore.get_premint_secrets(&quote.id)) {
-                        Ok(Some(s)) => s,
-                        _ => continue,
-                    };
-    
-                    // TODO replace this manual API call with a wallet function
-                    let payload = Self::build_quote_payload(uuid, &premint_secrets.secrets);
-
-                    match serde_json::to_string(&payload) {
-                        Ok(json) => {
-                            tracing::info!("Sending JSON payload: {}", json);
-                    
-                            let resp_result = ureq::post("http://127.0.0.1:3338/v1/mint/bolt11")
-                                .set("Content-Type", "application/json")
-                                .send_string(&json);
-                    
-                            match resp_result {
-                                Ok(resp) => {
-                                    let status = resp.status();
-                                    let status_text = resp.status_text().to_string();
-                                    let body = match resp.into_string() {
-                                        Ok(s) => s,
-                                        Err(e) => format!("(error reading body: {})", e),
-                                    };
-                                    tracing::info!(
-                                        "Payload sent successfully\nStatus: {} {}\nBody:\n{}",
-                                        status,
-                                        status_text,
-                                        body
-                                    );
-                                }
-                                Err(e) => {
-                                    tracing::warn!("Failed to send payload: {:?}", e);
-                                }
+                    let proofs_result = rt.block_on(wallet.get_mining_share_proofs(&uuid, &quote.id));
+                    match proofs_result {
+                        Ok(_proofs) => {
+                            match rt.block_on(wallet.total_balance()) {
+                                Ok(balance) => info!(
+                                    "Successfully minted ehash tokens for share {} with amount {}. Total wallet balance: {}", 
+                                    quote.id, 
+                                    quote.amount,
+                                    balance
+                                ),
+                                Err(e) => info!(
+                                    "Minted ehash tokens for share {} with amount {}, but failed to get total balance: {:?}",
+                                    quote.id,
+                                    quote.amount,
+                                    e
+                                ),
                             }
                         }
                         Err(e) => {
-                            tracing::warn!("Failed to serialize payload: {:?}", e);
+                            info!("Failed to mint ehash tokens for share {} error: {}", quote.id, e);
                         }
                     }
                 }
@@ -415,22 +383,6 @@ impl TranslatorSv2 {
                 thread::sleep(Duration::from_secs(60));
             }
         });
-    }
-
-    fn build_quote_payload(quote_id: String, premint_secrets: &[cdk::nuts::PreMint]) -> QuotePayload {
-        let outputs = premint_secrets
-            .iter()
-            .map(|s| Output {
-                amount: s.blinded_message.amount.into(),
-                id: s.blinded_message.keyset_id.to_string(),
-                pubkey: s.blinded_message.blinded_secret.to_hex(),
-            })
-            .collect();
-    
-        QuotePayload {
-            quote: quote_id,
-            outputs,
-        }
     }
 }
 

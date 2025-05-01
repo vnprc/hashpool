@@ -759,7 +759,7 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
         let amount = calculate_work(m.hash.inner_as_ref().try_into().expect("not 32 bytes"));
         
         info!(
-            "Hashpool created a quote for share {} with value {}",
+            "Successfully created a quote for share {} with value {}",
             share_hash,
             amount,
         );
