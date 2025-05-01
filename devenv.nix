@@ -12,6 +12,7 @@
   bitcoind = import ./bitcoind.nix {
     pkgs = pkgs;
     lib = lib;
+    stdenv = pkgs.stdenv;
   };
 
   # Function to add logging logic to any command
@@ -85,7 +86,18 @@ in {
         cargo -C roles/translator -Z unstable-options run -- -c $DEVENV_ROOT/roles/translator/config-examples/tproxy-config-local-jdc-example.toml
       '' "proxy.log";
     };
-    bitcoind = {exec = withLogging "bitcoind -testnet4 -sv2 -sv2port=8442 -debug=sv2 -conf=$DEVENV_ROOT/bitcoin.conf -datadir=$BITCOIND_DATADIR" "bitcoind-testnet.log";};
+    bitcoind = {
+      exec = withLogging ''
+        mkdir -p $BITCOIND_DATADIR && \
+        echo "testnet4=1
+
+        [testnet4]
+        sv2=1
+        sv2port=8442
+        debug=sv2" > $BITCOIND_DATADIR/bitcoin.conf && \
+        bitcoind -datadir=$BITCOIND_DATADIR
+      '' "bitcoind-testnet.log";
+    };
     miner = {
       exec = withLogging ''
         echo "Waiting for proxy..."

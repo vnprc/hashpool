@@ -1,34 +1,54 @@
 {
   pkgs,
   lib,
+  stdenv,
   ...
 }: let
-  src = pkgs.fetchFromGitHub {
-    owner = "Sjors";
-    repo = "bitcoin";
-    rev = "b4eb739e5d76e2b62fd37bae5da8acfa75484879";
-    hash = "sha256-vRPVOjGt1bYQUWZycweaYI6y22O1K1QAaCh5u3rfP6Q=";
+  # Detect platform and OS
+  platform = if stdenv.isDarwin then
+    if stdenv.isAarch64 then "arm64-apple-darwin-unsigned" else "x86_64-apple-darwin-unsigned"
+  else if stdenv.isLinux then
+    if stdenv.isx86_64 then "x86_64-linux-gnu" else "aarch64-linux-gnu"
+  else throw "Unsupported platform";
+
+  # Construct the appropriate binary URL
+  binaryUrl = "https://github.com/Sjors/bitcoin/releases/download/sv2-tp-0.1.17/bitcoin-sv2-tp-0.1.17-${platform}.tar.gz";
+
+  # Fetch the pre-built binary
+  binary = pkgs.fetchurl {
+    url = binaryUrl;
+    hash = "sha256-fq38pBiLmq14+tqlYBlIT/L1Zo+HyhGYMu1wh9KiDkc=";
   };
 in
-  pkgs.bitcoind.overrideAttrs (oldAttrs: {
+  pkgs.stdenv.mkDerivation {
     name = "bitcoind-sv2";
-    src = src;
+    version = "0.1.17";
+    src = binary;
 
-    installCheckPhase = ''
-      OUTPUT=$(${pkgs.bitcoind}/bin/bitcoin-cli --version || true)
-      echo "Bitcoin CLI Version Output: $OUTPUT"
-      echo "Skipping strict version check..."
+    nativeBuildInputs = [ pkgs.gnutar pkgs.gzip ];
+
+    sourceRoot = "bitcoin-sv2-tp-0.1.17";
+
+    dontBuild = true;
+    dontConfigure = true;
+
+    installPhase = ''
+      mkdir -p $out
+      cp -r bin share $out/
+    '' + lib.optionalString stdenv.isDarwin ''
+      # Code sign the binaries on macOS
+      /usr/bin/codesign -s - $out/bin/bitcoind
+      /usr/bin/codesign -s - $out/bin/bitcoin-cli
     '';
 
-    # Modify build settings
-    nativeBuildInputs = lib.lists.drop 1 oldAttrs.nativeBuildInputs ++ [pkgs.cmake];
-    postInstall = "";
-    cmakeFlags = [
-      (lib.cmakeBool "WITH_SV2" true)
-      (lib.cmakeBool "BUILD_BENCH" true)
-      (lib.cmakeBool "BUILD_TESTS" true)
-      (lib.cmakeBool "ENABLE_WALLET" false)
-      (lib.cmakeBool "BUILD_GUI" false)
-      (lib.cmakeBool "BUILD_GUI_TESTS" false)
-    ];
-  })
+    installCheckPhase = ''
+      $out/bin/bitcoin-cli --version
+    '';
+
+    meta = {
+      description = "Bitcoin SV2 Template Provider";
+      homepage = "https://github.com/Sjors/bitcoin";
+      license = lib.licenses.mit;
+      platforms = lib.platforms.darwin ++ lib.platforms.linux;
+    };
+  }
