@@ -21,7 +21,7 @@
   # Platform-specific hashes
   hashes = {
     "x86_64-apple-darwin-unsigned" = "sha256-CaYWts/zywipxAAKqiFNNFFEHyR1uZ+2dgrFHhE8BTE=";
-    "arm64-apple-darwin-unsigned" = "sha256-CaYWts/zywipxAAKqiFNNFFEHyR1uZ+2dgrFHhE8BTE=";
+    "arm64-apple-darwin-unsigned" = "sha256-fq38pBiLmq14+tqlYBlIT/L1Zo+HyhGYMu1wh9KiDkc=";
     "x86_64-linux-gnu" = "sha256-REnq1YT+3AjUAoeyg/BjLqm3ap82U5HxCrrkd4LTFFA=";
     "aarch64-linux-gnu" = "sha256-M8RDnoYS11cpSEDOEya2byIHYw8nZLpJr8Z/ap8rHxU=";
   };
