@@ -88,14 +88,8 @@ in {
     };
     bitcoind = {
       exec = withLogging ''
-        mkdir -p $BITCOIND_DATADIR && \
-        echo "testnet4=1
-
-        [testnet4]
-        sv2=1
-        sv2port=8442
-        debug=sv2" > $BITCOIND_DATADIR/bitcoin.conf && \
-        bitcoind -datadir=$BITCOIND_DATADIR
+        mkdir -p $BITCOIND_DATADIR
+        bitcoind -datadir=$BITCOIND_DATADIR -conf=$DEVENV_ROOT/bitcoin.conf
       '' "bitcoind-testnet.log";
     };
     miner = {
