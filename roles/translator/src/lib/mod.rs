@@ -39,6 +39,22 @@ pub struct TranslatorSv2 {
     wallet: Arc<Wallet>,
 }
 
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct Output {
+    amount: u64,
+    id: String,
+    #[serde(rename = "B_")]
+    pubkey: String,
+}
+
+#[derive(Serialize)]
+struct QuotePayload {
+    quote: String,
+    outputs: Vec<Output>,
+}
+
 fn create_wallet() -> Arc<Wallet> {
     use cdk::cdk_database::WalletMemoryDatabase;
     use cdk::nuts::CurrencyUnit;
@@ -88,6 +104,9 @@ impl TranslatorSv2 {
 
         debug!("Starting up status listener");
         let wait_time = self.reconnect_wait_time;
+
+        self.spawn_quote_logger();
+
         // Check all tasks if is_finished() is true, if so exit
         loop {
             let task_status = tokio::select! {
@@ -297,6 +316,121 @@ impl TranslatorSv2 {
         }); // End of init task
         let _ =
             task_collector.safe_lock(|t| t.push((task.abort_handle(), "init task".to_string())));
+    }
+
+    fn spawn_quote_logger(&self) {
+        let wallet = self.wallet.clone();
+        task::spawn_blocking(move || {
+            use redis::Commands;
+            use std::{thread, time::Duration};
+    
+            let redis_url = "redis://localhost:6379";
+            let client = match redis::Client::open(redis_url) {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::error!("Invalid Redis URL: {:?}", e);
+                    return;
+                }
+            };
+    
+            let mut conn = match client.get_connection() {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::error!("Failed to connect to Redis: {:?}", e);
+                    return;
+                }
+            };
+    
+            loop {
+                let rt = tokio::runtime::Handle::current();
+                let quotes = match rt.block_on(wallet.localstore.get_mint_quotes()) {
+                    Ok(q) => q,
+                    Err(e) => {
+                        tracing::warn!("Failed to get mint quotes: {:?}", e);
+                        thread::sleep(Duration::from_secs(10));
+                        continue;
+                    }
+                };
+    
+                for quote in &quotes {
+                    let redis_key = format!("mint:quotes:hash:{}", quote.id);
+    
+                    let uuid: Option<String> = loop {
+                        match conn.get(&redis_key) {
+                            Ok(s) => break Some(s),
+                            Err(e) if e.kind() == redis::ErrorKind::TypeError => break None,
+                            Err(e) => {
+                                tracing::warn!("Retrying Redis lookup for key {}: {}", redis_key, e);
+                                thread::sleep(Duration::from_secs(1));
+                            }
+                        }
+                    };
+    
+                    let Some(uuid) = uuid else {
+                        continue;
+                    };
+    
+                    let premint_secrets = match rt.block_on(wallet.localstore.get_premint_secrets(&quote.id)) {
+                        Ok(Some(s)) => s,
+                        _ => continue,
+                    };
+    
+                    // TODO replace this manual API call with a wallet function
+                    let payload = Self::build_quote_payload(uuid, &premint_secrets.secrets);
+
+                    match serde_json::to_string(&payload) {
+                        Ok(json) => {
+                            tracing::info!("Sending JSON payload: {}", json);
+                    
+                            let resp_result = ureq::post("http://127.0.0.1:3338/v1/mint/bolt11")
+                                .set("Content-Type", "application/json")
+                                .send_string(&json);
+                    
+                            match resp_result {
+                                Ok(resp) => {
+                                    let status = resp.status();
+                                    let status_text = resp.status_text().to_string();
+                                    let body = match resp.into_string() {
+                                        Ok(s) => s,
+                                        Err(e) => format!("(error reading body: {})", e),
+                                    };
+                                    tracing::info!(
+                                        "Payload sent successfully\nStatus: {} {}\nBody:\n{}",
+                                        status,
+                                        status_text,
+                                        body
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::warn!("Failed to send payload: {:?}", e);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to serialize payload: {:?}", e);
+                        }
+                    }
+                }
+    
+                thread::sleep(Duration::from_secs(60));
+            }
+        });
+    }
+
+    fn build_quote_payload(quote_id: String, premint_secrets: &[cdk::nuts::PreMint]) -> QuotePayload {
+        let outputs = premint_secrets
+            .iter()
+            .map(|s| Output {
+                amount: s.blinded_message.amount.into(),
+                id: s.blinded_message.keyset_id.to_string(),
+                pubkey: s.blinded_message.blinded_secret.to_hex(),
+            })
+            .collect();
+    
+        QuotePayload {
+            quote: quote_id,
+            outputs,
+        }
     }
 }
 

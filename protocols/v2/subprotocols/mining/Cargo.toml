@@ -19,7 +19,7 @@ serde = { version = "1.0.89", default-features = false, optional= true }
 binary_sv2 = {version = "^1.0.0", path = "../../binary-sv2/binary-sv2" }
 const_sv2 = {version = "^3.0.0", path = "../../const-sv2"}
 derive_codec_sv2 = {version = "^1.0.0", path = "../../../../protocols/v2/binary-sv2/no-serde-sv2/derive_codec"}
-cdk = { git = "https://github.com/vnprc/cdk", rev = "d0f09176" }
+cdk = { git = "https://github.com/vnprc/cdk", rev = "f057cc87" }
 serde_json = "1.0"
 
 [dev-dependencies]
