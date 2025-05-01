@@ -18,13 +18,21 @@
       else "aarch64-linux-gnu"
     else throw "Unsupported platform";
 
+  # Platform-specific hashes
+  hashes = {
+    "x86_64-apple-darwin-unsigned" = "sha256-CaYWts/zywipxAAKqiFNNFFEHyR1uZ+2dgrFHhE8BTE=";
+    "arm64-apple-darwin-unsigned" = "sha256-CaYWts/zywipxAAKqiFNNFFEHyR1uZ+2dgrFHhE8BTE=";
+    "x86_64-linux-gnu" = "sha256-REnq1YT+3AjUAoeyg/BjLqm3ap82U5HxCrrkd4LTFFA=";
+    "aarch64-linux-gnu" = "sha256-M8RDnoYS11cpSEDOEya2byIHYw8nZLpJr8Z/ap8rHxU=";
+  };
+
   # Construct the appropriate binary URL
   binaryUrl = "https://github.com/Sjors/bitcoin/releases/download/sv2-tp-0.1.17/bitcoin-sv2-tp-0.1.17-${platform}.tar.gz";
 
   # Fetch the pre-built binary
   binary = pkgs.fetchurl {
     url = binaryUrl;
-    hash = "sha256-REnq1YT+3AjUAoeyg/BjLqm3ap82U5HxCrrkd4LTFFA=";
+    hash = hashes.${platform};
   };
 in
   pkgs.stdenv.mkDerivation {
