@@ -373,6 +373,11 @@ impl TranslatorSv2 {
                                     e
                                 ),
                             }
+
+                            // delete quote id from redis
+                            if let Err(e) = conn.del::<_, ()>(&redis_key) {
+                                tracing::warn!("Failed to delete Redis key {}: {:?}", redis_key, e);
+                            }
                         }
                         Err(e) => {
                             info!("Failed to mint ehash tokens for share {} error: {}", quote.id, e);
