@@ -1,5 +1,5 @@
 use async_channel::{bounded, unbounded};
-use cdk::wallet::Wallet;
+use cdk::wallet::{Wallet, MintQuote};
 use futures::FutureExt;
 use rand::Rng;
 pub use roles_logic_sv2::utils::Mutex;
@@ -31,6 +31,10 @@ pub mod utils;
 
 // TODO consolidate, these consts are defined all over the place
 pub const HASH_CURRENCY_UNIT: &str = "HASH";
+
+use redis::{Commands, Connection};
+use std::{thread, time::Duration};
+use tokio::runtime::Handle;
 
 #[derive(Clone, Debug)]
 pub struct TranslatorSv2 {
@@ -305,28 +309,14 @@ impl TranslatorSv2 {
     fn spawn_proof_sweeper(&self) {
         let wallet = self.wallet.clone();
         task::spawn_blocking(move || {
-            use redis::Commands;
-            use std::{thread, time::Duration};
-    
-            let redis_url = "redis://localhost:6379";
-            let client = match redis::Client::open(redis_url) {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::error!("Invalid Redis URL: {:?}", e);
-                    return;
-                }
+            let mut conn = match Self::connect_to_redis("redis://localhost:6379") {
+                Some(c) => c,
+                None => return,
             };
-    
-            let mut conn = match client.get_connection() {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::error!("Failed to connect to Redis: {:?}", e);
-                    return;
-                }
-            };
-    
+
+            let rt = Handle::current();
+
             loop {
-                let rt = tokio::runtime::Handle::current();
                 let quotes = match rt.block_on(wallet.localstore.get_mint_quotes()) {
                     Ok(q) => q,
                     Err(e) => {
@@ -335,59 +325,76 @@ impl TranslatorSv2 {
                         continue;
                     }
                 };
-    
-                for quote in &quotes {
-                    // quote ID is set to share hash in the wallet, it's a UUID at the mint
-                    let redis_key = format!("mint:quotes:hash:{}", quote.id);
-    
-                    // get the UUID quote ID from the mint
-                    let uuid: Option<String> = loop {
-                        match conn.get(&redis_key) {
-                            Ok(s) => break Some(s),
-                            Err(e) if e.kind() == redis::ErrorKind::TypeError => break None,
-                            Err(e) => {
-                                tracing::warn!("Retrying Redis lookup for key {}: {}", redis_key, e);
-                                thread::sleep(Duration::from_secs(1));
-                            }
-                        }
-                    };
-    
-                    let Some(uuid) = uuid else {
-                        continue;
-                    };
-    
-                    let proofs_result = rt.block_on(wallet.get_mining_share_proofs(&uuid, &quote.id));
-                    match proofs_result {
-                        Ok(_proofs) => {
-                            match rt.block_on(wallet.total_balance()) {
-                                Ok(balance) => info!(
-                                    "Successfully minted ehash tokens for share {} with amount {}. Total wallet balance: {}", 
-                                    quote.id, 
-                                    quote.amount,
-                                    balance
-                                ),
-                                Err(e) => info!(
-                                    "Minted ehash tokens for share {} with amount {}, but failed to get total balance: {:?}",
-                                    quote.id,
-                                    quote.amount,
-                                    e
-                                ),
-                            }
 
-                            // delete quote id from redis
-                            if let Err(e) = conn.del::<_, ()>(&redis_key) {
-                                tracing::warn!("Failed to delete Redis key {}: {:?}", redis_key, e);
-                            }
-                        }
-                        Err(e) => {
-                            info!("Failed to mint ehash tokens for share {} error: {}", quote.id, e);
-                        }
-                    }
+                for quote in &quotes {
+                    Self::process_quote(&wallet, &mut conn, &rt, quote);
                 }
-    
+
                 thread::sleep(Duration::from_secs(60));
             }
         });
+    }
+
+    fn connect_to_redis(redis_url: &str) -> Option<Connection> {
+        match redis::Client::open(redis_url).and_then(|c| c.get_connection()) {
+            Ok(conn) => Some(conn),
+            Err(e) => {
+                tracing::error!("Redis connection error: {:?}", e);
+                None
+            }
+        }
+    }
+
+    fn lookup_uuid(conn: &mut Connection, redis_key: &str) -> Option<String> {
+        loop {
+            match conn.get(redis_key) {
+                Ok(val) => break Some(val),
+                Err(e) if e.kind() == redis::ErrorKind::TypeError => break None,
+                Err(e) => {
+                    tracing::warn!("Retrying Redis lookup for key {}: {}", redis_key, e);
+                    thread::sleep(Duration::from_secs(1));
+                }
+            }
+        }
+    }
+
+    fn process_quote(wallet: &Arc<Wallet>, conn: &mut Connection, rt: &Handle, quote: &MintQuote) {
+        let redis_key = format!("mint:quotes:hash:{}", quote.id);
+        let Some(uuid) = Self::lookup_uuid(conn, &redis_key) else {
+            return;
+        };
+
+        match rt.block_on(wallet.get_mining_share_proofs(&uuid, &quote.id)) {
+            Ok(_proofs) => {
+                Self::log_success_and_cleanup(wallet, conn, rt, quote, &redis_key);
+            }
+            Err(e) => {
+                tracing::info!("Failed to mint ehash tokens for share {} error: {}", quote.id, e);
+            }
+        }
+    }
+
+    fn log_success_and_cleanup(
+        wallet: &Arc<Wallet>,
+        conn: &mut Connection,
+        rt: &Handle,
+        quote: &MintQuote,
+        redis_key: &str,
+    ) {
+        match rt.block_on(wallet.total_balance()) {
+            Ok(balance) => info!(
+                "Successfully minted ehash tokens for share {} with amount {}. Total wallet balance: {}",
+                quote.id, quote.amount, balance
+            ),
+            Err(e) => info!(
+                "Minted ehash tokens for share {} with amount {}, but failed to get total balance: {:?}",
+                quote.id, quote.amount, e
+            ),
+        }
+
+        if let Err(e) = conn.del::<_, ()>(redis_key) {
+            tracing::warn!("Failed to delete Redis key {}: {:?}", redis_key, e);
+        }
     }
 }
 
