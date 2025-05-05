@@ -205,7 +205,6 @@ pub struct Pool {
     channel_factory: Arc<Mutex<PoolChannelFactory>>,
     last_prev_hash_template_id: u64,
     status_tx: status::Sender,
-    keyset: Arc<Mutex<Sv2KeySet<'static>>>,
 }
 
 impl Downstream {
@@ -647,7 +646,6 @@ impl Pool {
             channel_factory,
             last_prev_hash_template_id: 0,
             status_tx: status_tx.clone(),
-            keyset,
         }));
 
         let cloned = pool.clone();
