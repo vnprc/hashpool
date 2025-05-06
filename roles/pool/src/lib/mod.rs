@@ -22,10 +22,6 @@ use cdk::util::hex;
 use cdk::nuts::PublicKey;
 use std::convert::TryFrom;
 
-// TODO consolidate these constants with the same constants in roles/pool/src/lib/mod.rs
-pub const HASH_CURRENCY_UNIT: &str = "HASH";
-pub const HASH_DERIVATION_PATH: u32 = 1337;
-
 #[derive(Clone)]
 pub struct PoolSv2<'decoder> {
     config: Configuration,
