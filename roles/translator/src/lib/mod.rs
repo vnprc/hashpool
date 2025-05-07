@@ -364,6 +364,7 @@ impl TranslatorSv2 {
             return;
         };
 
+        // TODO get latest keyset
         match rt.block_on(wallet.get_mining_share_proofs(&uuid, &quote.id)) {
             Ok(_proofs) => {
                 Self::log_success_and_cleanup(wallet, conn, rt, quote, &redis_key);
