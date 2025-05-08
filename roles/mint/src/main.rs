@@ -115,11 +115,6 @@ async fn main() -> Result<()> {
 
     let cache: HttpCache = settings.info.http_cache.into();
 
-    // let mint = Arc::new(mint_builder.add_cache(
-    //     Some(cache.ttl.as_secs()),
-    //     vec![],
-    // ).build().await?);
-
     let mint = Arc::new(Mint::new(
         &mnemonic.to_seed_normalized(""),
         Arc::new(MintMemoryDatabase::default()),
@@ -132,7 +127,6 @@ async fn main() -> Result<()> {
     mint.check_pending_mint_quotes().await?;
     mint.check_pending_melt_quotes().await?;
     mint.set_quote_ttl(QuoteTTL::new(10_000, 10_000)).await?;
-
     let router: Router = cdk_axum::create_mint_router_with_custom_cache(mint.clone(), cache).await?;
     let shutdown = Arc::new(Notify::new());
 

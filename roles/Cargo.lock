@@ -901,6 +901,26 @@ dependencies = [
 [[package]]
 name = "cashu"
 version = "0.7.1"
+dependencies = [
+ "bitcoin 0.32.5",
+ "bitcoin_hashes 0.16.0",
+ "cbor-diag",
+ "ciborium",
+ "instant",
+ "lightning-invoice",
+ "once_cell",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "thiserror 2.0.4",
+ "tracing",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "cashu"
+version = "0.7.1"
 source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
 dependencies = [
  "bitcoin 0.32.5",
@@ -952,6 +972,34 @@ dependencies = [
 [[package]]
 name = "cdk"
 version = "0.7.1"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bech32 0.9.1",
+ "bitcoin 0.32.5",
+ "cbor-diag",
+ "cdk-common 0.7.1",
+ "ciborium",
+ "futures",
+ "getrandom",
+ "lightning-invoice",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "sync_wrapper 0.1.2",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-tungstenite 0.19.0",
+ "tracing",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "cdk"
+version = "0.7.1"
 source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
 dependencies = [
  "anyhow",
@@ -959,7 +1007,7 @@ dependencies = [
  "bech32 0.9.1",
  "bitcoin 0.32.5",
  "cbor-diag",
- "cdk-common",
+ "cdk-common 0.7.1 (git+https://github.com/vnprc/cdk?rev=773af52b)",
  "ciborium",
  "futures",
  "getrandom",
@@ -981,12 +1029,11 @@ dependencies = [
 [[package]]
 name = "cdk-axum"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
 dependencies = [
  "anyhow",
  "async-trait",
  "axum",
- "cdk",
+ "cdk 0.7.1",
  "futures",
  "moka",
  "paste",
@@ -994,6 +1041,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.8",
  "tokio",
+ "tower-http",
  "tracing",
  "uuid",
 ]
@@ -1001,11 +1049,10 @@ dependencies = [
 [[package]]
 name = "cdk-cln"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.5",
- "cdk",
+ "cdk 0.7.1",
  "cln-rpc",
  "futures",
  "thiserror 1.0.69",
@@ -1018,12 +1065,34 @@ dependencies = [
 [[package]]
 name = "cdk-common"
 version = "0.7.1"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bitcoin 0.32.5",
+ "cashu 0.7.1",
+ "cbor-diag",
+ "ciborium",
+ "futures",
+ "instant",
+ "lightning-invoice",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "thiserror 2.0.4",
+ "tracing",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "cdk-common"
+version = "0.7.1"
 source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
 dependencies = [
  "anyhow",
  "async-trait",
  "bitcoin 0.32.5",
- "cashu",
+ "cashu 0.7.1 (git+https://github.com/vnprc/cdk?rev=773af52b)",
  "cbor-diag",
  "ciborium",
  "futures",
@@ -1041,11 +1110,10 @@ dependencies = [
 [[package]]
 name = "cdk-fake-wallet"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.5",
- "cdk",
+ "cdk 0.7.1",
  "futures",
  "lightning-invoice",
  "serde",
@@ -1060,13 +1128,12 @@ dependencies = [
 [[package]]
 name = "cdk-lnbits"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
 dependencies = [
  "anyhow",
  "async-trait",
  "axum",
  "bitcoin 0.32.5",
- "cdk",
+ "cdk 0.7.1",
  "futures",
  "lnbits-rs",
  "thiserror 1.0.69",
@@ -1078,11 +1145,10 @@ dependencies = [
 [[package]]
 name = "cdk-lnd"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
 dependencies = [
  "anyhow",
  "async-trait",
- "cdk",
+ "cdk 0.7.1",
  "fedimint-tonic-lnd",
  "futures",
  "thiserror 1.0.69",
@@ -1094,10 +1160,9 @@ dependencies = [
 [[package]]
 name = "cdk-mint-rpc"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
 dependencies = [
  "anyhow",
- "cdk",
+ "cdk 0.7.1",
  "clap",
  "home",
  "prost 0.11.9",
@@ -1114,13 +1179,12 @@ dependencies = [
 [[package]]
 name = "cdk-mintd"
 version = "0.7.2"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
 dependencies = [
  "anyhow",
  "axum",
  "bip39",
  "bitcoin 0.32.5",
- "cdk",
+ "cdk 0.7.1",
  "cdk-axum",
  "cdk-cln",
  "cdk-fake-wallet",
@@ -1147,13 +1211,12 @@ dependencies = [
 [[package]]
 name = "cdk-phoenixd"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
 dependencies = [
  "anyhow",
  "async-trait",
  "axum",
  "bitcoin 0.32.5",
- "cdk",
+ "cdk 0.7.1",
  "futures",
  "phoenixd-rs",
  "thiserror 1.0.69",
@@ -1166,10 +1229,9 @@ dependencies = [
 [[package]]
 name = "cdk-redb"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
 dependencies = [
  "async-trait",
- "cdk-common",
+ "cdk-common 0.7.1",
  "lightning-invoice",
  "redb",
  "serde",
@@ -1182,11 +1244,10 @@ dependencies = [
 [[package]]
 name = "cdk-sqlite"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.5",
- "cdk-common",
+ "cdk-common 0.7.1",
  "lightning-invoice",
  "serde_json",
  "sqlx",
@@ -1199,13 +1260,12 @@ dependencies = [
 [[package]]
 name = "cdk-strike"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
 dependencies = [
  "anyhow",
  "async-trait",
  "axum",
  "bitcoin 0.32.5",
- "cdk",
+ "cdk 0.7.1",
  "futures",
  "strike-rs",
  "thiserror 1.0.69",
@@ -3046,7 +3106,7 @@ name = "mining_sv2"
 version = "1.0.1"
 dependencies = [
  "binary_sv2",
- "cdk",
+ "cdk 0.7.1 (git+https://github.com/vnprc/cdk?rev=773af52b)",
  "const_sv2",
  "derive_codec_sv2",
  "serde_json",
@@ -3084,7 +3144,7 @@ dependencies = [
  "axum",
  "bip39",
  "bitcoin 0.32.5",
- "cdk",
+ "cdk 0.7.1",
  "cdk-axum",
  "cdk-mintd",
  "cdk-redb",
@@ -3562,7 +3622,7 @@ dependencies = [
  "bitcoin 0.32.5",
  "bitcoin_hashes 0.16.0",
  "buffer_sv2",
- "cdk",
+ "cdk 0.7.1 (git+https://github.com/vnprc/cdk?rev=773af52b)",
  "codec_sv2",
  "config 0.14.1",
  "const_sv2",
@@ -5520,7 +5580,8 @@ dependencies = [
  "binary_sv2",
  "bitcoin 0.30.2",
  "buffer_sv2",
- "cdk",
+ "cashu 0.7.1 (git+https://github.com/vnprc/cdk?rev=773af52b)",
+ "cdk 0.7.1 (git+https://github.com/vnprc/cdk?rev=773af52b)",
  "codec_sv2",
  "config 0.14.1",
  "error_handling",

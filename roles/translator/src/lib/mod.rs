@@ -1,4 +1,5 @@
 use async_channel::{bounded, unbounded};
+use cashu::{mint_url::MintUrl, Token};
 use cdk::wallet::Wallet;
 use futures::FutureExt;
 use rand::Rng;
@@ -303,6 +304,7 @@ impl TranslatorSv2 {
     }
 
     fn spawn_proof_sweeper(&self) {
+        info!("Starting proof sweeper");
         let wallet = self.wallet.clone();
         task::spawn_blocking(move || {
             use redis::Commands;
@@ -324,6 +326,7 @@ impl TranslatorSv2 {
                     return;
                 }
             };
+            info!("Connected to Redis");
     
             loop {
                 let rt = tokio::runtime::Handle::current();
@@ -335,6 +338,7 @@ impl TranslatorSv2 {
                         continue;
                     }
                 };
+                info!("Got mint quotes");
     
                 for quote in &quotes {
                     // quote ID is set to share hash in the wallet, it's a UUID at the mint
@@ -351,14 +355,24 @@ impl TranslatorSv2 {
                             }
                         }
                     };
-    
+                    info!("Got UUID");
                     let Some(uuid) = uuid else {
                         continue;
                     };
     
                     let proofs_result = rt.block_on(wallet.get_mining_share_proofs(&uuid, &quote.id));
+                    info!("Got proofs");
                     match proofs_result {
-                        Ok(_proofs) => {
+                        Ok(proofs) => {
+                            // need to cashuB bech32 encode the proofs
+                            let proofs_bech32 = Token::new(
+                                MintUrl::from_str("http://localhost:3338").unwrap(), 
+                                proofs, 
+                                None, 
+                                cashu::CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string())
+                            ).to_v3_string();
+                            info!("{}", proofs_bech32);
+                            
                             match rt.block_on(wallet.total_balance()) {
                                 Ok(balance) => info!(
                                     "Successfully minted ehash tokens for share {} with amount {}. Total wallet balance: {}", 
