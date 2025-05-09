@@ -2,6 +2,7 @@ use cdk::{amount::{Amount, AmountStr}, nuts::{BlindSignature, BlindedMessage, Cu
 use core::array;
 use std::{collections::BTreeMap, convert::{TryFrom, TryInto}};
 pub use std::error::Error;
+use tracing::error;
 
 #[cfg(not(feature = "with_serde"))]
 pub use binary_sv2::binary_codec_sv2::{self, Decodable as Deserialize, Encodable as Serialize, *};
@@ -622,8 +623,7 @@ fn sv2_signing_keys_to_keys(keys: &[Sv2SigningKey]) -> Option<Keys> {
                 );
             }
             Err(e) => {
-                // TODO how do we error log from here?
-                println!("ERROR sv2_signing_keys_to_keys: Failed to parse public key for key {}: {:?}", i, e);
+                error!("ERROR sv2_signing_keys_to_keys: Failed to parse public key for key {}: {:?}", i, e);
                 return None;
             }
         }
@@ -643,8 +643,7 @@ fn calculate_keyset_id(keys: &[Sv2SigningKey]) -> u64 {
             u64::from_be_bytes(padded)
         }
         None => {
-            // TODO how do we error log from here?
-            println!("ERROR calculate_keyset_id: Failed to generate Keys, defaulting keyset ID to 0");
+            error!("ERROR calculate_keyset_id: Failed to generate Keys, defaulting keyset ID to 0");
             0
         }
     }
