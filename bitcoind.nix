@@ -40,7 +40,12 @@ in
     version = "0.1.17";
     src = binary;
 
-    nativeBuildInputs = [pkgs.gnutar pkgs.gzip];
+    nativeBuildInputs =
+      [pkgs.gnutar pkgs.gzip]
+      ++ lib.optionals stdenv.isLinux [
+        pkgs.autoPatchelfHook
+        pkgs.gcc.cc.lib
+      ];
 
     sourceRoot = "bitcoin-sv2-tp-0.1.17";
 
@@ -49,8 +54,9 @@ in
 
     installPhase =
       ''
-        mkdir -p $out
-        cp -r bin share $out/
+        mkdir -p $out/bin
+        cp bin/bitcoind bin/bitcoin-cli $out/bin/
+        cp -r share $out/
       ''
       + lib.optionalString stdenv.isDarwin ''
         # Code sign the binaries on macOS
