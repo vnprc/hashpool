@@ -9,28 +9,31 @@ pub use binary_sv2::binary_codec_sv2::{self, Decodable as Deserialize, Encodable
 #[cfg(not(feature = "with_serde"))]
 pub use derive_codec_sv2::{Decodable as Deserialize, Encodable as Serialize};
 
-
-// TODO find a better place for these errors
 #[derive(Debug)]
-pub enum CashuError {
-    SeqExceedsMaxSize(usize, usize),
-    ReadError(usize, usize),
+pub enum CashuConversionError {
+    SeqExceedsMaxSize { actual: usize, max: usize },
+    ReadError { actual: usize, expected: usize },
+    DuplicateAmountIndex { index: usize },
 }
 
-impl std::fmt::Display for CashuError {
+impl std::fmt::Display for CashuConversionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use CashuConversionError::*;
         match self {
-            CashuError::SeqExceedsMaxSize(actual, max) => {
+            SeqExceedsMaxSize { actual, max } => {
                 write!(f, "Sequence exceeds max size: got {}, max is {}", actual, max)
             }
-            CashuError::ReadError(actual, expected) => {
+            ReadError { actual, expected } => {
                 write!(f, "Read error: got {}, expected at least {}", actual, expected)
+            }
+            DuplicateAmountIndex { index } => {
+                write!(f, "Duplicate blinded message at index {}", index)
             }
         }
     }
 }
 
-impl std::error::Error for CashuError {}
+impl std::error::Error for CashuConversionError {}
 
 pub struct KeysetId(pub cdk::nuts::nut02::Id);
 
@@ -80,7 +83,7 @@ pub type BlindedMessageSet = DomainArray<BlindedMessage>;
 pub type Sv2BlindedMessageSetWire<'decoder> = WireArray<'decoder>;
 
 impl TryFrom<PreMintSecrets> for BlindedMessageSet {
-    type Error = binary_sv2::Error;
+    type Error = CashuConversionError;
 
     fn try_from(pre_mint_secrets: PreMintSecrets) -> Result<Self, Self::Error> {
         let mut items: [Option<BlindedMessage>; NUM_MESSAGES] = core::array::from_fn(|_| None);
@@ -88,8 +91,7 @@ impl TryFrom<PreMintSecrets> for BlindedMessageSet {
         for pre_mint in &pre_mint_secrets.secrets {
             let index = amount_to_index(pre_mint.amount.into());
             if items[index].is_some() {
-                // TODO use better error
-                return Err(binary_sv2::Error::DecodableConversionError);
+                return Err(CashuConversionError::DuplicateAmountIndex { index: index });
             }
             items[index] = Some(pre_mint.blinded_message.clone());
         }
