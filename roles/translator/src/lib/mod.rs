@@ -396,6 +396,18 @@ impl TranslatorSv2 {
         if let Err(e) = conn.del::<_, ()>(redis_key) {
             tracing::warn!("Failed to delete Redis key {}: {:?}", redis_key, e);
         }
+
+        // the people need ehash, let's give it to them
+        match rt.block_on(wallet.send(cdk::Amount::from(1),None,None,&cdk::amount::SplitTarget::None, &cdk::wallet::SendKind::OnlineExact, false)) {
+            Ok(token) => info!(
+                "eHash token: {}",
+                token,
+            ),
+            Err(e) => info!(
+                "Error sending ehash token {}",
+                e,
+            ),
+        }
     }
 }
 
