@@ -18,6 +18,15 @@ restore-deps:
         mv "$bakfile" "$origfile"; \
     done
 
+# update cdk commit hash in all Cargo.toml files
+update-cdk OLD_REV NEW_REV:
+    @echo "Updating CDK revision from {{OLD_REV}} to {{NEW_REV}}..."
+    @find . -name "Cargo.toml" | xargs grep -l "cdk.*git.*vnprc.*rev.*{{OLD_REV}}" | while IFS= read -r file; do \
+        echo "✅ Updating $file"; \
+        sed -i 's|rev = "{{OLD_REV}}"|rev = "{{NEW_REV}}"|g' "$file"; \
+    done
+    @echo "Done! CDK updated from {{OLD_REV}} to {{NEW_REV}}"
+
 # update bitcoind.nix with latest rev & hash
 update-bitcoind:
     @echo "Fetching latest commit hash for sv2 branch..."
