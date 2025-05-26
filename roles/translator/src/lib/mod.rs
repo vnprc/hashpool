@@ -353,9 +353,7 @@ impl TranslatorSv2 {
                     }
                 };
 
-                for quote in &quotes {
-                    Self::process_quote(&wallet, &mut conn, &rt, quote);
-                }
+                Self::process_quotes_batch(&wallet, &mut conn, &rt, &quotes);
 
                 thread::sleep(Duration::from_secs(60));
             }
@@ -376,32 +374,61 @@ impl TranslatorSv2 {
         }
     }
 
-    fn lookup_uuid(conn: &mut Connection, redis_key: &str) -> Option<String> {
-        loop {
-            match conn.get(redis_key) {
-                Ok(val) => break Some(val),
-                Err(e) if e.kind() == redis::ErrorKind::TypeError => break None,
-                Err(e) => {
-                    tracing::warn!("Retrying Redis lookup for key {}: {}", redis_key, e);
-                    thread::sleep(Duration::from_secs(1));
+    fn lookup_uuids_batch(quote_ids: &[String]) -> std::collections::HashMap<String, String> {
+        use std::collections::HashMap;
+
+        if quote_ids.is_empty() {
+            return HashMap::new();
+        }
+
+        let share_hashes = quote_ids.join(",");
+        let url = format!("http://localhost:3338/v1/mint/quote-ids/share?share_hashes={}", share_hashes);
+
+        match ureq::get(&url).call() {
+            Ok(response) => {
+                match response.into_string() {
+                    Ok(body) => {
+                        match serde_json::from_str::<HashMap<String, String>>(&body) {
+                            Ok(mapping) => mapping,
+                            Err(e) => {
+                                tracing::warn!("Failed to parse batch UUID response: {}", e);
+                                HashMap::new()
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to read batch UUID response body: {}", e);
+                        HashMap::new()
+                    }
                 }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to make batch UUID lookup request: {}", e);
+                HashMap::new()
             }
         }
     }
 
-    fn process_quote(wallet: &Arc<Wallet>, conn: &mut Connection, rt: &Handle, quote: &MintQuote) {
-        let redis_key = format!("mint:quotes:hash:{}", quote.id);
-        let Some(uuid) = Self::lookup_uuid(conn, &redis_key) else {
+    fn process_quotes_batch(wallet: &Arc<Wallet>, conn: &mut Connection, rt: &Handle, quotes: &[MintQuote]) {
+        if quotes.is_empty() {
             return;
-        };
+        }
 
-        // TODO get latest keyset
-        match rt.block_on(wallet.get_mining_share_proofs(&uuid, &quote.id)) {
-            Ok(_proofs) => {
-                Self::log_success_and_cleanup(wallet, conn, rt, quote, &redis_key);
-            }
-            Err(e) => {
-                tracing::info!("Failed to mint ehash tokens for share {} error: {}", quote.id, e);
+        let quote_ids: Vec<String> = quotes.iter().map(|q| q.id.clone()).collect();
+        let uuid_mapping = Self::lookup_uuids_batch(&quote_ids);
+
+        for quote in quotes {
+            if let Some(uuid) = uuid_mapping.get(&quote.id) {
+                // TODO get latest keyset
+                match rt.block_on(wallet.get_mining_share_proofs(uuid, &quote.id)) {
+                    Ok(_proofs) => {
+                        let redis_key = format!("mint:quotes:hash:{}", quote.id);
+                        Self::log_success_and_cleanup(wallet, conn, rt, quote, &redis_key);
+                    }
+                    Err(e) => {
+                        tracing::info!("Failed to mint ehash tokens for share {} error: {}", quote.id, e);
+                    }
+                }
             }
         }
     }
