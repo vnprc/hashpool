@@ -15,6 +15,7 @@ use cdk_mintd::config::{self, LnBackend, DatabaseEngine};
 use cdk_mintd::setup::LnBackendSetup;
 use cdk_redb::MintRedbDatabase;
 use cdk_sqlite::MintSqliteDatabase;
+use redis::AsyncCommands;
 use tokio::sync::Notify;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -147,15 +148,7 @@ async fn main() -> Result<()> {
     let router: Router = cdk_axum::create_mint_router_with_custom_cache(mint.clone(), cache).await?;
     let shutdown = Arc::new(Notify::new());
 
-    tokio::spawn({
-        let shutdown = shutdown.clone();
-        let mint = mint.clone();
-        async move {
-            if let Err(e) = mint.wait_for_paid_invoices(shutdown).await {
-                tracing::error!("Error while waiting for paid invoices: {:?}", e);
-            }
-        }
-    });
+    tokio::spawn(wait_for_invoices(mint.clone(), shutdown.clone()));
 
     let redis_url = global_config["redis"]["url"].as_str().unwrap().to_string();
     let active_keyset_redis_key = global_config["redis"]["active_keyset"].as_str().unwrap().to_string();
@@ -186,67 +179,12 @@ async fn main() -> Result<()> {
         redis_key,
     );
 
-    // Poll Redis for new quote payloads
-    tokio::spawn({
-        let mint = mint.clone();
-        let redis_url = redis_url.clone();
-        let create_quote_redis_key = create_quote_redis_key.clone();
-        let quote_id_hash_key_prefix = quote_id_prefix.clone();
-        async move {
-            loop {
-                let mut conn = match redis::Client::open(redis_url.clone()) {
-                    Ok(client) => match client.get_async_connection().await {
-                        Ok(conn) => conn,
-                        Err(e) => {
-                            tracing::warn!("Failed to get redis connection: {:?}", e);
-                            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                            continue;
-                        }
-                    },
-                    Err(e) => {
-                        tracing::warn!("Redis client open failed: {:?}", e);
-                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                        continue;
-                    }
-                };
-
-                let res: redis::RedisResult<Option<(String, String)>> = redis::cmd("BRPOP")
-                    .arg(&create_quote_redis_key)
-                    .arg("0")
-                    .query_async(&mut conn)
-                    .await;
-
-                if let Ok(Some((_, payload))) = res {
-                    let envelope: QuoteRequestEnvelope = match serde_json::from_str(&payload) {
-                        Ok(e) => e,
-                        Err(e) => {
-                            tracing::warn!("Failed to parse quote request: {}", e);
-                            continue;
-                        }
-                    };
-
-                    match mint.create_paid_mint_mining_share_quote(envelope.quote_request, envelope.blinded_messages).await {
-                        Ok(resp) => {
-                            tracing::info!("Quote created: {:?}", resp);
-                            let quote_mapping_key = format!("{}:{}", quote_id_hash_key_prefix, resp.request);
-                            match redis::Client::open(redis_url.clone()) {
-                                Ok(client) => match client.get_async_connection().await {
-                                    Ok(mut redis_conn) => {
-                                        if let Err(e) = redis_conn.set::<_, _, ()>(&quote_mapping_key, resp.quote.to_string()).await {
-                                            tracing::error!("Failed to write quote to redis: {:?}", e);
-                                        }
-                                    }
-                                    Err(e) => tracing::error!("Failed to get redis connection: {:?}", e),
-                                },
-                                Err(e) => tracing::error!("Redis client open failed: {:?}", e),
-                            }
-                        }
-                        Err(err) => tracing::error!("Quote creation failed: {}", err),
-                    }
-                }
-            }
-        }
-    });
+    tokio::spawn(poll_for_quotes(
+        mint.clone(),
+        redis_url.clone(),
+        create_quote_redis_key.clone(),
+        quote_id_prefix.clone(),
+    ));
 
     info!("Mint listening on {}:{}", mint_settings.info.listen_host, mint_settings.info.listen_port);
     axum::Server::bind(&format!("{}:{}", mint_settings.info.listen_host, mint_settings.info.listen_port).parse()?)
@@ -265,4 +203,80 @@ use serde::Deserialize;
 struct QuoteRequestEnvelope {
     quote_request: MintQuoteMiningShareRequest,
     blinded_messages: Vec<BlindedMessage>,
+}
+
+async fn wait_for_invoices(mint: Arc<Mint>, shutdown: Arc<Notify>) {
+    if let Err(e) = mint.wait_for_paid_invoices(shutdown).await {
+        tracing::error!("Error while waiting for paid invoices: {:?}", e);
+    }
+}
+
+async fn handle_quote_payload(
+    mint: Arc<Mint>,
+    redis_url: &str,
+    quote_id_prefix: &str,
+    payload: &str,
+) {
+    let envelope: QuoteRequestEnvelope = match serde_json::from_str(payload) {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::warn!("Failed to parse quote request: {}", e);
+            return;
+        }
+    };
+
+    match mint.create_paid_mint_mining_share_quote(envelope.quote_request, envelope.blinded_messages).await {
+        Ok(resp) => {
+            tracing::info!("Quote created: {:?}", resp);
+            let quote_mapping_key = format!("{}:{}", quote_id_prefix, resp.request);
+            match redis::Client::open(redis_url) {
+                Ok(client) => match client.get_async_connection().await {
+                    Ok(mut redis_conn) => {
+                        if let Err(e) = redis_conn.set::<_, _, ()>(&quote_mapping_key, resp.quote.to_string()).await {
+                            tracing::error!("Failed to write quote to redis: {:?}", e);
+                        }
+                    }
+                    Err(e) => tracing::error!("Failed to get redis connection: {:?}", e),
+                },
+                Err(e) => tracing::error!("Redis client open failed: {:?}", e),
+            }
+        }
+        Err(err) => tracing::error!("Quote creation failed: {}", err),
+    }
+}
+
+async fn poll_for_quotes(
+    mint: Arc<Mint>,
+    redis_url: String,
+    create_quote_key: String,
+    quote_id_prefix: String,
+) {
+    loop {
+        let client_result = redis::Client::open(redis_url.clone());
+        let mut conn = match client_result {
+            Ok(client) => match client.get_async_connection().await {
+                Ok(conn) => conn,
+                Err(e) => {
+                    tracing::warn!("Failed to get redis connection: {:?}", e);
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    continue;
+                }
+            },
+            Err(e) => {
+                tracing::warn!("Redis client open failed: {:?}", e);
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                continue;
+            }
+        };
+
+        let res: redis::RedisResult<Option<(String, String)>> = redis::cmd("BRPOP")
+            .arg(&create_quote_key)
+            .arg("0")
+            .query_async(&mut conn)
+            .await;
+
+        if let Ok(Some((_, payload))) = res {
+            handle_quote_payload(mint.clone(), &redis_url, &quote_id_prefix, &payload).await;
+        }
+    }
 }
