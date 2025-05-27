@@ -129,7 +129,9 @@ in {
           sleep 1
         done
         echo "Redis is up. Starting Mintd..."
-        cargo -C roles/mint -Z unstable-options run -- -c $DEVENV_ROOT/roles/mint/config/mint.config.toml
+        cargo -C roles/mint -Z unstable-options run -- \
+          -c $DEVENV_ROOT/roles/mint/config/mint.config.toml \
+          -g $DEVENV_ROOT/devenv.toml
       '' "mint.log";
     };
   };
