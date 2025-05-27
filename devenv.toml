@@ -3,6 +3,11 @@ host = "localhost"
 port = 6379
 url = "redis://localhost:6379"
 
+# redis keys
+create_quote = "mint:quotes:create"
+quote_id_prefix = "mint:quotes:hash"
+active_keyset = "mint:keyset:active"
+
 [mintd]
 port = 3338
 
