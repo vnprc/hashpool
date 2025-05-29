@@ -39,7 +39,7 @@ key-utils = { version = "^1.0.0", path = "../../utils/key-utils" }
 bip39 = { version = "2.0", features = ["rand"] }
 mining_sv2 = { version = "^1.0.0", path = "../../protocols/v2/subprotocols/mining" }
 bitcoin = { version= "0.32.2" }
-cdk = { git = "https://github.com/vnprc/cdk", rev = "773af52b" }
+cdk = { git = "https://github.com/vnprc/cdk", rev = "64ec7f6f" }
 bitcoin_hashes = { version = "0.16", features = ["serde"] }
 redis = { version = "0.25", features = ["tokio-comp"] }
 shared_config = { path = "../roles-utils/config" }
