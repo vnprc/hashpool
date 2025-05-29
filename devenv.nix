@@ -5,15 +5,24 @@
   inputs,
   ...
 }: let
-  REDIS_PORT = "6379";
-  MINTD_PORT = "3338";
-  POOL_PORT = "34254";
-  PROXY_PORT = "34255";
   bitcoind = import ./bitcoind.nix {
     pkgs = pkgs;
     lib = lib;
     stdenv = pkgs.stdenv;
   };
+
+  configFile = ./devenv.toml;
+  appConfig = builtins.fromTOML (builtins.readFile configFile);
+
+  redis = appConfig.redis;
+  mintd = appConfig.mintd;
+  pool = appConfig.pool;
+  proxy = appConfig.proxy;
+  
+  REDIS_PORT = toString redis.port;
+  MINTD_PORT = toString mintd.port;
+  POOL_PORT = toString pool.port;
+  PROXY_PORT = toString proxy.port;
 
   # Function to add logging logic to any command
   withLogging = command: logFile: ''
@@ -24,9 +33,15 @@
   # Get all process names dynamically
   processNames = lib.attrNames config.processes;
 in {
+  env.REDIS_URL = redis.url;
+  env.REDIS_HOST = redis.host;
+  env.REDIS_PORT = builtins.toString redis.port;
+
+  env.MINTD_PORT = builtins.toString mintd.port;
+  env.POOL_PORT = builtins.toString pool.port;
+  env.PROXY_PORT = builtins.toString proxy.port;
+
   env.BITCOIND_DATADIR = config.devenv.root + "/.devenv/state/bitcoind";
-  env.REDIS_HOST = "localhost";
-  env.REDIS_PORT = REDIS_PORT;
   env.IN_DEVENV = "1";
 
   # Ensure logs directory exists before processes run
@@ -114,7 +129,9 @@ in {
           sleep 1
         done
         echo "Redis is up. Starting Mintd..."
-        cargo -C roles/mint -Z unstable-options run -- -c $DEVENV_ROOT/roles/mint/config/mint.config.toml
+        cargo -C roles/mint -Z unstable-options run -- \
+          -c $DEVENV_ROOT/roles/mint/config/mint.config.toml \
+          -g $DEVENV_ROOT/devenv.toml
       '' "mint.log";
     };
   };
