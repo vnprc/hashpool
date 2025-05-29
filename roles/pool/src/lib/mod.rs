@@ -11,7 +11,6 @@ use error::PoolError;
 use mining_pool::{get_coinbase_output, Configuration, Pool};
 use mining_sv2::cashu::{KeysetId, Sv2KeySet};
 use roles_logic_sv2::utils::Mutex;
-use shared_config::GlobalConfig;
 use template_receiver::TemplateRx;
 use tracing::{error, info, warn};
 
@@ -29,7 +28,6 @@ use std::{thread, time::Duration};
 pub struct PoolSv2<'decoder> {
     config: Configuration,
     keyset: Option<Arc<Mutex<Sv2KeySet<'decoder>>>>,
-    global: Option<GlobalConfig>,
 }
 
 // TODO remove after porting mint to use Sv2 data types
@@ -48,12 +46,7 @@ impl PoolSv2<'_> {
         PoolSv2 {
             config,
             keyset: None,
-            global: None,
         }
-    }
-
-    pub fn set_global_config(&mut self, global: GlobalConfig) {
-        self.global = Some(global);
     }
 
     pub async fn start(&mut self) -> Result<(), PoolError> {
@@ -88,15 +81,15 @@ impl PoolSv2<'_> {
             return Err(e);
         }
     
-        let global = self.global.as_ref().expect("global config not set");
-        let redis_url = &global.redis.url;
-        let redis_key = &global.redis.active_keyset;
+        let redis = config.clone().redis.unwrap().clone();
+        let redis_url = redis.url;
+        let redis_key = redis.active_keyset;
 
         let client = redis::Client::open(redis_url.clone()).expect("invalid redis URL");
         let mut conn = client.get_connection().expect("failed to connect to redis");
 
         let keyset_json: String = loop {
-            match conn.get::<_, String>(redis_key) {
+            match conn.get::<_, String>(redis_key.clone()) {
                 Ok(s) => break s,
                 Err(e) => {
                     warn!("Waiting for keyset in redis: {}", e);

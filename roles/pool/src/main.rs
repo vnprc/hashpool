@@ -72,7 +72,7 @@ async fn main() {
     let global_path = args.global_config_path.to_str().expect("Invalid global config path");
 
     // Load local config
-    let config: Configuration = match Config::builder()
+    let mut config: Configuration = match Config::builder()
         .add_source(File::new(config_path, FileFormat::Toml))
         .build()
     {
@@ -97,7 +97,7 @@ async fn main() {
         }
     };
 
+    config.redis = Some(global_config.redis);
     let mut pool = PoolSv2::new(config);
-    pool.set_global_config(global_config);
     let _ = pool.start().await;
 }

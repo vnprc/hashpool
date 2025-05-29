@@ -22,6 +22,7 @@ use roles_logic_sv2::{
     utils::{CoinbaseOutput as CoinbaseOutput_, Mutex},
 };
 use serde::Deserialize;
+use shared_config::RedisConfig;
 use std::{
     collections::HashMap,
     convert::{TryFrom, TryInto},
@@ -102,6 +103,7 @@ pub struct Configuration {
     pub cert_validity_sec: u64,
     pub coinbase_outputs: Vec<CoinbaseOutput>,
     pub pool_signature: String,
+    pub redis: Option<RedisConfig>,
     #[cfg(feature = "test_only_allow_unencrypted")]
     pub test_only_listen_adress_plain: String,
 }
@@ -167,6 +169,7 @@ impl Configuration {
             cert_validity_sec: pool_connection.cert_validity_sec,
             coinbase_outputs,
             pool_signature: pool_connection.signature,
+            redis: None,
             #[cfg(feature = "test_only_allow_unencrypted")]
             test_only_listen_adress_plain,
         }
@@ -181,6 +184,7 @@ pub struct Downstream {
     downstream_data: CommonDownstreamData,
     solution_sender: Sender<SubmitSolution<'static>>,
     channel_factory: Arc<Mutex<PoolChannelFactory>>,
+    redis_config: RedisConfig,
 }
 
 // TODO remove after porting mint to use Sv2 data types
@@ -205,6 +209,7 @@ pub struct Pool {
     channel_factory: Arc<Mutex<PoolChannelFactory>>,
     last_prev_hash_template_id: u64,
     status_tx: status::Sender,
+    redis_config: RedisConfig,
 }
 
 impl Downstream {
@@ -217,6 +222,7 @@ impl Downstream {
         channel_factory: Arc<Mutex<PoolChannelFactory>>,
         status_tx: status::Sender,
         address: SocketAddr,
+        redis_config: RedisConfig,
     ) -> PoolResult<Arc<Mutex<Self>>> {
         let setup_connection = Arc::new(Mutex::new(SetupConnectionHandler::new()));
         let downstream_data =
@@ -235,6 +241,7 @@ impl Downstream {
             downstream_data,
             solution_sender,
             channel_factory,
+            redis_config,
         }));
 
         let cloned = self_.clone();
@@ -459,7 +466,8 @@ impl Pool {
                                 self_.clone(),
                                 receiver,
                                 sender,
-                                address
+                                address,
+                                config.redis.clone().unwrap(),
                             )
                             .await
                         );
@@ -478,6 +486,7 @@ impl Pool {
         receiver: Receiver<EitherFrame>,
         sender: Sender<EitherFrame>,
         address: SocketAddr,
+        redis_config: RedisConfig,
     ) -> PoolResult<()> {
         let solution_sender = self_.safe_lock(|p| p.solution_sender.clone())?;
         let status_tx = self_.safe_lock(|s| s.status_tx.clone())?;
@@ -492,6 +501,7 @@ impl Pool {
             // convert Listener variant to Downstream variant
             status_tx.listener_to_connection(),
             address,
+            redis_config,
         )
         .await?;
 
@@ -646,6 +656,7 @@ impl Pool {
             channel_factory,
             last_prev_hash_template_id: 0,
             status_tx: status_tx.clone(),
+            redis_config: config.redis.clone().unwrap(),
         }));
 
         let cloned = pool.clone();
