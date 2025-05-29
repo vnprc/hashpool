@@ -1,5 +1,5 @@
 use async_channel::{bounded, unbounded};
-use cdk::wallet::{Wallet, MintQuote};
+use cdk::wallet::{client::MintConnector, MintQuote, Wallet};
 use futures::FutureExt;
 use rand::Rng;
 pub use roles_logic_sv2::utils::Mutex;
@@ -10,6 +10,8 @@ use std::{
     sync::Arc,
     collections::HashMap,
 };
+
+use cdk::{HttpClient, mint_url::MintUrl};
 
 use tokio::{
     sync::broadcast,
@@ -42,6 +44,7 @@ pub struct TranslatorSv2 {
     config: ProxyConfig,
     reconnect_wait_time: u64,
     wallet: Arc<Wallet>,
+    mint_client: HttpClient,
 }
 
 fn create_wallet(mint_url: &str) -> Arc<Wallet> {
@@ -58,10 +61,12 @@ impl TranslatorSv2 {
     pub fn new(config: ProxyConfig) -> Self {
         let mut rng = rand::thread_rng();
         let wait_time = rng.gen_range(0..=3000);
+        let mint_client = HttpClient::new(MintUrl::from_str(&config.mint_url).unwrap());
         Self {
             wallet: create_wallet(&config.mint_url),
             config,
             reconnect_wait_time: wait_time,
+            mint_client: mint_client,
         }
     }
 
@@ -308,7 +313,8 @@ impl TranslatorSv2 {
 
     fn spawn_proof_sweeper(&self) {
         let wallet = self.wallet.clone();
-        let mint_url = self.config.mint_url.clone();
+        let mint_client = self.mint_client.clone();
+
         task::spawn_blocking(move || {
             let mut conn = match Self::connect_to_redis("redis://localhost:6379") {
                 Some(c) => c,
@@ -327,7 +333,7 @@ impl TranslatorSv2 {
                     }
                 };
 
-                Self::process_quotes_batch(&wallet, &mut conn, &rt, &quotes, &mint_url);
+                Self::process_quotes_batch(&wallet, &mut conn, &rt, &quotes, &mint_client);
 
                 thread::sleep(Duration::from_secs(60));
             }
@@ -344,46 +350,31 @@ impl TranslatorSv2 {
         }
     }
 
-    fn lookup_uuids_batch(mint_url: &str, share_hashes: &[String]) -> std::collections::HashMap<String, String> {
+    fn lookup_uuids_batch(rt: &Handle, mint_client: &HttpClient, share_hashes: &[String]) -> std::collections::HashMap<String, String> {
         if share_hashes.is_empty() {
             return HashMap::new();
         }
 
-        let shares = share_hashes.join(",");
-        let url = format!("{}/v1/mint/quote-ids/share?share_hashes={}", mint_url, shares);
+        let quotes_shares_future = mint_client.get_quotes_shares(share_hashes.to_vec());
 
-        match ureq::get(&url).call() {
+        match rt.block_on(quotes_shares_future) {
             Ok(response) => {
-                match response.into_string() {
-                    Ok(body) => {
-                        match serde_json::from_str::<HashMap<String, String>>(&body) {
-                            Ok(mapping) => mapping,
-                            Err(e) => {
-                                tracing::error!("Failed to parse batch UUID response: {}", e);
-                                HashMap::new()
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to read batch UUID response body: {}", e);
-                        HashMap::new()
-                    }
-                }
-            }
+                response.quote_ids.iter().map(|(id, uuid)| (id.clone(), uuid.clone())).collect::<HashMap<String, String>>()
+            },
             Err(e) => {
-                tracing::warn!("Failed to make batch UUID lookup request: {}", e);
+                tracing::error!("Failed to lookup batch UUIDs from mint: {}", e);
                 HashMap::new()
             }
         }
     }
 
-    fn process_quotes_batch(wallet: &Arc<Wallet>, conn: &mut Connection, rt: &Handle, quotes: &[MintQuote], mint_url: &str) {
+    fn process_quotes_batch(wallet: &Arc<Wallet>, conn: &mut Connection, rt: &Handle, quotes: &[MintQuote], mint_client: &HttpClient) {
         if quotes.is_empty() {
             return;
         }
 
         let quote_ids: Vec<String> = quotes.iter().map(|q| q.id.clone()).collect();
-        let uuid_mapping = Self::lookup_uuids_batch(mint_url, &quote_ids);
+        let uuid_mapping = Self::lookup_uuids_batch(rt, mint_client, &quote_ids);
 
         for quote in quotes {
             if let Some(uuid) = uuid_mapping.get(&quote.id) {
@@ -394,7 +385,7 @@ impl TranslatorSv2 {
                         Self::log_success_and_cleanup(wallet, conn, rt, quote, &redis_key);
                     }
                     Err(e) => {
-                        tracing::info!("Failed to mint ehash tokens for share {} error: {}", quote.id, e);
+                        tracing::error!("Failed to mint ehash tokens for share {} error: {}", quote.id, e);
                     }
                 }
             }
