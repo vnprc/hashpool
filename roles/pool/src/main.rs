@@ -4,6 +4,7 @@ mod lib;
 use ext_config::{Config, File, FileFormat};
 pub use lib::{mining_pool::Configuration, status, PoolSv2};
 use tracing::error;
+use shared_config::GlobalConfig;
 
 mod args {
     use std::path::PathBuf;
@@ -11,60 +12,47 @@ mod args {
     #[derive(Debug)]
     pub struct Args {
         pub config_path: PathBuf,
-    }
-
-    enum ArgsState {
-        Next,
-        ExpectPath,
-        Done,
-    }
-
-    enum ArgsResult {
-        Config(PathBuf),
-        None,
-        Help(String),
+        pub global_config_path: PathBuf,
     }
 
     impl Args {
         const DEFAULT_CONFIG_PATH: &'static str = "pool-config.toml";
         const HELP_MSG: &'static str =
-            "Usage: -h/--help, -c/--config <path|default pool-config.toml>";
+            "Usage: -h/--help, -c/--config <path|default pool-config.toml>, -g/--global <path>";
 
         pub fn from_args() -> Result<Self, String> {
-            let cli_args = std::env::args();
-
-            if cli_args.len() == 1 {
+            let args: Vec<String> = std::env::args().collect();
+        
+            if args.len() == 1 {
                 println!("Using default config path: {}", Self::DEFAULT_CONFIG_PATH);
                 println!("{}\n", Self::HELP_MSG);
             }
-
-            let config_path = cli_args
-                .scan(ArgsState::Next, |state, item| {
-                    match std::mem::replace(state, ArgsState::Done) {
-                        ArgsState::Next => match item.as_str() {
-                            "-c" | "--config" => {
-                                *state = ArgsState::ExpectPath;
-                                Some(ArgsResult::None)
-                            }
-                            "-h" | "--help" => Some(ArgsResult::Help(Self::HELP_MSG.to_string())),
-                            _ => {
-                                *state = ArgsState::Next;
-
-                                Some(ArgsResult::None)
-                            }
-                        },
-                        ArgsState::ExpectPath => Some(ArgsResult::Config(PathBuf::from(item))),
-                        ArgsState::Done => None,
+        
+            let mut config_path = None;
+            let mut global_config_path = None;
+            let mut iter = args.into_iter().skip(1);
+        
+            while let Some(arg) = iter.next() {
+                match arg.as_str() {
+                    "-c" | "--config" => {
+                        config_path = iter.next().map(PathBuf::from);
                     }
-                })
-                .last();
-            let config_path = match config_path {
-                Some(ArgsResult::Config(p)) => p,
-                Some(ArgsResult::Help(h)) => return Err(h),
-                _ => PathBuf::from(Self::DEFAULT_CONFIG_PATH),
-            };
-            Ok(Self { config_path })
-        }
+                    "-g" | "--global" => {
+                        global_config_path = iter.next().map(PathBuf::from);
+                    }
+                    "-h" | "--help" => return Err(Self::HELP_MSG.to_string()),
+                    _ => {}
+                }
+            }
+        
+            let config_path = config_path.unwrap_or_else(|| PathBuf::from(Self::DEFAULT_CONFIG_PATH));
+            let global_config_path = global_config_path.ok_or("Missing -g/--global <path>")?;
+        
+            Ok(Self {
+                config_path,
+                global_config_path,
+            })
+        }            
     }
 }
 
@@ -81,8 +69,9 @@ async fn main() {
     };
 
     let config_path = args.config_path.to_str().expect("Invalid config path");
+    let global_path = args.global_config_path.to_str().expect("Invalid global config path");
 
-    // Load config
+    // Load local config
     let config: Configuration = match Config::builder()
         .add_source(File::new(config_path, FileFormat::Toml))
         .build()
@@ -99,5 +88,16 @@ async fn main() {
             return;
         }
     };
-    let _ = PoolSv2::new(config).start().await;
+
+    let global_config = match GlobalConfig::from_path(global_path) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            error!("Failed to load global config: {}", e);
+            return;
+        }
+    };
+
+    let mut pool = PoolSv2::new(config);
+    pool.set_global_config(global_config);
+    let _ = pool.start().await;
 }
