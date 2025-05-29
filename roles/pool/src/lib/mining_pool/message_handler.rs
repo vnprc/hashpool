@@ -11,6 +11,7 @@ use roles_logic_sv2::{
     template_distribution_sv2::SubmitSolution,
     utils::Mutex,
 };
+use shared_config::RedisConfig;
 use std::{convert::{TryFrom, TryInto}, sync::Arc};
 use tracing::error;
 
@@ -202,7 +203,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
 
                     let json = mining_sv2::cashu::format_quote_event_json(&quote_request, &blinded_message_vec);
                     // TODO ensure future resolves
-                    tokio::spawn(enqueue_quote_event(json));
+                    tokio::spawn(enqueue_quote_event(self.redis_config.clone(), json));
     
 
                     let success = SubmitSharesSuccess {
@@ -240,7 +241,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
 
                     let json = mining_sv2::cashu::format_quote_event_json(&quote_request, &blinded_message_vec);
                     // TODO ensure future resolves
-                    tokio::spawn(enqueue_quote_event(json));
+                    tokio::spawn(enqueue_quote_event(self.redis_config.clone(), json));
 
                     let success = SubmitSharesSuccess {
                         channel_id: m.channel_id,
@@ -273,19 +274,15 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
     }
 }
 
-// TODO move this code to a more appropriate module
-const REDIS_KEY_CREATE_QUOTE: &str = "mint:quotes:create";
-const REDIS_URL: &str = "redis://localhost:6379";
-
-async fn enqueue_quote_event(payload: String) {
-    let client = redis::Client::open(REDIS_URL).expect("Invalid Redis URL");
+async fn enqueue_quote_event(redis_config: RedisConfig, payload: String) {
+    let client = redis::Client::open(redis_config.url).expect("Invalid Redis URL");
     let mut conn = client
         .get_multiplexed_async_connection()
         .await
         .expect("Failed to connect to Redis");
 
     let _: () = redis::cmd("RPUSH")
-        .arg(REDIS_KEY_CREATE_QUOTE)
+        .arg(redis_config.create_quote)
         .arg(payload)
         .query_async(&mut conn)
         .await
