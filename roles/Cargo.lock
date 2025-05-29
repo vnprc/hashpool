@@ -3580,6 +3580,7 @@ dependencies = [
  "redis 0.25.4",
  "roles_logic_sv2",
  "serde",
+ "shared_config",
  "stratum-common",
  "tokio",
  "tracing",

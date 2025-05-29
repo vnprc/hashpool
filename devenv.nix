@@ -77,7 +77,9 @@ in {
           sleep 1
         done
         echo "Mintd is up. Starting Local Pool..."
-        cargo -C roles/pool -Z unstable-options run -- -c $DEVENV_ROOT/roles/pool/config-examples/pool-config-local-tp-example.toml
+        cargo -C roles/pool -Z unstable-options run -- \
+          -c $DEVENV_ROOT/roles/pool/config-examples/pool-config-local-tp-example.toml \
+          -g $DEVENV_ROOT/devenv.toml
       '' "pool.log";
     };
     jd-server = {
