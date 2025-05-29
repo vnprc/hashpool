@@ -22,6 +22,7 @@ use tracing_subscriber::EnvFilter;
 use bip39::Mnemonic;
 use anyhow::{Result, bail};
 use bitcoin::bip32::{ChildNumber, DerivationPath};
+use shared_config::GlobalConfig;
 
 use toml;
 use std::fs;
@@ -209,19 +210,6 @@ async fn wait_for_invoices(mint: Arc<Mint>, shutdown: Arc<Notify>) {
     if let Err(e) = mint.wait_for_paid_invoices(shutdown).await {
         tracing::error!("Error while waiting for paid invoices: {:?}", e);
     }
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct GlobalConfig {
-    pub redis: RedisConfig,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct RedisConfig {
-    pub url: String,
-    pub active_keyset: String,
-    pub create_quote: String,
-    pub quote_id_prefix: String,
 }
 
 async fn handle_quote_payload(
