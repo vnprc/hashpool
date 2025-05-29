@@ -23,3 +23,5 @@ cdk-mintd = { git = "https://github.com/vnprc/cdk.git", package = "cdk-mintd", r
 cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", package = "cdk-sqlite", rev = "773af52b" }
 cdk-redb = { git = "https://github.com/vnprc/cdk.git", package = "cdk-redb", rev = "773af52b" }
 toml = "0.8.22"
+
+shared_config = { path = "../roles-utils/config" }
