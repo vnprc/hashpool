@@ -51,7 +51,7 @@ async fn main() -> Result<()> {
     };
 
     let mint_settings = config::Settings::new(Some(mint_config_path)).from_env()?;
-    let global_config: toml::Value = toml::from_str(&fs::read_to_string(global_config_path)?)?;
+    let global_config: GlobalConfig = toml::from_str(&fs::read_to_string(global_config_path)?)?;
 
     if mint_settings.ln.ln_backend == LnBackend::None {
         bail!("Ln backend must be set");
@@ -150,11 +150,11 @@ async fn main() -> Result<()> {
 
     tokio::spawn(wait_for_invoices(mint.clone(), shutdown.clone()));
 
-    let redis_url = global_config["redis"]["url"].as_str().unwrap().to_string();
-    let active_keyset_redis_key = global_config["redis"]["active_keyset"].as_str().unwrap().to_string();
-    let create_quote_redis_key = global_config["redis"]["create_quote"].as_str().unwrap().to_string();
-    let quote_id_prefix = global_config["redis"]["quote_id_prefix"].as_str().unwrap().to_string();
-
+    let redis_url = global_config.redis.url.clone();
+    let active_keyset_redis_key = global_config.redis.active_keyset.clone();
+    let create_quote_redis_key = global_config.redis.create_quote.clone();
+    let quote_id_prefix = global_config.redis.quote_id_prefix.clone();
+    
     use redis::AsyncCommands;
     use serde_json;
 
@@ -209,6 +209,19 @@ async fn wait_for_invoices(mint: Arc<Mint>, shutdown: Arc<Notify>) {
     if let Err(e) = mint.wait_for_paid_invoices(shutdown).await {
         tracing::error!("Error while waiting for paid invoices: {:?}", e);
     }
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct GlobalConfig {
+    pub redis: RedisConfig,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct RedisConfig {
+    pub url: String,
+    pub active_keyset: String,
+    pub create_quote: String,
+    pub quote_id_prefix: String,
 }
 
 async fn handle_quote_payload(
