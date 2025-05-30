@@ -48,6 +48,7 @@ fn create_wallet() -> Arc<Wallet> {
     use cdk::nuts::CurrencyUnit;
 
     let seed = rand::thread_rng().gen::<[u8; 32]>();
+    // TODO add mint_url to config
     let mint_url = "http://127.0.0.1:3338";
 
     let localstore = WalletMemoryDatabase::default();
@@ -308,7 +309,13 @@ impl TranslatorSv2 {
 
     fn spawn_proof_sweeper(&self) {
         let wallet = self.wallet.clone();
-        let redis_url = self.config.redis.clone().unwrap().url.clone();
+        let redis_url = match self.redis_url() {
+            Some(url) => url.to_string(),
+            None => {
+                tracing::warn!("No Redis URL configured; skipping proof sweeper.");
+                return;
+            }
+        };
 
         task::spawn_blocking(move || {
 
@@ -336,6 +343,10 @@ impl TranslatorSv2 {
                 thread::sleep(Duration::from_secs(60));
             }
         });
+    }
+
+    fn redis_url(&self) -> Option<&str> {
+        self.config.redis.as_ref().map(|r| r.url.as_str())
     }
 
     fn connect_to_redis(redis_url: &str) -> Option<Connection> {
