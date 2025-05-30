@@ -152,8 +152,8 @@ async fn main() -> Result<()> {
     tokio::spawn(wait_for_invoices(mint.clone(), shutdown.clone()));
 
     let redis_url = global_config.redis.url.clone();
-    let active_keyset_redis_key = global_config.redis.active_keyset.clone();
-    let create_quote_redis_key = global_config.redis.create_quote.clone();
+    let active_keyset_prefix = global_config.redis.active_keyset_prefix.clone();
+    let create_quote_prefix = global_config.redis.create_quote_prefix.clone();
     let quote_id_prefix = global_config.redis.quote_id_prefix.clone();
     
     use redis::AsyncCommands;
@@ -169,7 +169,7 @@ async fn main() -> Result<()> {
     let redis_client = redis::Client::open(redis_url.clone())?;
     let mut redis_conn = redis_client.get_async_connection().await?;
 
-    let redis_key = &active_keyset_redis_key;
+    let redis_key = &active_keyset_prefix;
 
     // Cache and broadcast
     redis_conn.set(redis_key, &keyset_json).await?;
@@ -183,7 +183,7 @@ async fn main() -> Result<()> {
     tokio::spawn(poll_for_quotes(
         mint.clone(),
         redis_url.clone(),
-        create_quote_redis_key.clone(),
+        create_quote_prefix.clone(),
         quote_id_prefix.clone(),
     ));
 

@@ -282,7 +282,7 @@ async fn enqueue_quote_event(redis_config: RedisConfig, payload: String) {
         .expect("Failed to connect to Redis");
 
     let _: () = redis::cmd("RPUSH")
-        .arg(redis_config.create_quote)
+        .arg(redis_config.create_quote_prefix)
         .arg(payload)
         .query_async(&mut conn)
         .await

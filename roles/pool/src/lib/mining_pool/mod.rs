@@ -108,6 +108,16 @@ pub struct Configuration {
     pub test_only_listen_adress_plain: String,
 }
 
+impl Configuration {
+    pub fn redis_url(&self) -> Option<&str> {
+        self.redis.as_ref().map(|r| r.url.as_str())
+    }
+
+    pub fn redis_keyset_prefix(&self) -> Option<&str> {
+        self.redis.as_ref().map(|r| r.active_keyset_prefix.as_str())
+    }
+}
+
 pub struct TemplateProviderConfig {
     address: String,
     authority_public_key: Option<Secp256k1PublicKey>,
