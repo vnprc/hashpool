@@ -81,15 +81,27 @@ impl PoolSv2<'_> {
             return Err(e);
         }
     
-        let redis = config.clone().redis.unwrap().clone();
-        let redis_url = redis.url;
-        let redis_key = redis.active_keyset;
+        let redis_url = match config.redis_url() {
+            Some(url) => url,
+            None => {
+                error!("Missing Redis URL in configuration");
+                return Err(PoolError::Custom("Missing Redis URL".to_string()));
+            }
+        };
+        
+        let redis_keyset_prefix = match config.redis_keyset_prefix() {
+            Some(key) => key,
+            None => {
+                error!("Missing Redis keyset prefix in configuration");
+                return Err(PoolError::Custom("Missing Redis keyset".to_string()));
+            }
+        };
 
-        let client = redis::Client::open(redis_url.clone()).expect("invalid redis URL");
+        let client = redis::Client::open(redis_url).expect("invalid redis URL");
         let mut conn = client.get_connection().expect("failed to connect to redis");
 
         let keyset_json: String = loop {
-            match conn.get::<_, String>(redis_key.clone()) {
+            match conn.get::<_, String>(redis_keyset_prefix) {
                 Ok(s) => break s,
                 Err(e) => {
                     warn!("Waiting for keyset in redis: {}", e);
