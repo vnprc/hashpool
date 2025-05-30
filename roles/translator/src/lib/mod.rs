@@ -308,8 +308,11 @@ impl TranslatorSv2 {
 
     fn spawn_proof_sweeper(&self) {
         let wallet = self.wallet.clone();
+        let redis_url = self.config.redis.clone().unwrap().url.clone();
+
         task::spawn_blocking(move || {
-            let mut conn = match Self::connect_to_redis("redis://localhost:6379") {
+
+            let mut conn = match Self::connect_to_redis(&redis_url) {
                 Some(c) => c,
                 None => return,
             };

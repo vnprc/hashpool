@@ -51,6 +51,7 @@ uuid = { version = "1", features = ["v4"] }
 ureq = { version = "2", features = ["tls"] }
 # TODO delete after implementing the cdk HTTP API to retrieve quote id from header hash
 redis = { version = "0.25", features = ["tokio-comp"] }
+shared_config = { path = "../roles-utils/config" }
 
 [dev-dependencies]
 sha2 = "0.10.6"

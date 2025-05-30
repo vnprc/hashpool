@@ -6,6 +6,7 @@ use args::Args;
 use error::{Error, ProxyResult};
 pub use lib::{downstream_sv1, error, proxy, proxy_config, status, upstream_sv2};
 use proxy_config::ProxyConfig;
+use shared_config::GlobalConfig;
 
 use ext_config::{Config, File, FileFormat};
 
@@ -13,7 +14,7 @@ use tracing::{error, info};
 
 /// Process CLI args, if any.
 #[allow(clippy::result_large_err)]
-fn process_cli_args<'a>() -> ProxyResult<'a, ProxyConfig> {
+fn process_cli_args<'a>() -> ProxyResult<'a, (ProxyConfig, GlobalConfig)> {
     // Parse CLI arguments
     let args = Args::from_args().map_err(|help| {
         error!("{}", help);
@@ -31,18 +32,30 @@ fn process_cli_args<'a>() -> ProxyResult<'a, ProxyConfig> {
         .build()?;
 
     // Deserialize settings into ProxyConfig
-    let config = settings.try_deserialize::<ProxyConfig>()?;
-    Ok(config)
+    let proxy_config = settings.try_deserialize::<ProxyConfig>()?;
+
+    let global_path = args.global_config_path.to_str().ok_or_else(|| {
+        error!("Invalid global configuration path.");
+        Error::BadCliArgs
+    })?;
+
+    let global_config = GlobalConfig::from_path(global_path)
+        .map_err(|_| Error::BadCliArgs)?;
+
+    Ok((proxy_config, global_config))
 }
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    let proxy_config = match process_cli_args() {
-        Ok(p) => p,
+    let (mut proxy_config, global_config) = match process_cli_args() {
+        Ok(cfgs) => cfgs,
         Err(e) => panic!("failed to load config: {}", e),
     };
+
+    proxy_config.redis = Some(global_config.redis);
+
     info!("Proxy Config: {:?}", &proxy_config);
 
     lib::TranslatorSv2::new(proxy_config).start().await;
