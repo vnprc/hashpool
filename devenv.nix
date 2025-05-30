@@ -100,7 +100,9 @@ in {
           sleep 1
         done
         echo "Pool is up. Starting Proxy..."
-        cargo -C roles/translator -Z unstable-options run -- -c $DEVENV_ROOT/roles/translator/config-examples/tproxy-config-local-jdc-example.toml
+        cargo -C roles/translator -Z unstable-options run -- \
+          -c $DEVENV_ROOT/roles/translator/config-examples/tproxy-config-local-jdc-example.toml \
+          -g $DEVENV_ROOT/devenv.toml
       '' "proxy.log";
     };
     bitcoind = {

@@ -1,5 +1,6 @@
 use key_utils::Secp256k1PublicKey;
 use serde::Deserialize;
+use shared_config::RedisConfig;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ProxyConfig {
@@ -13,6 +14,7 @@ pub struct ProxyConfig {
     pub min_extranonce2_size: u16,
     pub downstream_difficulty_config: DownstreamDifficultyConfig,
     pub upstream_difficulty_config: UpstreamDifficultyConfig,
+    pub redis: Option<RedisConfig>,
 }
 
 pub struct UpstreamConfig {
@@ -73,6 +75,7 @@ impl ProxyConfig {
             min_extranonce2_size,
             downstream_difficulty_config: downstream.difficulty_config,
             upstream_difficulty_config: upstream.difficulty_config,
+            redis: None,
         }
     }
 }
