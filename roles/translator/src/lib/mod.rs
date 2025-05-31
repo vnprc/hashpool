@@ -1,5 +1,7 @@
 use async_channel::{bounded, unbounded};
 use cdk::wallet::{Wallet, MintQuote};
+use cdk::cdk_database::WalletMemoryDatabase;
+use cdk::nuts::CurrencyUnit;
 use futures::FutureExt;
 use rand::Rng;
 pub use roles_logic_sv2::utils::Mutex;
@@ -29,7 +31,7 @@ pub mod status;
 pub mod upstream_sv2;
 pub mod utils;
 
-// TODO consolidate, these consts are defined all over the place
+// TODO add to config
 pub const HASH_CURRENCY_UNIT: &str = "HASH";
 
 use redis::{Commands, Connection};
@@ -43,26 +45,41 @@ pub struct TranslatorSv2 {
     wallet: Arc<Wallet>,
 }
 
-fn create_wallet() -> Arc<Wallet> {
-    use cdk::cdk_database::WalletMemoryDatabase;
-    use cdk::nuts::CurrencyUnit;
-
+fn create_wallet(mint_url: String) -> Arc<Wallet> {
+    // TODO add to config
     let seed = rand::thread_rng().gen::<[u8; 32]>();
-    // TODO add mint_url to config
-    let mint_url = "http://127.0.0.1:3338";
 
     let localstore = WalletMemoryDatabase::default();
-    Arc::new(Wallet::new(mint_url, CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string()), Arc::new(localstore), &seed, None).unwrap())
+    Arc::new(
+        Wallet::new(
+            &mint_url,
+            CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string()),
+            Arc::new(localstore),
+            &seed,
+            None
+        )
+        .unwrap(),
+    )
+}
+
+fn extract_mint_url(config: &ProxyConfig) -> String {
+    config
+        .mint
+        .as_ref()
+        .map(|m| m.url.clone())
+        .unwrap_or_else(|| panic!("No Mint URL configured; cannot create wallet."))
 }
 
 impl TranslatorSv2 {
     pub fn new(config: ProxyConfig) -> Self {
+        let mint_url = extract_mint_url(&config);
+
         let mut rng = rand::thread_rng();
         let wait_time = rng.gen_range(0..=3000);
         Self {
             config,
             reconnect_wait_time: wait_time,
-            wallet: create_wallet(),
+            wallet: create_wallet(mint_url),
         }
     }
 

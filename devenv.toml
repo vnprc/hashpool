@@ -1,3 +1,6 @@
+# TODO split configs into miner/pool structure
+# to emphasize that e.g. miners can't access redis etc.
+
 [redis]
 host = "localhost"
 port = 6379
@@ -8,8 +11,10 @@ create_quote_prefix = "mint:quotes:create"
 quote_id_prefix = "mint:quotes:hash"
 active_keyset_prefix = "mint:keyset:active"
 
-[mintd]
+[mint]
+host = "localhost"
 port = 3338
+url = "http://localhost:3338"
 
 [pool]
 port = 34254
