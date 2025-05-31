@@ -10,9 +10,14 @@ pub struct RedisConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+pub struct MintConfig {
+    pub url: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct GlobalConfig {
     pub redis: RedisConfig,
-    // Add more sections here as needed
+    pub mint: MintConfig,
 }
 
 impl GlobalConfig {

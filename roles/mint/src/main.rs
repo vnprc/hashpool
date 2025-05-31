@@ -107,6 +107,7 @@ async fn main() -> Result<()> {
     //     bail!("Only fakewallet backend supported in this minimal launcher");
     // }
 
+    // TODO add to config
     pub const HASH_CURRENCY_UNIT: &str = "HASH";
     pub const HASH_DERIVATION_PATH: u32 = 1337;
     const NUM_KEYS: u8 = 64;

@@ -15,12 +15,12 @@
   appConfig = builtins.fromTOML (builtins.readFile configFile);
 
   redis = appConfig.redis;
-  mintd = appConfig.mintd;
+  mint = appConfig.mint;
   pool = appConfig.pool;
   proxy = appConfig.proxy;
   
   REDIS_PORT = toString redis.port;
-  MINTD_PORT = toString mintd.port;
+  MINT_PORT = toString mint.port;
   POOL_PORT = toString pool.port;
   PROXY_PORT = toString proxy.port;
 
@@ -37,7 +37,7 @@ in {
   env.REDIS_HOST = redis.host;
   env.REDIS_PORT = builtins.toString redis.port;
 
-  env.MINTD_PORT = builtins.toString mintd.port;
+  env.MINT_PORT = builtins.toString mint.port;
   env.POOL_PORT = builtins.toString pool.port;
   env.PROXY_PORT = builtins.toString proxy.port;
 
@@ -72,11 +72,11 @@ in {
     redis = {exec = withLogging "mkdir -p ${config.devenv.root}/.devenv/state/redis && redis-server --dir ${config.devenv.root}/.devenv/state/redis --port $REDIS_PORT" "redis.log";};
     pool = {
       exec = withLogging ''
-        echo "Waiting for Mintd..."
-        while ! nc -z localhost ${MINTD_PORT}; do
+        echo "Waiting for Mint..."
+        while ! nc -z localhost ${MINT_PORT}; do
           sleep 1
         done
-        echo "Mintd is up. Starting Local Pool..."
+        echo "Mint is up. Starting Local Pool..."
         cargo -C roles/pool -Z unstable-options run -- \
           -c $DEVENV_ROOT/roles/pool/config-examples/pool-config-local-tp-example.toml \
           -g $DEVENV_ROOT/devenv.toml
@@ -132,7 +132,7 @@ in {
         while ! nc -z localhost ${REDIS_PORT}; do
           sleep 1
         done
-        echo "Redis is up. Starting Mintd..."
+        echo "Redis is up. Starting Mint..."
         cargo -C roles/mint -Z unstable-options run -- \
           -c $DEVENV_ROOT/roles/mint/config/mint.config.toml \
           -g $DEVENV_ROOT/devenv.toml

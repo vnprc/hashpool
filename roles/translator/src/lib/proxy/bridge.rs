@@ -323,7 +323,8 @@ impl Bridge {
                 .block_on(wallet_clone.create_premint_secrets(
                     work,
                     &share_hash,
-                    "http://localhost:8000",
+                    // TODO remove this param
+                    "http://NOT_USED",
                     CurrencyUnit::Custom("HASH".to_string()),
                 ))
                 .map_err(Error::WalletError)

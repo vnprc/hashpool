@@ -55,6 +55,7 @@ async fn main() {
     };
 
     proxy_config.redis = Some(global_config.redis);
+    proxy_config.mint = Some(global_config.mint);
 
     info!("Proxy Config: {:?}", &proxy_config);
 
