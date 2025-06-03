@@ -11,18 +11,30 @@
     stdenv = pkgs.stdenv;
   };
 
-  configFile = ./devenv.toml;
-  appConfig = builtins.fromTOML (builtins.readFile configFile);
+  poolConfigFile = ./pool.toml;
+  minerConfigFile = ./miner.toml;
+  poolConfig = builtins.fromTOML (builtins.readFile poolConfigFile);
+  minerConfig = builtins.fromTOML (builtins.readFile minerConfigFile);
 
-  redis = appConfig.redis;
-  mint = appConfig.mint;
-  pool = appConfig.pool;
-  proxy = appConfig.proxy;
+  # poolSide: mining pool and related service configs
+  poolSideRedisConfig = poolConfig.redis;
+  poolSideMintConfig = poolConfig.mint;
+  poolSidePoolConfig = poolConfig.pool;
+  poolSideProxyConfig = poolConfig.proxy;
+
+  POOLSIDE_REDIS_PORT = toString poolSideRedisConfig.port;
+  POOLSIDE_MINT_PORT = toString poolSideMintConfig.port;
+  POOLSIDE_POOL_PORT = toString poolSidePoolConfig.port;
+  POOLSIDE_PROXY_PORT = toString poolSideProxyConfig.port;
+
+  # minerSide: translator proxy and related service configs
+  minerSideMintConfig = minerConfig.mint;
+  minerSidePoolConfig = minerConfig.pool;
+  minerSideProxyConfig = minerConfig.proxy;
   
-  REDIS_PORT = toString redis.port;
-  MINT_PORT = toString mint.port;
-  POOL_PORT = toString pool.port;
-  PROXY_PORT = toString proxy.port;
+  MINERSIDE_MINT_PORT = toString minerSideMintConfig.port;
+  MINERSIDE_POOL_PORT = toString minerSidePoolConfig.port;
+  MINERSIDE_PROXY_PORT = toString minerSideProxyConfig.port;
 
   # Function to add logging logic to any command
   withLogging = command: logFile: ''
@@ -33,14 +45,19 @@
   # Get all process names dynamically
   processNames = lib.attrNames config.processes;
 in {
-  env.REDIS_URL = redis.url;
-  env.REDIS_HOST = redis.host;
-  env.REDIS_PORT = builtins.toString redis.port;
+  env.POOLSIDE_REDIS_URL = poolSideRedisConfig.url;
+  env.POOLSIDE_REDIS_HOST = poolSideRedisConfig.host;
+  env.POOLSIDE_REDIS_PORT = builtins.toString poolSideRedisConfig.port;
 
-  env.MINT_PORT = builtins.toString mint.port;
-  env.POOL_PORT = builtins.toString pool.port;
-  env.PROXY_PORT = builtins.toString proxy.port;
+  env.POOLSIDE_MINT_PORT = builtins.toString poolSideMintConfig.port;
+  env.POOLSIDE_POOL_PORT = builtins.toString poolSidePoolConfig.port;
+  env.POOLSIDE_PROXY_PORT = builtins.toString poolSideProxyConfig.port;
 
+  env.MINERSIDE_MINT_PORT = builtins.toString minerSideMintConfig.port;
+  env.MINERSIDE_POOL_PORT = builtins.toString minerSidePoolConfig.port;
+  env.MINERSIDE_PROXY_PORT = builtins.toString minerSideProxyConfig.port;
+
+  # TODO split bitcoind configs into poolside and minerside
   env.BITCOIND_DATADIR = config.devenv.root + "/.devenv/state/bitcoind";
   env.IN_DEVENV = "1";
 
@@ -69,23 +86,23 @@ in {
 
   # https://devenv.sh/processes/
   processes = {
-    redis = {exec = withLogging "mkdir -p ${config.devenv.root}/.devenv/state/redis && redis-server --dir ${config.devenv.root}/.devenv/state/redis --port $REDIS_PORT" "redis.log";};
+    redis = {exec = withLogging "mkdir -p ${config.devenv.root}/.devenv/state/redis && redis-server --dir ${config.devenv.root}/.devenv/state/redis --port ${POOLSIDE_REDIS_PORT}" "redis.log";};
     pool = {
       exec = withLogging ''
         echo "Waiting for Mint..."
-        while ! nc -z localhost ${MINT_PORT}; do
+        while ! nc -z localhost ${POOLSIDE_MINT_PORT}; do
           sleep 1
         done
         echo "Mint is up. Starting Local Pool..."
         cargo -C roles/pool -Z unstable-options run -- \
           -c $DEVENV_ROOT/roles/pool/config-examples/pool-config-local-tp-example.toml \
-          -g $DEVENV_ROOT/devenv.toml
+          -g $DEVENV_ROOT/pool.toml
       '' "pool.log";
     };
     jd-server = {
       exec = withLogging ''
         echo "Waiting for Pool..."
-        while ! nc -z localhost ${POOL_PORT}; do
+        while ! nc -z localhost ${POOLSIDE_POOL_PORT}; do
           sleep 1
         done
         echo "Pool is up. Starting Job Server..."
@@ -93,16 +110,17 @@ in {
       '' "jd-server.log";
     };
     jd-client = {exec = withLogging "cargo -C roles/jd-client -Z unstable-options run -- -c $DEVENV_ROOT/roles/jd-client/config-examples/jdc-config-local-example.toml" "job-client.log";};
+    # TODO switch to miner config
     proxy = {
       exec = withLogging ''
         echo "Waiting for Pool..."
-        while ! nc -z localhost ${POOL_PORT}; do
+        while ! nc -z localhost ${MINERSIDE_POOL_PORT}; do
           sleep 1
         done
         echo "Pool is up. Starting Proxy..."
         cargo -C roles/translator -Z unstable-options run -- \
           -c $DEVENV_ROOT/roles/translator/config-examples/tproxy-config-local-jdc-example.toml \
-          -g $DEVENV_ROOT/devenv.toml
+          -g $DEVENV_ROOT/pool.toml
       '' "proxy.log";
     };
     bitcoind = {
@@ -114,7 +132,7 @@ in {
     miner = {
       exec = withLogging ''
         echo "Waiting for proxy..."
-        while ! nc -z localhost ${PROXY_PORT}; do
+        while ! nc -z localhost ${MINERSIDE_PROXY_PORT}; do
           sleep 1
         done
         echo "Proxy is up, starting miner..."
@@ -128,14 +146,14 @@ in {
     };
     mint = {
       exec = withLogging ''
-        echo "Waiting for Redis on port ${REDIS_PORT}..."
-        while ! nc -z localhost ${REDIS_PORT}; do
+        echo "Waiting for Redis on port ${POOLSIDE_REDIS_PORT}..."
+        while ! nc -z localhost ${POOLSIDE_REDIS_PORT}; do
           sleep 1
         done
         echo "Redis is up. Starting Mint..."
         cargo -C roles/mint -Z unstable-options run -- \
           -c $DEVENV_ROOT/roles/mint/config/mint.config.toml \
-          -g $DEVENV_ROOT/devenv.toml
+          -g $DEVENV_ROOT/pool.toml
       '' "mint.log";
     };
   };
