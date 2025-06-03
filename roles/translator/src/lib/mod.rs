@@ -1,6 +1,7 @@
 use async_channel::{bounded, unbounded};
 use cdk::cdk_database::WalletMemoryDatabase;
 use cdk::nuts::CurrencyUnit;
+use cdk::wallet::client::MintConnector;
 use cdk::wallet::{MintQuote, Wallet};
 use futures::FutureExt;
 use rand::Rng;

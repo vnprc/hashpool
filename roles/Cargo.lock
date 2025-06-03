@@ -852,9 +852,9 @@ checksum = "1628fb46dfa0b37568d12e5edd512553eccf6a22a78e8bde00bb4aed84d5bdbf"
 
 [[package]]
 name = "bytecount"
-version = "0.6.8"
+version = "0.6.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ce89b21cab1437276d2650d57e971f9d548a2d9037cc231abdc0562b97498ce"
+checksum = "175812e0be2bccb6abe50bb8d566126198344f707e304f45c648fd8f2cc0365e"
 
 [[package]]
 name = "byteorder"
@@ -870,9 +870,9 @@ checksum = "d71b6127be86fdcfddb610f7182ac57211d4b18a3e9c82eb2d17662f2227ad6a"
 
 [[package]]
 name = "camino"
-version = "1.1.9"
+version = "1.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b96ec4966b5813e2c0507c1f86115c8c5abaadc3980879c3424042a02fd1ad3"
+checksum = "0da45bc31171d8d6960122e222a67740df867c1dd53b4d51caa297084c185cab"
 dependencies = [
  "serde",
 ]
@@ -902,7 +902,7 @@ dependencies = [
 [[package]]
 name = "cashu"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
+source = "git+https://github.com/machuPikacchuBTC/cdk?rev=64ec7f6f#64ec7f6f8681fc3707a0f5e023fcdb2fa0a60a5e"
 dependencies = [
  "bitcoin 0.32.6",
  "bitcoin_hashes 0.16.0",
@@ -941,9 +941,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.24"
+version = "1.2.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16595d3be041c03b09d08d0858631facccee9221e579704070e6e9e4915d3bc7"
+checksum = "d0fc897dc1e865cc67c0e05a836d9d3f1df3cbe442aa4a9473b18e12624a4951"
 dependencies = [
  "jobserver",
  "libc",
@@ -953,7 +953,7 @@ dependencies = [
 [[package]]
 name = "cdk"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
+source = "git+https://github.com/machuPikacchuBTC/cdk?rev=64ec7f6f#64ec7f6f8681fc3707a0f5e023fcdb2fa0a60a5e"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -982,15 +982,17 @@ dependencies = [
 [[package]]
 name = "cdk-axum"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
+source = "git+https://github.com/machuPikacchuBTC/cdk?rev=64ec7f6f#64ec7f6f8681fc3707a0f5e023fcdb2fa0a60a5e"
 dependencies = [
  "anyhow",
  "async-trait",
  "axum",
  "cdk",
+ "cdk-common",
  "futures",
  "moka",
  "paste",
+ "redis 0.23.3",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1002,7 +1004,7 @@ dependencies = [
 [[package]]
 name = "cdk-cln"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
+source = "git+https://github.com/machuPikacchuBTC/cdk?rev=64ec7f6f#64ec7f6f8681fc3707a0f5e023fcdb2fa0a60a5e"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.6",
@@ -1019,7 +1021,7 @@ dependencies = [
 [[package]]
 name = "cdk-common"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
+source = "git+https://github.com/machuPikacchuBTC/cdk?rev=64ec7f6f#64ec7f6f8681fc3707a0f5e023fcdb2fa0a60a5e"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1042,7 +1044,7 @@ dependencies = [
 [[package]]
 name = "cdk-fake-wallet"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
+source = "git+https://github.com/machuPikacchuBTC/cdk?rev=64ec7f6f#64ec7f6f8681fc3707a0f5e023fcdb2fa0a60a5e"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.6",
@@ -1061,7 +1063,7 @@ dependencies = [
 [[package]]
 name = "cdk-lnbits"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
+source = "git+https://github.com/machuPikacchuBTC/cdk?rev=64ec7f6f#64ec7f6f8681fc3707a0f5e023fcdb2fa0a60a5e"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1079,7 +1081,7 @@ dependencies = [
 [[package]]
 name = "cdk-lnd"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
+source = "git+https://github.com/machuPikacchuBTC/cdk?rev=64ec7f6f#64ec7f6f8681fc3707a0f5e023fcdb2fa0a60a5e"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1095,7 +1097,7 @@ dependencies = [
 [[package]]
 name = "cdk-mint-rpc"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
+source = "git+https://github.com/machuPikacchuBTC/cdk?rev=64ec7f6f#64ec7f6f8681fc3707a0f5e023fcdb2fa0a60a5e"
 dependencies = [
  "anyhow",
  "cdk",
@@ -1115,7 +1117,7 @@ dependencies = [
 [[package]]
 name = "cdk-mintd"
 version = "0.7.2"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
+source = "git+https://github.com/machuPikacchuBTC/cdk?rev=64ec7f6f#64ec7f6f8681fc3707a0f5e023fcdb2fa0a60a5e"
 dependencies = [
  "anyhow",
  "axum",
@@ -1148,7 +1150,7 @@ dependencies = [
 [[package]]
 name = "cdk-phoenixd"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
+source = "git+https://github.com/machuPikacchuBTC/cdk?rev=64ec7f6f#64ec7f6f8681fc3707a0f5e023fcdb2fa0a60a5e"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1167,7 +1169,7 @@ dependencies = [
 [[package]]
 name = "cdk-redb"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
+source = "git+https://github.com/machuPikacchuBTC/cdk?rev=64ec7f6f#64ec7f6f8681fc3707a0f5e023fcdb2fa0a60a5e"
 dependencies = [
  "async-trait",
  "cdk-common",
@@ -1183,7 +1185,7 @@ dependencies = [
 [[package]]
 name = "cdk-sqlite"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
+source = "git+https://github.com/machuPikacchuBTC/cdk?rev=64ec7f6f#64ec7f6f8681fc3707a0f5e023fcdb2fa0a60a5e"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.6",
@@ -1200,7 +1202,7 @@ dependencies = [
 [[package]]
 name = "cdk-strike"
 version = "0.7.1"
-source = "git+https://github.com/vnprc/cdk?rev=773af52b#773af52b5977efa53fa4d094134425270497e422"
+source = "git+https://github.com/machuPikacchuBTC/cdk?rev=64ec7f6f#64ec7f6f8681fc3707a0f5e023fcdb2fa0a60a5e"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3627,9 +3629,9 @@ dependencies = [
 
 [[package]]
 name = "prettyplease"
-version = "0.2.32"
+version = "0.2.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "664ec5419c51e34154eec046ebcba56312d5a2fc3b09a06da188e1ad21afadf6"
+checksum = "9dee91521343f4c5c6a63edd65e54f31f5c92fe8978c40a4282f8372194c6a7d"
 dependencies = [
  "proc-macro2",
  "syn 2.0.101",
@@ -3723,7 +3725,7 @@ dependencies = [
  "multimap 0.10.1",
  "once_cell",
  "petgraph",
- "prettyplease 0.2.32",
+ "prettyplease 0.2.33",
  "prost 0.12.6",
  "prost-types 0.12.6",
  "regex",
@@ -3962,10 +3964,13 @@ dependencies = [
  "itoa",
  "percent-encoding",
  "pin-project-lite",
+ "rustls 0.21.12",
+ "rustls-native-certs 0.6.3",
  "ryu",
  "sha1_smol",
  "socket2 0.4.10",
  "tokio",
+ "tokio-rustls 0.24.1",
  "tokio-util",
  "url",
 ]
@@ -4055,9 +4060,9 @@ checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 
 [[package]]
 name = "reqwest"
-version = "0.12.18"
+version = "0.12.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e98ff6b0dbbe4d5a37318f433d4fc82babd21631f194d370409ceb2e40b2f0b5"
+checksum = "a2f8e5513d63f2e5b386eb5106dc67eaf3f84e95258e210489136b8b92ad6119"
 dependencies = [
  "async-compression",
  "base64 0.22.1",
@@ -4090,7 +4095,7 @@ dependencies = [
  "tokio-socks",
  "tokio-util",
  "tower 0.5.2",
- "tower-http 0.6.4",
+ "tower-http 0.6.6",
  "tower-service",
  "url",
  "wasm-bindgen",
@@ -5460,7 +5465,7 @@ version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d021fc044c18582b9a2408cd0dd05b1596e3ecdb5c4df822bb0183545683889"
 dependencies = [
- "prettyplease 0.2.32",
+ "prettyplease 0.2.33",
  "proc-macro2",
  "prost-build 0.12.6",
  "quote",
@@ -5526,9 +5531,9 @@ dependencies = [
 
 [[package]]
 name = "tower-http"
-version = "0.6.4"
+version = "0.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fdb0c213ca27a9f57ab69ddb290fd80d970922355b83ae380b395d3986b8a2e"
+checksum = "adc82fd73de2a9722ac5da747f12383d2bfdb93591ee6c58486e0097890f05f2"
 dependencies = [
  "bitflags 2.9.1",
  "bytes",
