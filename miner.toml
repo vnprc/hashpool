@@ -1,0 +1,10 @@
+[mint]
+host = "localhost"
+port = 3338
+url = "http://localhost:3338"
+
+[pool]
+port = 34254
+
+[proxy]
+port = 34255

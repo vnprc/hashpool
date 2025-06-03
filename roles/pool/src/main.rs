@@ -4,7 +4,7 @@ mod lib;
 use ext_config::{Config, File, FileFormat};
 pub use lib::{mining_pool::Configuration, status, PoolSv2};
 use tracing::error;
-use shared_config::GlobalConfig;
+use shared_config::PoolGlobalConfig;
 
 mod args {
     use std::path::PathBuf;
@@ -89,7 +89,7 @@ async fn main() {
         }
     };
 
-    let global_config = match GlobalConfig::from_path(global_path) {
+    let global_config = match PoolGlobalConfig::from_path(global_path) {
         Ok(cfg) => cfg,
         Err(e) => {
             error!("Failed to load global config: {}", e);

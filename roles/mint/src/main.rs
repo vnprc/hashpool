@@ -22,7 +22,7 @@ use tracing_subscriber::EnvFilter;
 use bip39::Mnemonic;
 use anyhow::{Result, bail};
 use bitcoin::bip32::{ChildNumber, DerivationPath};
-use shared_config::GlobalConfig;
+use shared_config::PoolGlobalConfig;
 
 use toml;
 use std::fs;
@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
     };
 
     let mint_settings = config::Settings::new(Some(mint_config_path)).from_env()?;
-    let global_config: GlobalConfig = toml::from_str(&fs::read_to_string(global_config_path)?)?;
+    let global_config: PoolGlobalConfig = toml::from_str(&fs::read_to_string(global_config_path)?)?;
 
     if mint_settings.ln.ln_backend == LnBackend::None {
         bail!("Ln backend must be set");
