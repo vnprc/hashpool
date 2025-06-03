@@ -2,6 +2,10 @@ use key_utils::Secp256k1PublicKey;
 use serde::Deserialize;
 use shared_config::{MintConfig, RedisConfig};
 
+fn default_mint_url() -> String {
+    "http://127.0.0.1:3338".to_string()
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct ProxyConfig {
     pub upstream_address: String,
@@ -64,6 +68,7 @@ impl ProxyConfig {
         max_supported_version: u16,
         min_supported_version: u16,
         min_extranonce2_size: u16,
+        mint_url: String,
     ) -> Self {
         Self {
             upstream_address: upstream.address,

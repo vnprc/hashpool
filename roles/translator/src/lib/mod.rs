@@ -10,6 +10,7 @@ use std::{
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::Arc,
+    collections::HashMap,
 };
 
 use tokio::{
@@ -334,6 +335,14 @@ impl TranslatorSv2 {
             }
         };
 
+        let mint_url = match self.mint_url() {
+            Some(url) => url.to_string(),
+            None => {
+                tracing::warn!("No Redis URL configured; skipping proof sweeper.");
+                return;
+            }
+        };
+
         task::spawn_blocking(move || {
 
             let mut conn = match Self::connect_to_redis(&redis_url) {
@@ -353,7 +362,7 @@ impl TranslatorSv2 {
                     }
                 };
 
-                Self::process_quotes_batch(&wallet, &mut conn, &rt, &quotes);
+                Self::process_quotes_batch(&wallet, &mut conn, &rt, &quotes, &mint_url);
 
                 thread::sleep(Duration::from_secs(60));
             }
@@ -362,6 +371,10 @@ impl TranslatorSv2 {
 
     fn redis_url(&self) -> Option<&str> {
         self.config.redis.as_ref().map(|r| r.url.as_str())
+    }
+
+    fn mint_url(&self) -> Option<&str> {
+        self.config.mint.as_ref().map(|m| m.url.as_str())
     }
 
     fn connect_to_redis(redis_url: &str) -> Option<Connection> {
@@ -374,15 +387,13 @@ impl TranslatorSv2 {
         }
     }
 
-    fn lookup_uuids_batch(quote_ids: &[String]) -> std::collections::HashMap<String, String> {
-        use std::collections::HashMap;
-
-        if quote_ids.is_empty() {
+    fn lookup_uuids_batch(mint_url: &str, share_hashes: &[String]) -> std::collections::HashMap<String, String> {
+        if share_hashes.is_empty() {
             return HashMap::new();
         }
 
-        let share_hashes = quote_ids.join(",");
-        let url = format!("http://localhost:3338/v1/mint/quote-ids/share?share_hashes={}", share_hashes);
+        let shares = share_hashes.join(",");
+        let url = format!("{}/v1/mint/quote-ids/share?share_hashes={}", mint_url, shares);
 
         match ureq::get(&url).call() {
             Ok(response) => {
@@ -391,7 +402,7 @@ impl TranslatorSv2 {
                         match serde_json::from_str::<HashMap<String, String>>(&body) {
                             Ok(mapping) => mapping,
                             Err(e) => {
-                                tracing::warn!("Failed to parse batch UUID response: {}", e);
+                                tracing::error!("Failed to parse batch UUID response: {}", e);
                                 HashMap::new()
                             }
                         }
@@ -409,13 +420,13 @@ impl TranslatorSv2 {
         }
     }
 
-    fn process_quotes_batch(wallet: &Arc<Wallet>, conn: &mut Connection, rt: &Handle, quotes: &[MintQuote]) {
+    fn process_quotes_batch(wallet: &Arc<Wallet>, conn: &mut Connection, rt: &Handle, quotes: &[MintQuote], mint_url: &str) {
         if quotes.is_empty() {
             return;
         }
 
         let quote_ids: Vec<String> = quotes.iter().map(|q| q.id.clone()).collect();
-        let uuid_mapping = Self::lookup_uuids_batch(&quote_ids);
+        let uuid_mapping = Self::lookup_uuids_batch(mint_url, &quote_ids);
 
         for quote in quotes {
             if let Some(uuid) = uuid_mapping.get(&quote.id) {
