@@ -46,7 +46,7 @@ async-compat = "0.2.1"
 rand = "0.8.4"
 bitcoin = "0.30"
 mining_sv2 = { version = "^1.0.0", path = "../../protocols/v2/subprotocols/mining" }
-cdk = { git = "https://github.com/vnprc/cdk", rev = "773af52b" }
+cdk = { git = "https://github.com/vnprc/cdk", rev = "64ec7f6f" }
 uuid = { version = "1", features = ["v4"] }
 ureq = { version = "2", features = ["tls"] }
 # TODO delete after implementing the cdk HTTP API to retrieve quote id from header hash

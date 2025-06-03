@@ -17,11 +17,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 bitcoin = { version= "0.32.2" }
 
-cdk = { git = "https://github.com/vnprc/cdk.git", package = "cdk", rev = "773af52b" }
-cdk-axum = { git = "https://github.com/vnprc/cdk.git", package = "cdk-axum", rev = "773af52b" }
-cdk-mintd = { git = "https://github.com/vnprc/cdk.git", package = "cdk-mintd", rev = "773af52b" }
-cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", package = "cdk-sqlite", rev = "773af52b" }
-cdk-redb = { git = "https://github.com/vnprc/cdk.git", package = "cdk-redb", rev = "773af52b" }
+cdk = { git = "https://github.com/vnprc/cdk.git", package = "cdk", rev = "64ec7f6f" }
+cdk-axum = { git = "https://github.com/vnprc/cdk.git", package = "cdk-axum", rev = "64ec7f6f", features = ["redis"]  }
+cdk-mintd = { git = "https://github.com/vnprc/cdk.git", package = "cdk-mintd", rev = "64ec7f6f" }
+cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", package = "cdk-sqlite", rev = "64ec7f6f" }
+cdk-redb = { git = "https://github.com/vnprc/cdk.git", package = "cdk-redb", rev = "64ec7f6f" }
+
 toml = "0.8.22"
 
 shared_config = { path = "../roles-utils/config" }
