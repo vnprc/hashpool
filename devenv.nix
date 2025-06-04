@@ -13,8 +13,8 @@
 
   bitcoindDataDir = "${config.devenv.root}/.devenv/state/bitcoind";
 
-  poolConfig = builtins.fromTOML (builtins.readFile ./pool.toml);
-  minerConfig = builtins.fromTOML (builtins.readFile ./miner.toml);
+  poolConfig = builtins.fromTOML (builtins.readFile ./config/pool.toml);
+  minerConfig = builtins.fromTOML (builtins.readFile ./config/miner.toml);
 
   # Function to add logging logic to any command
   withLogging = command: logFile: ''
@@ -64,7 +64,7 @@ in {
         echo "Mint is up. Starting Local Pool..."
         cargo -C roles/pool -Z unstable-options run -- \
           -c ${config.devenv.root}/roles/pool/config-examples/pool-config-local-tp-example.toml \
-          -g ${config.devenv.root}/pool.toml
+          -g ${config.devenv.root}/config/pool.toml
       '' "pool.log";
     };
     jd-server = {
@@ -88,7 +88,7 @@ in {
         echo "Pool is up. Starting Proxy..."
         cargo -C roles/translator -Z unstable-options run -- \
           -c ${config.devenv.root}/roles/translator/config-examples/tproxy-config-local-jdc-example.toml \
-          -g ${config.devenv.root}/pool.toml
+          -g ${config.devenv.root}/config/pool.toml
       '' "proxy.log";
     };
     bitcoind = {
@@ -121,7 +121,7 @@ in {
         echo "Redis is up. Starting Mint..."
         cargo -C roles/mint -Z unstable-options run -- \
           -c ${config.devenv.root}/roles/mint/config/mint.config.toml \
-          -g ${config.devenv.root}/pool.toml
+          -g ${config.devenv.root}/config/pool.toml
       '' "mint.log";
     };
   };
