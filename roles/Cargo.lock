@@ -5643,7 +5643,6 @@ dependencies = [
  "network_helpers_sv2",
  "once_cell",
  "rand 0.8.5",
- "redis 0.25.4",
  "roles_logic_sv2",
  "serde",
  "serde_json",

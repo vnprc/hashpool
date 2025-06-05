@@ -188,6 +188,9 @@ async fn main() -> Result<()> {
         quote_id_prefix.clone(),
     ));
 
+    // TODO spawn polling loop to remove share_hash -> quote_id mappings from redis ONLY after the tokens are claimed
+    // How to determine the tokens have been swept?
+
     info!("Mint listening on {}:{}", mint_settings.info.listen_host, mint_settings.info.listen_port);
     axum::Server::bind(&format!("{}:{}", mint_settings.info.listen_host, mint_settings.info.listen_port).parse()?)
         .serve(router.into_make_service())
