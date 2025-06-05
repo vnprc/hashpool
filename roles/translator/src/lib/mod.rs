@@ -37,7 +37,6 @@ pub mod utils;
 // TODO add to config
 pub const HASH_CURRENCY_UNIT: &str = "HASH";
 
-use redis::{Commands, Connection};
 use std::{thread, time::Duration};
 use tokio::runtime::Handle;
 
@@ -334,20 +333,7 @@ impl TranslatorSv2 {
         let wallet = self.wallet.clone();
         let mint_client = self.mint_client.clone();
 
-        let redis_url = match self.redis_url() {
-            Some(url) => url.to_string(),
-            None => {
-                tracing::warn!("No Redis URL configured; skipping proof sweeper.");
-                return;
-            }
-        };
-
         task::spawn_blocking(move || {
-            let mut conn = match Self::connect_to_redis(&redis_url) {
-                Some(c) => c,
-                None => return,
-            };
-
             let rt = Handle::current();
 
             loop {
@@ -360,25 +346,11 @@ impl TranslatorSv2 {
                     }
                 };
 
-                Self::process_quotes_batch(&wallet, &mut conn, &rt, &quotes, &mint_client);
+                Self::process_quotes_batch(&wallet, &rt, &quotes, &mint_client);
 
                 thread::sleep(Duration::from_secs(60));
             }
         });
-    }
-
-    fn redis_url(&self) -> Option<&str> {
-        self.config.redis.as_ref().map(|r| r.url.as_str())
-    }
-
-    fn connect_to_redis(redis_url: &str) -> Option<Connection> {
-        match redis::Client::open(redis_url).and_then(|c| c.get_connection()) {
-            Ok(conn) => Some(conn),
-            Err(e) => {
-                tracing::error!("Redis connection error: {:?}", e);
-                None
-            }
-        }
     }
 
     fn lookup_uuids_batch(rt: &Handle, mint_client: &HttpClient, share_hashes: &[String]) -> std::collections::HashMap<String, String> {
@@ -399,7 +371,7 @@ impl TranslatorSv2 {
         }
     }
 
-    fn process_quotes_batch(wallet: &Arc<Wallet>, conn: &mut Connection, rt: &Handle, quotes: &[MintQuote], mint_client: &HttpClient) {
+    fn process_quotes_batch(wallet: &Arc<Wallet>, rt: &Handle, quotes: &[MintQuote], mint_client: &HttpClient) {
         if quotes.is_empty() {
             return;
         }
@@ -412,8 +384,7 @@ impl TranslatorSv2 {
                 // TODO get latest keyset
                 match rt.block_on(wallet.get_mining_share_proofs(uuid, &quote.id)) {
                     Ok(_proofs) => {
-                        let redis_key = format!("mint:quotes:hash:{}", quote.id);
-                        Self::log_success_and_cleanup(wallet, conn, rt, quote, &redis_key);
+                        Self::log_success(wallet, rt, quote);
                     }
                     Err(e) => {
                         tracing::error!("Failed to mint ehash tokens for share {} error: {}", quote.id, e);
@@ -423,12 +394,10 @@ impl TranslatorSv2 {
         }
     }
 
-    fn log_success_and_cleanup(
+    fn log_success(
         wallet: &Arc<Wallet>,
-        conn: &mut Connection,
         rt: &Handle,
         quote: &MintQuote,
-        redis_key: &str,
     ) {
         match rt.block_on(wallet.total_balance()) {
             Ok(balance) => info!(
@@ -439,10 +408,6 @@ impl TranslatorSv2 {
                 "Minted ehash tokens for share {} with amount {}, but failed to get total balance: {:?}",
                 quote.id, quote.amount, e
             ),
-        }
-
-        if let Err(e) = conn.del::<_, ()>(redis_key) {
-            tracing::warn!("Failed to delete Redis key {}: {:?}", redis_key, e);
         }
 
         // the people need ehash, let's give it to them
