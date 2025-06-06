@@ -188,8 +188,11 @@ async fn main() -> Result<()> {
         quote_id_prefix.clone(),
     ));
 
-    // TODO spawn polling loop to remove share_hash -> quote_id mappings from redis ONLY after the tokens are claimed
-    // How to determine the tokens have been swept?
+    tokio::spawn(poll_and_clean_up_quote_ids(
+        mint.clone(),
+        redis_url.clone(),
+        quote_id_prefix.clone(),
+    ));
 
     info!("Mint listening on {}:{}", mint_settings.info.listen_host, mint_settings.info.listen_port);
     axum::Server::bind(&format!("{}:{}", mint_settings.info.listen_host, mint_settings.info.listen_port).parse()?)
@@ -282,6 +285,91 @@ async fn poll_for_quotes(
 
         if let Ok(Some((_, payload))) = res {
             handle_quote_payload(mint.clone(), &redis_url, &quote_id_prefix, &payload).await;
+        }
+    }
+}
+
+use tokio::time::{sleep, Duration};
+use uuid::Uuid;
+use cdk::nuts::MintQuoteState;
+
+// TODO remove this and do the cleanup when the quote is issued
+// can we use an event hook on the API call or something?
+async fn poll_and_clean_up_quote_ids(
+    mint: Arc<Mint>,
+    redis_url: String,
+    quote_id_prefix: String,
+) {
+    loop {
+        if let Err(e) = clean_up_quote_ids(&mint, &redis_url, &quote_id_prefix).await {
+            tracing::warn!("Error during poll_and_log_quote_id_mappings: {:?}", e);
+        }
+        sleep(Duration::from_secs(10)).await;
+    }
+}
+
+/// Delete unknown or issued share hash -> quote id records from redis
+async fn clean_up_quote_ids(
+    mint: &Arc<Mint>,
+    redis_url: &str,
+    quote_id_prefix: &str,
+) -> Result<(), anyhow::Error> {
+    let mut conn = get_redis_connection(redis_url).await?;
+    let pattern = format!("{}:*", quote_id_prefix);
+
+    let keys: Vec<String> = conn.keys(pattern.clone()).await?;
+    for key in keys {
+        if let Err(e) = check_and_delete_quote_id(mint, &mut conn, &key).await {
+            tracing::warn!("Error processing key '{}': {:?}", key, e);
+        }
+    }
+
+    Ok(())
+}
+
+/// Get Redis async connection
+async fn get_redis_connection(redis_url: &str) -> Result<redis::aio::Connection, anyhow::Error> {
+    let client = redis::Client::open(redis_url)?;
+    let conn = client.get_async_connection().await?;
+    Ok(conn)
+}
+
+/// check redis and delete issued or unknown quote ids
+async fn check_and_delete_quote_id(
+    mint: &Arc<Mint>,
+    conn: &mut redis::aio::Connection,
+    key: &str,
+) -> Result<(), anyhow::Error> {
+    let value: String = conn.get(key).await?;
+    let uuid = Uuid::parse_str(&value)?;
+
+    match mint.check_mint_quote(&uuid).await {
+        Ok(quote) => {
+            if quote.state == MintQuoteState::Issued {
+                delete_key(conn, key).await;
+            }
+        }
+        Err(cdk::Error::UnknownQuote) => {
+            delete_key(conn, key).await;
+        }
+        Err(e) => {
+            tracing::warn!("check_mint_quote error for key '{}': {:?}", key, e);
+        }
+    }
+
+    Ok(())
+}
+
+async fn delete_key(
+    conn: &mut redis::aio::Connection,
+    key: &str,
+) {
+    match conn.del::<_, ()>(key).await {
+        Ok(_) => {
+            tracing::debug!("Deleted key '{}'", key);
+        }
+        Err(e) => {
+            tracing::warn!("Failed to delete key '{}': {:?}", key, e);
         }
     }
 }
