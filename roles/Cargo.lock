@@ -5631,6 +5631,7 @@ dependencies = [
  "async-recursion 0.3.2",
  "async-std",
  "binary_sv2",
+ "bip39",
  "bitcoin 0.30.2",
  "buffer_sv2",
  "cdk",
