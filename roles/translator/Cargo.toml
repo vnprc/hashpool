@@ -50,6 +50,7 @@ cdk = { git = "https://github.com/vnprc/cdk", rev = "64ec7f6f" }
 uuid = { version = "1", features = ["v4"] }
 ureq = { version = "2", features = ["tls"] }
 shared_config = { path = "../roles-utils/config" }
+bip39 = "2.0"
 
 [dev-dependencies]
 sha2 = "0.10.6"

@@ -1,6 +1,6 @@
 use key_utils::Secp256k1PublicKey;
 use serde::Deserialize;
-use shared_config::{MintConfig, RedisConfig};
+use shared_config::{MintConfig, RedisConfig, WalletConfig};
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ProxyConfig {
@@ -15,7 +15,8 @@ pub struct ProxyConfig {
     pub downstream_difficulty_config: DownstreamDifficultyConfig,
     pub upstream_difficulty_config: UpstreamDifficultyConfig,
     pub redis: Option<RedisConfig>,
-    pub mint: Option<MintConfig>
+    pub mint: Option<MintConfig>,
+    pub wallet: WalletConfig,
 }
 
 pub struct UpstreamConfig {
@@ -61,6 +62,7 @@ impl ProxyConfig {
     pub fn new(
         upstream: UpstreamConfig,
         downstream: DownstreamConfig,
+        wallet: WalletConfig,
         max_supported_version: u16,
         min_supported_version: u16,
         min_extranonce2_size: u16,
@@ -78,6 +80,7 @@ impl ProxyConfig {
             upstream_difficulty_config: upstream.difficulty_config,
             redis: None,
             mint: None,
+            wallet,
         }
     }
 }

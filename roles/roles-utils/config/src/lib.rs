@@ -25,6 +25,11 @@ pub struct ProxyConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+pub struct WalletConfig {
+    pub mnemonic: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct MinerGlobalConfig {
     pub mint: MintConfig,
     pub pool: PoolConfig,
