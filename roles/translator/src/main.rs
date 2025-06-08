@@ -55,8 +55,6 @@ async fn main() {
     };
 
     proxy_config.mint = Some(global_config.mint);
-    
-    // TODO get keyset from HTTP api and delete the pool config
     proxy_config.redis = Some(global_config.redis);
 
     info!("Proxy Config: {:?}", &proxy_config);
