@@ -40,6 +40,7 @@ pub const HASH_CURRENCY_UNIT: &str = "HASH";
 
 use std::{thread, time::Duration};
 use tokio::runtime::Handle;
+use anyhow::{Result, Context};
 
 #[derive(Clone, Debug)]
 pub struct TranslatorSv2 {
@@ -49,21 +50,24 @@ pub struct TranslatorSv2 {
     mint_client: HttpClient,
 }
 
-fn create_wallet(mint_url: String, mnemonic: String) -> Arc<Wallet> {
-    // TODO handle this unwrap
-    let seed = Mnemonic::from_str(&mnemonic).unwrap().to_seed_normalized("").to_vec();
+fn create_wallet(mint_url: String, mnemonic: String) -> Result<Arc<Wallet>> {
+    let seed = Mnemonic::from_str(&mnemonic)
+        .with_context(|| format!("Invalid mnemonic: '{}'", mnemonic))?
+        .to_seed_normalized("")
+        .to_vec();
 
     let localstore = WalletMemoryDatabase::default();
-    Arc::new(
-        Wallet::new(
-            &mint_url,
-            CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string()),
-            Arc::new(localstore),
-            &seed,
-            None
-        )
-        .unwrap(),
+
+    let wallet = Wallet::new(
+        &mint_url,
+        CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string()),
+        Arc::new(localstore),
+        &seed,
+        None
     )
+    .context("Failed to create wallet")?;
+
+    Ok(Arc::new(wallet))
 }
 
 fn extract_mint_url(config: &ProxyConfig) -> String {
@@ -84,7 +88,8 @@ impl TranslatorSv2 {
         Self {
             config: config.clone(),
             reconnect_wait_time: wait_time,
-            wallet: create_wallet(mint_url, config.wallet.mnemonic.clone()),
+            wallet: create_wallet(mint_url, config.wallet.mnemonic.clone())
+                .unwrap_or_else(|e| panic!("Failed to initialize wallet: {:?}", e)),
             mint_client: mint_client,
         }
     }

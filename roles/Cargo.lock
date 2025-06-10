@@ -5626,6 +5626,7 @@ dependencies = [
 name = "translator_sv2"
 version = "0.1.2"
 dependencies = [
+ "anyhow",
  "async-channel 1.9.0",
  "async-compat",
  "async-recursion 0.3.2",
