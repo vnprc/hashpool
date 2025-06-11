@@ -12,6 +12,7 @@
   };
 
   bitcoindDataDir = "${config.devenv.root}/.devenv/state/bitcoind";
+  lightningClnDataDir = "${config.devenv.root}/.devenv/state/cln";
 
   poolConfig = builtins.fromTOML (builtins.readFile ./config/pool.toml);
   minerConfig = builtins.fromTOML (builtins.readFile ./config/miner.toml);
@@ -43,6 +44,7 @@ in {
       pkgs.just
       pkgs.coreutils # Provides stdbuf for disabling output buffering
       pkgs.redis
+      pkgs.clightning  # Ligtning - CLN
     ]
     ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [pkgs.darwin.apple_sdk.frameworks.Security];
 
@@ -97,6 +99,14 @@ in {
         mkdir -p ${bitcoindDataDir}
         bitcoind -datadir=${bitcoindDataDir} -conf=${config.devenv.root}/bitcoin.conf
       '' "bitcoind-regtest.log";
+    };
+    # Lightning node -- CLN
+    lightning-cln = {
+      exec = withLogging ''
+        mkdir -p ${lightningClnDataDir}
+        lightningd --version
+        lightningd --conf=${config.devenv.root}/cln.conf --lightning-dir=${lightningClnDataDir}
+      '' "cln.log";
     };
     miner = {
       exec = withLogging ''
