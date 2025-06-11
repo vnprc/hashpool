@@ -44,7 +44,7 @@ in {
       pkgs.just
       pkgs.coreutils # Provides stdbuf for disabling output buffering
       pkgs.redis
-      pkgs.clightning  # Ligtning - CLN
+      pkgs.clightning # Lightning - CLN
     ]
     ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [pkgs.darwin.apple_sdk.frameworks.Security];
 
@@ -104,6 +104,11 @@ in {
     lightning-cln = {
       exec = withLogging ''
         mkdir -p ${lightningClnDataDir}
+        echo "Waiting for bitcoind..."
+        while ! nc -z localhost 48332; do
+          sleep 1
+        done
+        echo "bitcoind is up. Starting lightning..."
         lightningd --version
         lightningd --conf=${config.devenv.root}/cln.conf --lightning-dir=${lightningClnDataDir}
       '' "cln.log";
