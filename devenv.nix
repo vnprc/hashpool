@@ -57,6 +57,7 @@ in {
     redis = {exec = withLogging "mkdir -p ${config.devenv.root}/.devenv/state/redis && redis-server --dir ${config.devenv.root}/.devenv/state/redis --port ${toString poolConfig.redis.port}" "redis.log";};
     pool = {
       exec = withLogging ''
+        DEVENV_ROOT=${config.devenv.root} BITCOIND_DATADIR=${bitcoindDataDir} ${config.devenv.root}/scripts/bitcoind-setup.sh
         echo "Waiting for Mint..."
         while ! nc -z localhost ${toString poolConfig.mint.port}; do
           sleep 1
@@ -96,11 +97,6 @@ in {
         mkdir -p ${bitcoindDataDir}
         bitcoind -datadir=${bitcoindDataDir} -conf=${config.devenv.root}/bitcoin.conf
       '' "bitcoind-regtest.log";
-    };
-    bitcoind-setup = {
-      exec = withLogging ''
-        DEVENV_ROOT=${config.devenv.root} BITCOIND_DATADIR=${bitcoindDataDir} ${config.devenv.root}/scripts/bitcoind-setup.sh
-      '' "bitcoind-setup.log";
     };
     miner = {
       exec = withLogging ''
