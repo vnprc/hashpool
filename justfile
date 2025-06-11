@@ -52,9 +52,3 @@ generate-blocks COUNT="1" CREATE_WALLET="false":
     @echo "Generating {{COUNT}} blocks in regtest..."
     @if [ "{{CREATE_WALLET}}" = "true" ]; then just create-wallet; fi
     @bitcoin-cli -datadir=.devenv/state/bitcoind -conf=$(pwd)/bitcoin.conf -rpcuser=username -rpcpassword=password -regtest -rpcwallet=regtest -generate {{COUNT}}
-
-# generate blocks to a specific address in regtest
-generate-to-address ADDRESS COUNT="1" CREATE_WALLET="false":
-    @echo "Generating {{COUNT}} blocks to address {{ADDRESS}} in regtest..."
-    @if [ "{{CREATE_WALLET}}" = "true" ]; then just create-wallet; fi
-    @bitcoin-cli -datadir=.devenv/state/bitcoind -conf=$(pwd)/bitcoin.conf -rpcuser=username -rpcpassword=password -regtest -rpcwallet=regtest generatetoaddress {{COUNT}} {{ADDRESS}}
