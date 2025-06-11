@@ -95,7 +95,7 @@ in {
       exec = withLogging ''
         mkdir -p ${bitcoindDataDir}
         bitcoind -datadir=${bitcoindDataDir} -conf=${config.devenv.root}/bitcoin.conf
-      '' "bitcoind-testnet.log";
+      '' "bitcoind-regtest.log";
     };
     miner = {
       exec = withLogging ''
