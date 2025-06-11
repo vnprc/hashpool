@@ -110,7 +110,7 @@ in {
         done
         echo "bitcoind is up. Starting lightning..."
         lightningd --version
-        lightningd --conf=${config.devenv.root}/cln.conf --lightning-dir=${lightningClnDataDir}
+        lightningd --conf=${config.devenv.root}/config/cln.conf --lightning-dir=${lightningClnDataDir}
       '' "cln.log";
     };
     miner = {
