@@ -525,7 +525,7 @@ pub mod tests {
     }
 
     const PRIVATE_KEY_BTC: [u8; 32] = [34; 32];
-    const NETWORK: Network = Network::Testnet;
+    const NETWORK: Network = Network::Regtest;
 
     #[cfg(feature = "prop_test")]
     const BLOCK_REWARD: u64 = 625_000_000_000;
