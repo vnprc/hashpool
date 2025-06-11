@@ -41,14 +41,7 @@ update-bitcoind:
     sed -i "s|hash = \".*\";|hash = \"$HASH\";|" bitcoind.nix && \
     echo "Done! bitcoind updated to commit $LATEST_COMMIT\nYou are now ready to test and commit"
 
-# create regtest wallet if it doesn't exist
-create-wallet:
-    @echo "Creating regtest wallet..."
-    @bitcoin-cli -datadir=.devenv/state/bitcoind -conf=$(pwd)/bitcoin.conf -rpcuser=username -rpcpassword=password -regtest createwallet "regtest" || \
-    (echo "Wallet exists, loading..." && bitcoin-cli -datadir=.devenv/state/bitcoind -conf=$(pwd)/bitcoin.conf -rpcuser=username -rpcpassword=password -regtest loadwallet "regtest")
-
 # generate blocks in regtest
-generate-blocks COUNT="1" CREATE_WALLET="false":
+generate-blocks COUNT="1":
     @echo "Generating {{COUNT}} blocks in regtest..."
-    @if [ "{{CREATE_WALLET}}" = "true" ]; then just create-wallet; fi
     @bitcoin-cli -datadir=.devenv/state/bitcoind -conf=$(pwd)/bitcoin.conf -rpcuser=username -rpcpassword=password -regtest -rpcwallet=regtest -generate {{COUNT}}
