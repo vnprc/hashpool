@@ -105,7 +105,7 @@ in {
       exec = withLogging ''
         mkdir -p ${lightningClnDataDir}
         echo "Waiting for bitcoind..."
-        while ! nc -z localhost 48332; do
+        while ! nc -z localhost 18443; do
           sleep 1
         done
         echo "bitcoind is up. Starting lightning..."
