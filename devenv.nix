@@ -97,6 +97,11 @@ in {
         bitcoind -datadir=${bitcoindDataDir} -conf=${config.devenv.root}/bitcoin.conf
       '' "bitcoind-regtest.log";
     };
+    bitcoind-setup = {
+      exec = withLogging ''
+        DEVENV_ROOT=${config.devenv.root} BITCOIND_DATADIR=${bitcoindDataDir} ${config.devenv.root}/scripts/bitcoind-setup.sh
+      '' "bitcoind-setup.log";
+    };
     miner = {
       exec = withLogging ''
         echo "Waiting for proxy..."
