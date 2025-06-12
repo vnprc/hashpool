@@ -112,8 +112,8 @@ async fn main() -> Result<()> {
     pub const HASH_DERIVATION_PATH: u32 = 1337;
     const NUM_KEYS: u8 = 64;
 
-    // TODO securely import mnemonic
-    let mnemonic = Mnemonic::generate(12).unwrap();
+    let mnemonic = Mnemonic::from_str(&global_config.wallet.mnemonic)
+        .map_err(|e| anyhow::anyhow!("Invalid mnemonic in config: {}", e))?;
 
     let hash_currency_unit = CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string());
 
