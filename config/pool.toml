@@ -18,3 +18,6 @@ port = 34254
 
 [proxy]
 port = 34255
+
+[wallet]
+mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
