@@ -112,8 +112,8 @@ async fn main() -> Result<()> {
     pub const HASH_DERIVATION_PATH: u32 = 1337;
     const NUM_KEYS: u8 = 64;
 
-    let mnemonic = Mnemonic::from_str(&global_config.wallet.mnemonic)
-        .map_err(|e| anyhow::anyhow!("Invalid mnemonic in config: {}", e))?;
+    let mnemonic = Mnemonic::from_str(&mint_settings.info.mnemonic)
+        .map_err(|e| anyhow::anyhow!("Invalid mnemonic in mint config: {}", e))?;
 
     let hash_currency_unit = CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string());
 

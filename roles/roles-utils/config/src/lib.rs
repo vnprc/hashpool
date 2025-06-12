@@ -51,7 +51,6 @@ pub struct PoolGlobalConfig {
     pub mint: MintConfig,
     pub pool: PoolConfig,
     pub proxy: ProxyConfig,
-    pub wallet: WalletConfig,
 }
 
 impl PoolGlobalConfig {
