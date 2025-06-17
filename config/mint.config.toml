@@ -12,7 +12,13 @@ description = "cashu mint to expose ehash and ecash operations to end user walle
 engine = "sqlite"
 
 [ln]
-ln_backend = "fakewallet"
+# Required ln backend `cln`, `lnd`, `fakewallet`, 'lnbits'
+ln_backend = "cln"
+
+[cln]
+rpc_path = "../../.devenv/state/cln/regtest/lightning-rpc"
+fee_percent = 0.02
+reserve_fee_min = 2
 
 [fake_wallet]
 supported_units = ["sat", "HASH"]
