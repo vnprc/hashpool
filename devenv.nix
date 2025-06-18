@@ -11,6 +11,8 @@
     stdenv = pkgs.stdenv;
   };
 
+  # supported values: "regtest" "testnet4"
+  bitcoinNetwork = "regtest";
   bitcoindDataDir = "${config.devenv.root}/.devenv/state/bitcoind";
   lightningClnDataDir = "${config.devenv.root}/.devenv/state/cln";
 
@@ -26,6 +28,7 @@
   # Get all process names dynamically
   processNames = lib.attrNames config.processes;
 in {
+  env.BITCOIND_NETWORK = bitcoinNetwork;
   # TODO split bitcoind configs into poolside and minerside
   env.BITCOIND_DATADIR = config.devenv.root + "/.devenv/state/bitcoind";
   env.IN_DEVENV = "1";
@@ -59,7 +62,6 @@ in {
     redis = {exec = withLogging "mkdir -p ${config.devenv.root}/.devenv/state/redis && redis-server --dir ${config.devenv.root}/.devenv/state/redis --port ${toString poolConfig.redis.port}" "redis.log";};
     pool = {
       exec = withLogging ''
-        DEVENV_ROOT=${config.devenv.root} BITCOIND_DATADIR=${bitcoindDataDir} ${config.devenv.root}/scripts/regtest-setup.sh
         echo "Waiting for Mint..."
         while ! nc -z localhost ${toString poolConfig.mint.port}; do
           sleep 1
@@ -72,6 +74,9 @@ in {
     };
     jd-server = {
       exec = withLogging ''
+        if [ "$BITCOIND_NETWORK" = "regtest" ]; then
+          DEVENV_ROOT=${config.devenv.root} BITCOIND_DATADIR=${bitcoindDataDir} ${config.devenv.root}/scripts/regtest-setup.sh
+        fi
         echo "Waiting for Pool..."
         while ! nc -z localhost ${toString poolConfig.pool.port}; do
           sleep 1
@@ -101,6 +106,7 @@ in {
       '' "bitcoind-regtest.log";
     };
     # Lightning node -- CLN
+    # TODO replace hard coded port with global pool config value
     lightning-cln = {
       exec = withLogging ''
         mkdir -p ${lightningClnDataDir}
