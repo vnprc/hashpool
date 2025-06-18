@@ -11,7 +11,7 @@
     stdenv = pkgs.stdenv;
   };
 
-  # supported values: "regtest" "testnet4"
+  # supported values: "regtest", "testnet4"
   bitcoinNetwork = "regtest";
   bitcoindDataDir = "${config.devenv.root}/.devenv/state/bitcoind";
   lightningClnDataDir = "${config.devenv.root}/.devenv/state/cln";
@@ -19,13 +19,28 @@
   poolConfig = builtins.fromTOML (builtins.readFile ./config/shared/pool.toml);
   minerConfig = builtins.fromTOML (builtins.readFile ./config/shared/miner.toml);
 
-  # Function to add logging logic to any command
+  # add logging to any command
   withLogging = command: logFile: ''
     mkdir -p ${config.devenv.root}/logs
     sh -c ${lib.escapeShellArg command} 2>&1 | stdbuf -oL tee -a ${config.devenv.root}/logs/${logFile}
   '';
 
-  # Get all process names dynamically
+  # wait for a port to open before proceeding
+  waitForPort = port: name: ''
+    wait_for_port() {
+      local port="$1"
+      local name="$2"
+      [ -z "$name" ] && name="service"
+      echo "Waiting for $name on port $port..."
+      while ! nc -z localhost "$port"; do
+        sleep 1
+      done
+      echo "$name is up!"
+    }
+    wait_for_port ${toString port} "${name}"
+  '';
+
+  # get all process names dynamically
   processNames = lib.attrNames config.processes;
 in {
   env.BITCOIND_NETWORK = bitcoinNetwork;
@@ -59,73 +74,68 @@ in {
 
   # https://devenv.sh/processes/
   processes = {
-    redis = {exec = withLogging "mkdir -p ${config.devenv.root}/.devenv/state/redis && redis-server --dir ${config.devenv.root}/.devenv/state/redis --port ${toString poolConfig.redis.port}" "redis.log";};
+    redis = {
+      exec = withLogging ''
+        mkdir -p ${config.devenv.root}/.devenv/state/redis
+        redis-server --dir ${config.devenv.root}/.devenv/state/redis --port ${toString poolConfig.redis.port}
+      '' "redis.log";
+    };
+
     pool = {
       exec = withLogging ''
-        echo "Waiting for Mint..."
-        while ! nc -z localhost ${toString poolConfig.mint.port}; do
-          sleep 1
-        done
-        echo "Mint is up. Starting Local Pool..."
+        ${waitForPort poolConfig.mint.port "Mint"}
         cargo -C roles/pool -Z unstable-options run -- \
           -c ${config.devenv.root}/roles/pool/config-examples/pool-config-local-tp-example.toml \
           -g ${config.devenv.root}/config/shared/pool.toml
       '' "pool.log";
     };
+
     jd-server = {
       exec = withLogging ''
         if [ "$BITCOIND_NETWORK" = "regtest" ]; then
           DEVENV_ROOT=${config.devenv.root} BITCOIND_DATADIR=${bitcoindDataDir} ${config.devenv.root}/scripts/regtest-setup.sh
         fi
-        echo "Waiting for Pool..."
-        while ! nc -z localhost ${toString poolConfig.pool.port}; do
-          sleep 1
-        done
-        echo "Pool is up. Starting Job Server..."
+        ${waitForPort poolConfig.pool.port "Pool"}
         cargo -C roles/jd-server -Z unstable-options run -- -c ${config.devenv.root}/roles/jd-server/config-examples/jds-config-local-example.toml
       '' "jd-server.log";
     };
-    jd-client = {exec = withLogging "cargo -C roles/jd-client -Z unstable-options run -- -c ${config.devenv.root}/roles/jd-client/config-examples/jdc-config-local-example.toml" "job-client.log";};
+
+    jd-client = {
+      exec = withLogging ''
+        cargo -C roles/jd-client -Z unstable-options run -- -c ${config.devenv.root}/roles/jd-client/config-examples/jdc-config-local-example.toml
+      '' "job-client.log";
+    };
+
     # TODO switch to miner config
     proxy = {
       exec = withLogging ''
-        echo "Waiting for Pool..."
-        while ! nc -z localhost ${toString minerConfig.pool.port}; do
-          sleep 1
-        done
-        echo "Pool is up. Starting Proxy..."
+        ${waitForPort minerConfig.pool.port "Pool"}
         cargo -C roles/translator -Z unstable-options run -- \
           -c ${config.devenv.root}/roles/translator/config-examples/tproxy-config-local-jdc-example.toml \
           -g ${config.devenv.root}/config/shared/pool.toml
       '' "proxy.log";
     };
+
     bitcoind = {
       exec = withLogging ''
         mkdir -p ${bitcoindDataDir}
         bitcoind -datadir=${bitcoindDataDir} -conf=${config.devenv.root}/bitcoin.conf
       '' "bitcoind-regtest.log";
     };
-    # Lightning node -- CLN
+
     # TODO replace hard coded port with global pool config value
-    lightning-cln = {
+    cln = {
       exec = withLogging ''
         mkdir -p ${lightningClnDataDir}
-        echo "Waiting for bitcoind..."
-        while ! nc -z localhost 18443; do
-          sleep 1
-        done
-        echo "bitcoind is up. Starting lightning..."
+        ${waitForPort 18443 "bitcoind"}
         lightningd --version
         lightningd --conf=${config.devenv.root}/config/cln.conf --lightning-dir=${lightningClnDataDir}
       '' "cln.log";
     };
+
     miner = {
       exec = withLogging ''
-        echo "Waiting for proxy..."
-        while ! nc -z localhost ${toString minerConfig.proxy.port}; do
-          sleep 1
-        done
-        echo "Proxy is up, starting miner..."
+        ${waitForPort minerConfig.proxy.port "Proxy"}
         cd roles/test-utils/mining-device-sv1
         while true; do
           RUST_LOG=debug stdbuf -oL cargo run 2>&1 | tee -a ${config.devenv.root}/logs/miner.log
@@ -134,13 +144,10 @@ in {
         done
       '' "miner.log";
     };
+
     mint = {
       exec = withLogging ''
-        echo "Waiting for Redis on port ${toString poolConfig.redis.port}..."
-        while ! nc -z localhost ${toString poolConfig.redis.port}; do
-          sleep 1
-        done
-        echo "Redis is up. Starting Mint..."
+        ${waitForPort poolConfig.redis.port "Redis"}
         cargo -C roles/mint -Z unstable-options run -- \
           -c ${config.devenv.root}/roles/mint/config/mint.config.toml \
           -g ${config.devenv.root}/config/shared/pool.toml
