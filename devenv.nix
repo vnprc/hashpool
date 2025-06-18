@@ -13,6 +13,14 @@
 
   # supported values: "regtest", "testnet4"
   bitcoinNetwork = "regtest";
+  # Set the default bitcoind RPC port, based on the network
+  bitcoindRpcPort =
+    if bitcoinNetwork == "regtest" then
+      "18443"
+    else if bitcoinNetwork == "testnet4" then
+      "48332"
+    else
+      abort "Invalid network {$bitcoindRpcPort}";
   bitcoindDataDir = "${config.devenv.root}/.devenv/state/bitcoind";
   lightningClnDataDir = "${config.devenv.root}/.devenv/state/cln";
 
@@ -44,6 +52,7 @@
   processNames = lib.attrNames config.processes;
 in {
   env.BITCOIND_NETWORK = bitcoinNetwork;
+  env.BITCOIND_RPC_PORT = bitcoindRpcPort;
   # TODO split bitcoind configs into poolside and minerside
   env.BITCOIND_DATADIR = config.devenv.root + "/.devenv/state/bitcoind";
   env.IN_DEVENV = "1";
@@ -119,17 +128,18 @@ in {
     bitcoind = {
       exec = withLogging ''
         mkdir -p ${bitcoindDataDir}
-        bitcoind -datadir=${bitcoindDataDir} -conf=${config.devenv.root}/bitcoin.conf
-      '' "bitcoind-regtest.log";
+        bitcoind -datadir=${bitcoindDataDir} -chain=${config.env.BITCOIND_NETWORK} -conf=${config.devenv.root}/bitcoin.conf
+      '' "bitcoind-${config.env.BITCOIND_NETWORK}.log";
     };
 
     # TODO replace hard coded port with global pool config value
     cln = {
       exec = withLogging ''
         mkdir -p ${lightningClnDataDir}
-        ${waitForPort 18443 "bitcoind"}
+        ${waitForPort config.env.BITCOIND_RPC_PORT "bitcoind"}
         lightningd --version
-        lightningd --conf=${config.devenv.root}/config/cln.conf --lightning-dir=${lightningClnDataDir}
+        lightningd --conf=${config.devenv.root}/config/cln.conf --lightning-dir=${lightningClnDataDir} --network=${config.env.BITCOIND_NETWORK} --bitcoin-rpcport=${config.env.BITCOIND_RPC_PORT}
+
       '' "cln.log";
     };
 
