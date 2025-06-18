@@ -759,7 +759,7 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
         let amount = calculate_work(m.hash.inner_as_ref().try_into().expect("not 32 bytes"));
         
         info!(
-            "Successfully created a quote for share {} with value {}",
+            "Successfully created a quote for share {} with difficulty {}",
             share_hash,
             amount,
         );
