@@ -6,6 +6,11 @@
 
 set -euo pipefail
 
+if [ "${BITCOIND_NETWORK:-}" != "regtest" ]; then
+  echo "Error setting up regtest: invalid BITCOIN_NETWORK value: ${BITCOIND_NETWORK}"
+  exit 1
+fi
+
 BITCOIN_CONF="${DEVENV_ROOT:-$(pwd)}/bitcoin.conf"
 DATADIR="${BITCOIND_DATADIR:-$(pwd)/.devenv/state/bitcoind}"
 
@@ -21,10 +26,9 @@ RPC_PASS="${BITCOIN_RPC_PASS:-$(get_conf_value rpcpassword)}"
 RPC_ARGS="-datadir=${DATADIR} -conf=${BITCOIN_CONF} -rpcuser=${RPC_USER} -rpcpassword=${RPC_PASS} -regtest"
 
 create_and_load_wallet() {
-    echo "Creating/loading regtest wallet..."
+    echo "loading regtest wallet..."
     if ! bitcoin-cli $RPC_ARGS createwallet "regtest" 2>/dev/null; then
-        echo "Wallet exists, attempting to load..."
-        bitcoin-cli $RPC_ARGS loadwallet "regtest" 2>/dev/null || echo "Wallet already loaded"
+        bitcoin-cli $RPC_ARGS loadwallet "regtest" 2>/dev/null
     fi
 }
 
