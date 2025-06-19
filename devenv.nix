@@ -20,7 +20,7 @@
     else if bitcoinNetwork == "testnet4" then
       "48332"
     else
-      abort "Invalid network {$bitcoindRpcPort}";
+      abort "Invalid network {$bitcoinNetwork}";
   bitcoindDataDir = "${config.devenv.root}/.devenv/state/bitcoind";
   lightningClnDataDir = "${config.devenv.root}/.devenv/state/cln";
 
@@ -101,11 +101,14 @@ in {
 
     jd-server = {
       exec = withLogging ''
+        # Prepare config file
+        cp ${config.devenv.root}/roles/jd-server/config-examples/jds-config-local-example.toml ${config.devenv.root}/config/jds-config-local.toml
+        sed -i s/__PORT__/${config.env.BITCOIND_RPC_PORT}/ ${config.devenv.root}/config/jds-config-local.toml
         if [ "$BITCOIND_NETWORK" = "regtest" ]; then
           DEVENV_ROOT=${config.devenv.root} BITCOIND_DATADIR=${bitcoindDataDir} ${config.devenv.root}/scripts/regtest-setup.sh
         fi
         ${waitForPort poolConfig.pool.port "Pool"}
-        cargo -C roles/jd-server -Z unstable-options run -- -c ${config.devenv.root}/roles/jd-server/config-examples/jds-config-local-example.toml
+        cargo -C roles/jd-server -Z unstable-options run -- -c ${config.devenv.root}/config/jds-config-local.toml
       '' "jd-server.log";
     };
 
@@ -132,7 +135,6 @@ in {
       '' "bitcoind-${config.env.BITCOIND_NETWORK}.log";
     };
 
-    # TODO replace hard coded port with global pool config value
     cln = {
       exec = withLogging ''
         mkdir -p ${lightningClnDataDir}
