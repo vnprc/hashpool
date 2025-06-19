@@ -131,7 +131,7 @@ in {
     bitcoind = {
       exec = withLogging ''
         mkdir -p ${bitcoindDataDir}
-        bitcoind -datadir=${bitcoindDataDir} -chain=${config.env.BITCOIND_NETWORK} -conf=${config.devenv.root}/bitcoin.conf
+        bitcoind -datadir=${bitcoindDataDir} -chain=${config.env.BITCOIND_NETWORK} -conf=${config.devenv.root}/config/bitcoin.conf
       '' "bitcoind-${config.env.BITCOIND_NETWORK}.log";
     };
 
