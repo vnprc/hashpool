@@ -168,5 +168,13 @@ in {
     echo =================
     ${lib.concatStringsSep "\n" (map (name: "echo \"${name}\"") processNames)}
     echo
+
+    # Warn if ~/.bitcoin/bitcoin.conf exists
+    if [ -f "$HOME/.bitcoin/bitcoin.conf" ]; then
+      echo
+      echo "⚠️  WARNING: ~/.bitcoin/bitcoin.conf exists and may interfere with this environment." >&2
+      echo "⚠️  Please rename or remove it if you encounter network conflicts." >&2
+      echo
+    fi
   '';
 }
