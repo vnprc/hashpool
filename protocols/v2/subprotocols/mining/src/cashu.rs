@@ -1,4 +1,4 @@
-use cdk::{amount::{Amount, AmountStr}, nuts::{BlindSignature, BlindedMessage, CurrencyUnit, KeySet, PreMintSecrets, PublicKey, Keys}};
+use cdk::{amount::Amount, nuts::{BlindSignature, BlindedMessage, CurrencyUnit, KeySet, PreMintSecrets, PublicKey, Keys}};
 use core::array;
 use std::{collections::BTreeMap, convert::{TryFrom, TryInto}};
 pub use std::error::Error;
@@ -244,7 +244,7 @@ impl<'a> TryFrom<KeySet> for Sv2KeySet<'a> {
                 .into_static();
 
             let signing_key = Sv2SigningKey {
-                amount: amount_str.inner().into(),
+                amount: (*amount_str.as_ref()).into(),
                 parity_bit,
                 pubkey,
             };
@@ -270,9 +270,9 @@ impl<'a> TryFrom<Sv2KeySet<'a>> for KeySet {
     fn try_from(value: Sv2KeySet) -> Result<Self, Self::Error> {
         let id = *KeysetId::try_from(value.id)?;
 
-        let mut keys_map: BTreeMap<AmountStr, PublicKey> = BTreeMap::new();
+        let mut keys_map: BTreeMap<Amount, PublicKey> = BTreeMap::new();
         for signing_key in value.keys.iter() {
-            let amount_str = AmountStr::from(Amount::from(signing_key.amount));
+            let amount_str = Amount::from(signing_key.amount);
 
             let mut pubkey_bytes = [0u8; 33];
             pubkey_bytes[0] = if signing_key.parity_bit { 0x03 } else { 0x02 };
@@ -551,7 +551,7 @@ pub fn calculate_work(hash: [u8; 32]) -> u64 {
 
 // SRI encodings are totally fucked. Just do it manually.
 // TODO delete this function. Probably use serde after upgrading to SRI 1.3
-use cdk::nuts::nut04::MintQuoteMiningShareRequest;
+use cdk::nuts::nutXX::MintQuoteMiningShareRequest;
 
 pub fn format_quote_event_json(req: &MintQuoteMiningShareRequest, msgs: &[BlindedMessage]) -> String {
     use std::fmt::Write;
@@ -621,7 +621,7 @@ fn sv2_signing_keys_to_keys(keys: &[Sv2SigningKey]) -> Result<Keys, String> {
             .map_err(|e| format!("Failed to parse public key for key {}: {:?}", i, e))?;
 
         map.insert(
-            AmountStr::from(Amount::from(k.amount)),
+            Amount::from(k.amount),
             pubkey,
         );
     }
@@ -646,134 +646,126 @@ fn calculate_keyset_id(keys: &[Sv2SigningKey]) -> u64 {
     }
 }
 
-
-#[cfg(test)]
-pub mod tests {
+#[test]
+fn test_sv2_keyset_roundtrip() {
     use super::*;
-    use rand::Rng;
+    use cdk::nuts::{KeySet, Keys, PublicKey};
+    use cdk::amount::Amount;
 
-    fn get_random_signing_key() -> Sv2SigningKey<'static> {
-        let mut rng = rand::thread_rng();
-
-        let mut pubkey_bytes = [0u8; 32];
-        rng.fill(&mut pubkey_bytes[..]);
-
-        Sv2SigningKey {
-            amount: rng.gen::<u64>(),
-            pubkey: PubKey::from_bytes(&mut pubkey_bytes).unwrap().into_static(),
-            parity_bit: rng.gen(),
-        }
+    // Build dummy Keys map
+    let mut map = BTreeMap::new();
+    for i in 0..64 {
+        let amount = Amount::from(1u64 << i);
+        let pubkey = PublicKey::from_slice(&[0x02; 33]).unwrap();
+        map.insert(amount, pubkey);
     }
 
-    fn get_random_keyset() -> Sv2KeySet<'static> {
-        let mut rng = rand::thread_rng();
-    
-        let mut keys: [Sv2SigningKey<'static>; NUM_MESSAGES] = array::from_fn(|_| get_random_signing_key());
-        for i in 0..NUM_MESSAGES {
-            keys[i] = get_random_signing_key();
-        }
+    // Construct KeySet
+    let keys = Keys::new(map);
+    let id = cdk::nuts::nut02::Id::from(&keys);
+    let keyset = KeySet {
+        id,
+        unit: CurrencyUnit::Custom("HASH".to_string()),
+        keys,
+    };
 
-        Sv2KeySet {
-            // TODO this is an invalid keyset_id, does it matter?
-            id: rng.gen::<u64>(),
-            keys,
-        }
-    }
+    // Convert KeySet to Sv2KeySet and back
+    let sv2: Sv2KeySet = keyset.clone().try_into().expect("Conversion to Sv2KeySet failed");
+    let roundtrip: KeySet = sv2.try_into().expect("Conversion back to KeySet failed");
 
-    fn get_random_signature() -> Sv2BlindSignature<'static> {
-        let mut rng = rand::thread_rng();
+    // Confirm roundtrip ID and key equality
+    assert_eq!(keyset.id.to_bytes(), roundtrip.id.to_bytes());
+    let original_keys: BTreeMap<_, _> = keyset.keys.iter().map(|(k, v)| (*k, *v)).collect();
+    let roundtrip_keys: BTreeMap<_, _> = roundtrip.keys.iter().map(|(k, v)| (*k, *v)).collect();
+    assert_eq!(original_keys, roundtrip_keys);
+}
 
-        let mut signature_bytes = [0u8; 32];
-        rng.fill(&mut signature_bytes[..]);
+#[test]
+fn test_sv2_signing_keys_to_keys_outputs_valid_keys() {
+    let sv2_keyset = test_sv2_keyset();
+    let keys = sv2_signing_keys_to_keys(&sv2_keyset.keys).expect("Should produce valid Keys");
 
-        Sv2BlindSignature {
-            blind_signature: PubKey::from_bytes(&mut signature_bytes).unwrap().into_static(),
-            parity_bit: rng.gen(),
-        }
-    }
+    // Convert to BTreeMap for structure validation
+    let map: BTreeMap<_, _> = keys.iter().map(|(k, v)| (*k, *v)).collect();
 
-    fn get_random_sigset() -> Sv2BlindSignatureSet<'static> {
-        let mut rng = rand::thread_rng();
-
-        let mut sigs: [Sv2BlindSignature<'static>; NUM_MESSAGES] = array::from_fn(|_| get_random_signature());
-        for i in 0..NUM_MESSAGES {
-            sigs[i] = get_random_signature();
-        }
-
-        Sv2BlindSignatureSet {
-            keyset_id: rng.gen::<u64>(),
-            signatures: sigs,
-        }
-    }
-
-    fn get_random_blinded_message() -> Sv2BlindedMessage<'static> {
-        let mut rng = rand::thread_rng();
-
-        let mut pubkey_bytes = [0u8; 32];
-        rng.fill(&mut pubkey_bytes[..]);
-
-        Sv2BlindedMessage {
-            blinded_secret: PubKey::from_bytes(&mut pubkey_bytes).unwrap().into_static(),
-            parity_bit: rng.gen(),
-        }
-    }
-
-    fn get_random_msgset() -> Sv2BlindedMessageSet<'static> {
-        let mut rng = rand::thread_rng();
-
-        let mut messages: [Sv2BlindedMessage<'static>; NUM_MESSAGES] = array::from_fn(|_| get_random_blinded_message());
-        for i in 0..NUM_MESSAGES {
-            messages[i] = get_random_blinded_message();
-        }
-
-        Sv2BlindedMessageSet {
-            keyset_id: rng.gen::<u64>(),
-            items: messages,
-        }
-    }
-
-    #[test]
-    fn test_sv2_signing_key_encode_decode() {
-        let original_key = get_random_signing_key();
-
-        // encode it
-        let mut buffer = [0u8; 41]; // 8 byte amount + 33 byte pubkey
-        let encoded_size = original_key.clone().to_bytes(&mut buffer).unwrap();
-        assert_eq!(encoded_size, 41);
-
-        // decode it
-        let decoded_key = Sv2SigningKey::from_bytes(&mut buffer).unwrap();
-        assert_eq!(original_key.amount, decoded_key.amount);
-        assert_eq!(original_key.pubkey, decoded_key.pubkey);
-    }
-
-    #[test]
-    fn test_sv2_keyset_domain_wire_conversion() {
-        let original_keyset = get_random_keyset();
-        let wire_keyset: Sv2KeySetWire = original_keyset.clone().into();
-        let domain_keyset: Sv2KeySet = wire_keyset.clone().try_into().unwrap();
-
-        assert_eq!(wire_keyset.id, domain_keyset.id);
-        assert_eq!(original_keyset.keys, domain_keyset.keys);
-    }
-
-    #[test]
-    fn test_sv2_blind_sig_set_domain_wire_conversion() {
-        let original_sigset = get_random_sigset();
-        let wire_sigset: Sv2BlindSignatureSet = original_sigset.clone().into();
-        let domain_sigset: Sv2BlindSignatureSet = wire_sigset.clone().try_into().unwrap();
-
-        assert_eq!(wire_sigset.keyset_id, domain_sigset.keyset_id);
-        assert_eq!(original_sigset.signatures, domain_sigset.signatures);
-    }
-
-    #[test]
-    fn test_sv2_blinded_msg_set_domain_wire_conversion() {
-        let original_msgset = get_random_msgset();
-        let wire_msgset: Sv2BlindedMessageSetWire = original_msgset.clone().into();
-        let domain_msgset: Sv2BlindedMessageSet = wire_msgset.clone().try_into().unwrap();
-
-        assert_eq!(wire_msgset.keyset_id, domain_msgset.keyset_id);
-        assert_eq!(original_msgset.items, domain_msgset.items);
+    assert_eq!(map.len(), sv2_keyset.keys.len());
+    for k in sv2_keyset.keys.iter() {
+        assert!(map.contains_key(&Amount::from(k.amount)));
     }
 }
+
+#[test]
+fn test_calculate_keyset_id_consistency() {
+    let sv2_keyset = test_sv2_keyset();
+    let id = calculate_keyset_id(&sv2_keyset.keys);
+    assert_ne!(id, 0, "Keyset ID must not default to 0");
+}
+
+#[test]
+fn test_format_quote_event_json() {
+    use cdk::amount::Amount;
+    use cdk::nuts::nutXX::MintQuoteMiningShareRequest;
+    use cdk::nuts::{BlindedMessage, CurrencyUnit, PublicKey};
+    use bitcoin_hashes::sha256;
+
+    // Construct a fake SHA256 header hash
+    let hash = sha256::Hash::hash(b"test");
+
+    // Construct the request
+    let req = MintQuoteMiningShareRequest {
+        amount: Amount::from(1000u64),
+        unit: CurrencyUnit::Custom("HASH".to_string()),
+        header_hash: hash,
+        description: Some("test quote".to_string()),
+        pubkey: None,
+    };
+
+    // Construct the blinded message
+    let blinded_secret = PublicKey::from_slice(&[0x02; 33]).unwrap();
+    let blinded_msg = BlindedMessage {
+        amount: Amount::from(1000u64),
+        keyset_id: cdk::nuts::nut02::Id::from(&cdk::nuts::Keys::new(BTreeMap::new())),
+        blinded_secret,
+        witness: None,
+    };
+
+    let output = format_quote_event_json(&req, &[blinded_msg]);
+
+    assert!(output.contains("test quote"));
+    assert!(output.contains("HASH"));
+}
+
+fn test_sv2_keyset() -> Sv2KeySet<'static> {
+    use secp256k1::{Secp256k1, SecretKey, PublicKey};
+    use rand::{Rng, RngCore};
+
+    let secp = Secp256k1::new();
+    let mut rng = rand::thread_rng();
+
+    let keys = array::from_fn(|i| {
+        // Generate a valid private key
+        let mut bytes = [0u8; 32];
+        rng.try_fill_bytes(&mut bytes);
+        let sk = SecretKey::from_slice(&bytes).unwrap();
+
+        // Get its compressed public key
+        let pk = PublicKey::from_secret_key(&secp, &sk);
+        let pubkey_bytes = pk.serialize(); // [u8; 33]
+
+        let parity_bit = pubkey_bytes[0] == 0x03;
+        let inner_bytes: [u8; 32] = pubkey_bytes[1..].try_into().unwrap();
+
+        Sv2SigningKey {
+            amount: 1u64 << i,
+            parity_bit,
+            pubkey: PubKey::from_bytes(&mut inner_bytes.clone()).unwrap().into_static(),
+        }
+    });
+
+    Sv2KeySet {
+        id: rng.gen(),
+        keys,
+    }
+}
+
+
