@@ -1,6 +1,4 @@
 use cdk::{amount::Amount, nuts::{BlindSignature, BlindedMessage, CurrencyUnit, KeySet, PreMintSecrets, PublicKey, Keys}};
-use rand::RngCore;
-use secp256k1::{Secp256k1, SecretKey, PublicKey as SecpPublicKey};
 use core::array;
 use std::{collections::BTreeMap, convert::{TryFrom, TryInto}};
 pub use std::error::Error;
@@ -648,279 +646,237 @@ fn calculate_keyset_id(keys: &[Sv2SigningKey]) -> u64 {
     }
 }
 
-#[test]
-fn test_sv2_keyset_roundtrip() {
+#[cfg(test)]
+mod tests {
     use super::*;
-    use cdk::nuts::{KeySet, Keys, PublicKey};
-    use cdk::amount::Amount;
-
-    // Build dummy Keys map
-    let mut map = BTreeMap::new();
-    for i in 0..64 {
-        let amount = Amount::from(1u64 << i);
-        let pubkey = PublicKey::from_slice(&[0x02; 33]).unwrap();
-        map.insert(amount, pubkey);
-    }
-
-    // Construct KeySet
-    let keys = Keys::new(map);
-    let id = cdk::nuts::nut02::Id::from(&keys);
-    let keyset = KeySet {
-        id,
-        unit: CurrencyUnit::Custom("HASH".to_string()),
-        keys,
-    };
-
-    // Convert KeySet to Sv2KeySet and back
-    let sv2: Sv2KeySet = keyset.clone().try_into().expect("Conversion to Sv2KeySet failed");
-    let roundtrip: KeySet = sv2.try_into().expect("Conversion back to KeySet failed");
-
-    // Confirm roundtrip ID and key equality
-    assert_eq!(keyset.id.to_bytes(), roundtrip.id.to_bytes());
-    let original_keys: BTreeMap<_, _> = keyset.keys.iter().map(|(k, v)| (*k, *v)).collect();
-    let roundtrip_keys: BTreeMap<_, _> = roundtrip.keys.iter().map(|(k, v)| (*k, *v)).collect();
-    assert_eq!(original_keys, roundtrip_keys);
-}
-
-#[test]
-fn test_sv2_signing_keys_to_keys_outputs_valid_keys() {
-    let sv2_keyset = test_sv2_keyset();
-    let keys = sv2_signing_keys_to_keys(&sv2_keyset.keys).expect("Should produce valid Keys");
-
-    // Convert to BTreeMap for structure validation
-    let map: BTreeMap<_, _> = keys.iter().map(|(k, v)| (*k, *v)).collect();
-
-    assert_eq!(map.len(), sv2_keyset.keys.len());
-    for k in sv2_keyset.keys.iter() {
-        assert!(map.contains_key(&Amount::from(k.amount)));
-    }
-}
-
-#[test]
-fn test_calculate_keyset_id_consistency() {
-    let sv2_keyset = test_sv2_keyset();
-    let id = calculate_keyset_id(&sv2_keyset.keys);
-    assert_ne!(id, 0, "Keyset ID must not default to 0");
-}
-
-#[test]
-fn test_format_quote_event_json() {
-    use cdk::amount::Amount;
-    use cdk::nuts::nutXX::MintQuoteMiningShareRequest;
-    use cdk::nuts::{BlindedMessage, CurrencyUnit, PublicKey};
     use bitcoin_hashes::sha256;
-
-    // Construct a fake SHA256 header hash
-    let hash = sha256::Hash::hash(b"test");
-
-    // Construct the request
-    let req = MintQuoteMiningShareRequest {
-        amount: Amount::from(1000u64),
-        unit: CurrencyUnit::Custom("HASH".to_string()),
-        header_hash: hash,
-        description: Some("test quote".to_string()),
-        pubkey: None,
-    };
-
-    // Construct the blinded message
-    let blinded_secret = PublicKey::from_slice(&[0x02; 33]).unwrap();
-    let blinded_msg = BlindedMessage {
-        amount: Amount::from(1000u64),
-        keyset_id: cdk::nuts::nut02::Id::from(&cdk::nuts::Keys::new(BTreeMap::new())),
-        blinded_secret,
-        witness: None,
-    };
-
-    let output = format_quote_event_json(&req, &[blinded_msg]);
-
-    assert!(output.contains("test quote"));
-    assert!(output.contains("HASH"));
-}
-
-fn test_sv2_keyset() -> Sv2KeySet<'static> {
-    use secp256k1::{Secp256k1, SecretKey, PublicKey};
     use rand::{Rng, RngCore};
-
-    let secp = Secp256k1::new();
-    let mut rng = rand::thread_rng();
-
-    let keys = array::from_fn(|i| {
-        // Generate a valid private key
-        let mut bytes = [0u8; 32];
-        rng.try_fill_bytes(&mut bytes);
-        let sk = SecretKey::from_slice(&bytes).unwrap();
-
-        // Get its compressed public key
-        let pk = PublicKey::from_secret_key(&secp, &sk);
-        let pubkey_bytes = pk.serialize(); // [u8; 33]
-
-        let parity_bit = pubkey_bytes[0] == 0x03;
-        let inner_bytes: [u8; 32] = pubkey_bytes[1..].try_into().unwrap();
-
-        Sv2SigningKey {
-            amount: 1u64 << i,
-            parity_bit,
-            pubkey: PubKey::from_bytes(&mut inner_bytes.clone()).unwrap().into_static(),
-        }
-    });
-
-    Sv2KeySet {
-        id: rng.gen(),
-        keys,
-    }
-}
-
-#[test]
-fn test_blinded_message_array_roundtrip() {
-    use super::*;
+    use secp256k1::{PublicKey as SecpPublicKey, Secp256k1, SecretKey};
     use std::collections::BTreeMap;
-    use cdk::nuts::Keys;
 
-    // Derive a deterministic (but throw-away) key-set ID
-    let keyset = Keys::new(BTreeMap::new());
-    let keyset_id_obj = cdk::nuts::nut02::Id::from(&keyset);
-    let keyset_id_u64: u64 = KeysetId(keyset_id_obj).into();
+    // ------------------------------------------------------------------------------------------------
+    // Helper functions (available only when compiling tests)
+    // ------------------------------------------------------------------------------------------------
 
-    // Build domain array with 64 blinded messages
-    let mut domain = BlindedMessageSet::new(keyset_id_u64);
-    for i in 0..NUM_MESSAGES {
-        let amount = Amount::from(index_to_amount(i));
-        domain.insert(make_blinded_message(amount, keyset_id_obj));
-    }
-
-    // Domain → wire → domain
-    let wire: Sv2BlindedMessageSetWire = domain.clone().into();
-    let roundtrip: BlindedMessageSet =
-        wire.try_into().expect("wire-to-domain decoding must succeed");
-
-    assert_eq!(domain, roundtrip, "round-trip altered message set");
-}
-
-#[test]
-fn test_amount_index_roundtrip() {
-    for i in 0..NUM_MESSAGES {
-        let amt = index_to_amount(i);
-        assert_eq!(amount_to_index(amt), i);
-    }
-}
-
-#[test]
-fn test_calculate_work_leading_zeros() {
-    // 0x00…00 -> 256 leading zeros
-    assert_eq!(calculate_work([0u8; 32]), 256);
-    // 0x00…01 -> 255
-    let mut one = [0u8; 32];
-    one[31] = 1;
-    assert_eq!(calculate_work(one), 255);
-    // 0x00…10 -> 31 zero bytes (248 bits) + 3 leading-zero bits = 251
-    let mut sixteen = [0u8; 32];
-    sixteen[31] = 0x10;
-    assert_eq!(calculate_work(sixteen), 251);
-}
-
-#[test]
-fn test_blind_signature_array_roundtrip() {
-    let keyset_id = cdk::nuts::nut02::Id::from(&cdk::nuts::Keys::new(BTreeMap::new()));
-    let ks_u64: u64 = KeysetId(keyset_id).into();
-
-    let mut domain = BlindSignatureSet::new(ks_u64);
-    for i in 0..NUM_MESSAGES {
-        let amt = Amount::from(index_to_amount(i));
-        domain.insert(make_blind_signature_for_amount(amt, keyset_id));
-    }
-
-    let wire: Sv2BlindSignatureSetWire = domain.clone().into();
-    let roundtrip: BlindSignatureSet = wire.try_into().unwrap();
-    assert_eq!(domain, roundtrip);
-}
-
-#[test]
-fn test_domain_array_insert_and_get() {
-    let keyset_id = cdk::nuts::nut02::Id::from(&cdk::nuts::Keys::new(BTreeMap::new()));
-    let id_u64: u64 = KeysetId(keyset_id).into();
-
-    let mut domain = BlindedMessageSet::new(id_u64);
-    let amount = Amount::from(8u64); // 2^3
-    let bm = make_blinded_message_for_amount(amount, keyset_id);
-    domain.insert(bm.clone());
-
-    assert!(domain.get(8).is_some());
-    assert_eq!(domain.get(8).unwrap(), &bm);
-}
-
-#[test]
-fn test_sv2_keyset_wire_roundtrip() {
-    let sv2 = test_sv2_keyset();          // helper from existing code
-    let wire: Sv2KeySetWire = (&sv2.keys).try_into().unwrap();
-    let domain: Sv2KeySet = wire.clone().try_into().unwrap();
-    let wire2: Sv2KeySetWire = (&domain.keys).try_into().unwrap();
-    assert_eq!(wire, wire2);
-}
-
-/// Generate a valid `BlindedMessage` for the given `amount` and `keyset_id`.
-fn make_blinded_message(
-    amount: Amount,
-    keyset_id: cdk::nuts::nut02::Id,
-) -> BlindedMessage {
-    let secp = Secp256k1::new();
-    let mut rng = rand::thread_rng();
-
-    // Fresh secret key → compressed pubkey → Cashu `PublicKey`
-    let sk = fresh_secret_key(&mut rng);
-    let pk = SecpPublicKey::from_secret_key(&secp, &sk);
-    let blinded_secret =
-        PublicKey::from_slice(&pk.serialize()).expect("compressed pubkey is always 33 B");
-
-    BlindedMessage {
-        amount,
-        keyset_id,
-        blinded_secret,
-        witness: None,
-    }
-}
-
-/// Generate a valid `secp256k1::SecretKey`.
-fn fresh_secret_key(rng: &mut impl RngCore) -> SecretKey {
-    loop {
-        let mut bytes = [0u8; 32];
-        rng.fill_bytes(&mut bytes);
-
-        // `from_slice` returns Err if `bytes` ≥ group order or zero.
-        if let Ok(sk) = SecretKey::from_slice(&bytes) {
-            return sk;
+    fn helper_fresh_secret_key(rng: &mut impl RngCore) -> SecretKey {
+        loop {
+            let mut bytes = [0u8; 32];
+            rng.fill_bytes(&mut bytes);
+            if let Ok(sk) = SecretKey::from_slice(&bytes) {
+                return sk;
+            }
         }
     }
-}
 
-fn make_pubkey() -> cdk::nuts::PublicKey {
-    use secp256k1::{Secp256k1, PublicKey as SecpPublicKey};
-    let secp = Secp256k1::new();
-    let mut rng = rand::thread_rng();
-    let sk = fresh_secret_key(&mut rng);
-    let pk: SecpPublicKey = SecpPublicKey::from_secret_key(&secp, &sk);
-    cdk::nuts::PublicKey::from_slice(&pk.serialize()).unwrap()
-}
-
-fn make_blinded_message_for_amount(
-    amount: Amount,
-    keyset_id: cdk::nuts::nut02::Id,
-) -> BlindedMessage {
-    BlindedMessage {
-        amount,
-        keyset_id,
-        blinded_secret: make_pubkey(),
-        witness: None,
+    fn helper_make_pubkey() -> cdk::nuts::PublicKey {
+        let secp = Secp256k1::new();
+        let mut rng = rand::thread_rng();
+        let sk = helper_fresh_secret_key(&mut rng);
+        let pk: SecpPublicKey = SecpPublicKey::from_secret_key(&secp, &sk);
+        cdk::nuts::PublicKey::from_slice(&pk.serialize()).unwrap()
     }
-}
 
-fn make_blind_signature_for_amount(
-    amount: Amount,
-    keyset_id: cdk::nuts::nut02::Id,
-) -> BlindSignature {
-    BlindSignature {
-        amount,
-        keyset_id,
-        c: make_pubkey(),
-        dleq: None,
+    fn helper_make_blinded_message(
+        amount: Amount,
+        keyset_id: cdk::nuts::nut02::Id,
+    ) -> BlindedMessage {
+        let blinded_secret = helper_make_pubkey();
+        BlindedMessage {
+            amount,
+            keyset_id,
+            blinded_secret,
+            witness: None,
+        }
+    }
+
+    fn helper_make_blind_signature(
+        amount: Amount,
+        keyset_id: cdk::nuts::nut02::Id,
+    ) -> BlindSignature {
+        BlindSignature {
+            amount,
+            keyset_id,
+            c: helper_make_pubkey(),
+            dleq: None,
+        }
+    }
+
+    fn helper_test_sv2_keyset() -> Sv2KeySet<'static> {
+        let secp = Secp256k1::new();
+        let mut rng = rand::thread_rng();
+
+        let keys = core::array::from_fn(|i| {
+            let sk = helper_fresh_secret_key(&mut rng);
+            let pk = SecpPublicKey::from_secret_key(&secp, &sk);
+            let bytes = pk.serialize();
+
+            let parity_bit = bytes[0] == 0x03;
+            let mut inner = [0u8; 32];
+            inner.copy_from_slice(&bytes[1..]);
+
+            Sv2SigningKey {
+                amount: 1u64 << i,
+                parity_bit,
+                pubkey: PubKey::from_bytes(&mut inner).unwrap().into_static(),
+            }
+        });
+
+        Sv2KeySet {
+            id: rng.gen(),
+            keys,
+        }
+    }
+
+    // ------------------------------------------------------------------------------------------------
+    //                                          Tests
+    // ------------------------------------------------------------------------------------------------
+
+    #[test]
+    fn test_sv2_keyset_roundtrip() {
+        // Build deterministic Keys map
+        let mut map = BTreeMap::new();
+        for i in 0..64 {
+            map.insert(Amount::from(1u64 << i), helper_make_pubkey());
+        }
+        let keys = Keys::new(map);
+        let id = cdk::nuts::nut02::Id::from(&keys);
+
+        let keyset = KeySet {
+            id,
+            unit: CurrencyUnit::Custom("HASH".into()),
+            keys,
+        };
+
+        let sv2: Sv2KeySet = keyset.clone().try_into().unwrap();
+        let roundtrip: KeySet = sv2.try_into().unwrap();
+
+        assert_eq!(keyset.id.to_bytes(), roundtrip.id.to_bytes());
+        assert_eq!(
+            keyset.keys.iter().collect::<BTreeMap<_, _>>(),
+            roundtrip.keys.iter().collect::<BTreeMap<_, _>>()
+        );
+    }
+
+    #[test]
+    fn test_sv2_signing_keys_to_keys_valid() {
+        let sv2_keyset = helper_test_sv2_keyset();
+        let keys = sv2_signing_keys_to_keys(&sv2_keyset.keys).unwrap();
+        assert_eq!(keys.len(), sv2_keyset.keys.len());
+
+        for k in sv2_keyset.keys.iter() {
+            assert!(keys.contains_key(&Amount::from(k.amount)));
+        }
+    }
+
+    #[test]
+    fn test_calculate_keyset_id_nonzero() {
+        let sv2_keyset = helper_test_sv2_keyset();
+        let id = calculate_keyset_id(&sv2_keyset.keys);
+        assert_ne!(id, 0);
+    }
+
+    #[test]
+    fn test_format_quote_event_json_contains_fields() {
+        let hash = sha256::Hash::hash(b"test");
+        let req = cdk::nuts::nutXX::MintQuoteMiningShareRequest {
+            amount: Amount::from(1000u64),
+            unit: CurrencyUnit::Custom("HASH".into()),
+            header_hash: hash,
+            description: Some("test quote".into()),
+            pubkey: None,
+        };
+
+        let blinded_msg = BlindedMessage {
+            amount: Amount::from(1000u64),
+            keyset_id: cdk::nuts::nut02::Id::from(&cdk::nuts::Keys::new(BTreeMap::new())),
+            blinded_secret: helper_make_pubkey(),
+            witness: None,
+        };
+
+        let out = format_quote_event_json(&req, &[blinded_msg]);
+
+        assert!(out.contains("test quote"));
+        assert!(out.contains("HASH"));
+    }
+
+    #[test]
+    fn test_blinded_message_set_roundtrip() {
+        let keys = Keys::new(BTreeMap::new());
+        let keyset_id_obj = cdk::nuts::nut02::Id::from(&keys);
+        let keyset_id_u64 = KeysetId(keyset_id_obj).into();
+
+        let mut domain = BlindedMessageSet::new(keyset_id_u64);
+        for i in 0..NUM_MESSAGES {
+            domain.insert(helper_make_blinded_message(
+                Amount::from(1u64 << i),
+                keyset_id_obj,
+            ));
+        }
+
+        let wire: Sv2BlindedMessageSetWire = domain.clone().into();
+        let roundtrip: BlindedMessageSet = wire.try_into().unwrap();
+        assert_eq!(domain, roundtrip);
+    }
+
+    #[test]
+    fn test_amount_index_roundtrip() {
+        for i in 0..NUM_MESSAGES {
+            let amt = 1u64 << i;
+            assert_eq!(amount_to_index(amt), i);
+        }
+    }
+
+    #[test]
+    fn test_calculate_work_expected_values() {
+        assert_eq!(calculate_work([0u8; 32]), 256);
+        let mut one = [0u8; 32];
+        one[31] = 1;
+        assert_eq!(calculate_work(one), 255);
+
+        let mut sixteen = [0u8; 32];
+        sixteen[31] = 0x10;
+        assert_eq!(calculate_work(sixteen), 251);
+    }
+
+    #[test]
+    fn test_blind_signature_set_roundtrip() {
+        let keys = Keys::new(BTreeMap::new());
+        let keyset_id_obj = cdk::nuts::nut02::Id::from(&keys);
+        let keyset_id_u64 = KeysetId(keyset_id_obj).into();
+
+        let mut domain = BlindSignatureSet::new(keyset_id_u64);
+        for i in 0..NUM_MESSAGES {
+            domain.insert(helper_make_blind_signature(
+                Amount::from(1u64 << i),
+                keyset_id_obj,
+            ));
+        }
+
+        let wire: Sv2BlindSignatureSetWire = domain.clone().into();
+        let roundtrip: BlindSignatureSet = wire.try_into().unwrap();
+        assert_eq!(domain, roundtrip);
+    }
+
+    #[test]
+    fn test_domain_array_insert_and_get() {
+        let keys = Keys::new(BTreeMap::new());
+        let keyset_id_obj = cdk::nuts::nut02::Id::from(&keys);
+        let keyset_id_u64 = KeysetId(keyset_id_obj).into();
+
+        let mut domain = BlindedMessageSet::new(keyset_id_u64);
+        let amount = Amount::from(8u64); // 2³
+        let bm = helper_make_blinded_message(amount, keyset_id_obj);
+        domain.insert(bm.clone());
+
+        assert_eq!(domain.get(8).unwrap(), &bm);
+    }
+
+    #[test]
+    fn test_sv2_keyset_wire_roundtrip() {
+        let sv2 = helper_test_sv2_keyset();
+        let wire: Sv2KeySetWire = (&sv2.keys).try_into().unwrap();
+        let domain: Sv2KeySet = wire.clone().try_into().unwrap();
+        let wire2: Sv2KeySetWire = (&domain.keys).try_into().unwrap();
+        assert_eq!(wire, wire2);
     }
 }
