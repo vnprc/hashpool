@@ -3,14 +3,18 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::str::FromStr;
 
-use axum::Router;
-use cdk::cdk_database::mint_memory::MintMemoryDatabase;
 use cdk::mint::Mint;
-use cdk::nuts::CurrencyUnit;
+use cdk::nuts::{CurrencyUnit};
 use cdk::types::QuoteTTL;
 use cdk_axum::cache::HttpCache;
 use cdk_mintd::config::{self, LnBackend};
+use cdk::cdk_payment::MintPayment;
+use cdk::cdk_payment;
+use cdk_signatory::db_signatory::DbSignatory;
+use cdk::types::PaymentProcessorKey;
+use cdk_sqlite::MintSqliteDatabase;
 use redis::AsyncCommands;
+use tokio::net::TcpListener;
 use tokio::sync::Notify;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -107,8 +111,9 @@ async fn main() -> Result<()> {
     pub const HASH_DERIVATION_PATH: u32 = 1337;
     const NUM_KEYS: u8 = 64;
 
-    let mnemonic = Mnemonic::from_str(&mint_settings.info.mnemonic)
+    let mnemonic = Mnemonic::from_str(&mint_settings.info.mnemonic.unwrap())
         .map_err(|e| anyhow::anyhow!("Invalid mnemonic in mint config: {}", e))?;
+    let seed_bytes : &[u8] = &mnemonic.to_seed("");
 
     let hash_currency_unit = CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string());
 
@@ -124,25 +129,31 @@ async fn main() -> Result<()> {
 
     let cache: HttpCache = mint_settings.info.http_cache.into();
 
-    // let mint = Arc::new(mint_builder.add_cache(
-    //     Some(cache.ttl.as_secs()),
-    //     vec![],
-    // ).build().await?);
+    let db = Arc::new(MintSqliteDatabase::new("mint.sqlite").await?);
+
+    let signatory = Arc::new(
+        DbSignatory::new(
+            db.clone(),
+            seed_bytes,
+            currency_units,
+            derivation_paths,
+        ).await.unwrap()
+    );
+
+    let ln: HashMap<PaymentProcessorKey, Arc<dyn MintPayment<Err = cdk_payment::Error> + Send + Sync>> = HashMap::new();
 
     let mint = Arc::new(Mint::new(
-        &mnemonic.to_seed_normalized(""),
-        Arc::new(MintMemoryDatabase::default()),
-        HashMap::new(),
-        currency_units,
-        derivation_paths,
+        signatory,
+        db,
+        ln,
     )
     .await.unwrap());
 
-    mint.check_pending_mint_quotes().await?;
+    // mint.check_pending_mint_quotes().await?;
     mint.check_pending_melt_quotes().await?;
     mint.set_quote_ttl(QuoteTTL::new(10_000, 10_000)).await?;
 
-    let router: Router = cdk_axum::create_mint_router_with_custom_cache(mint.clone(), cache).await?;
+    let router = cdk_axum::create_mint_router_with_custom_cache(mint.clone(), cache).await?;
     let shutdown = Arc::new(Notify::new());
 
     tokio::spawn(wait_for_invoices(mint.clone(), shutdown.clone()));
@@ -155,9 +166,9 @@ async fn main() -> Result<()> {
     use redis::AsyncCommands;
     use serde_json;
 
-    let keysets = mint.keysets().await.unwrap();
+    let keysets = mint.keysets();
     let keyset_id = keysets.keysets.first().unwrap().id;
-    let keyset = mint.keyset(&keyset_id).await.unwrap().unwrap();
+    let keyset = mint.keyset(&keyset_id).unwrap();
 
     // Serialize full keyset
     let keyset_json = serde_json::to_string(&keyset).expect("Failed to serialize keyset");
@@ -190,15 +201,16 @@ async fn main() -> Result<()> {
     ));
 
     info!("Mint listening on {}:{}", mint_settings.info.listen_host, mint_settings.info.listen_port);
-    axum::Server::bind(&format!("{}:{}", mint_settings.info.listen_host, mint_settings.info.listen_port).parse()?)
-        .serve(router.into_make_service())
-        .await?;
+    let addr = format!("{}:{}", mint_settings.info.listen_host, mint_settings.info.listen_port);
+    let listener = TcpListener::bind(&addr).await?;
+
+    axum::serve(listener, router).await?;
 
     Ok(())
 }
 
 // TODO move this somewhere more appropriate. Into cdk probably
-use cdk::nuts::nut04::MintQuoteMiningShareRequest;
+use cdk::nuts::nutXX::MintQuoteMiningShareRequest;
 use cdk::nuts::BlindedMessage;
 use serde::Deserialize;
 
