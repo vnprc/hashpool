@@ -1,4 +1,6 @@
 use cdk::{amount::Amount, nuts::{BlindSignature, BlindedMessage, CurrencyUnit, KeySet, PreMintSecrets, PublicKey, Keys}};
+use rand::RngCore;
+use secp256k1::{Secp256k1, SecretKey, PublicKey as SecpPublicKey};
 use core::array;
 use std::{collections::BTreeMap, convert::{TryFrom, TryInto}};
 pub use std::error::Error;
@@ -768,4 +770,157 @@ fn test_sv2_keyset() -> Sv2KeySet<'static> {
     }
 }
 
+#[test]
+fn test_blinded_message_array_roundtrip() {
+    use super::*;
+    use std::collections::BTreeMap;
+    use cdk::nuts::Keys;
 
+    // Derive a deterministic (but throw-away) key-set ID
+    let keyset = Keys::new(BTreeMap::new());
+    let keyset_id_obj = cdk::nuts::nut02::Id::from(&keyset);
+    let keyset_id_u64: u64 = KeysetId(keyset_id_obj).into();
+
+    // Build domain array with 64 blinded messages
+    let mut domain = BlindedMessageSet::new(keyset_id_u64);
+    for i in 0..NUM_MESSAGES {
+        let amount = Amount::from(index_to_amount(i));
+        domain.insert(make_blinded_message(amount, keyset_id_obj));
+    }
+
+    // Domain → wire → domain
+    let wire: Sv2BlindedMessageSetWire = domain.clone().into();
+    let roundtrip: BlindedMessageSet =
+        wire.try_into().expect("wire-to-domain decoding must succeed");
+
+    assert_eq!(domain, roundtrip, "round-trip altered message set");
+}
+
+#[test]
+fn test_amount_index_roundtrip() {
+    for i in 0..NUM_MESSAGES {
+        let amt = index_to_amount(i);
+        assert_eq!(amount_to_index(amt), i);
+    }
+}
+
+#[test]
+fn test_calculate_work_leading_zeros() {
+    // 0x00…00 -> 256 leading zeros
+    assert_eq!(calculate_work([0u8; 32]), 256);
+    // 0x00…01 -> 255
+    let mut one = [0u8; 32];
+    one[31] = 1;
+    assert_eq!(calculate_work(one), 255);
+    // 0x00…10 -> 31 zero bytes (248 bits) + 3 leading-zero bits = 251
+    let mut sixteen = [0u8; 32];
+    sixteen[31] = 0x10;
+    assert_eq!(calculate_work(sixteen), 251);
+}
+
+#[test]
+fn test_blind_signature_array_roundtrip() {
+    let keyset_id = cdk::nuts::nut02::Id::from(&cdk::nuts::Keys::new(BTreeMap::new()));
+    let ks_u64: u64 = KeysetId(keyset_id).into();
+
+    let mut domain = BlindSignatureSet::new(ks_u64);
+    for i in 0..NUM_MESSAGES {
+        let amt = Amount::from(index_to_amount(i));
+        domain.insert(make_blind_signature_for_amount(amt, keyset_id));
+    }
+
+    let wire: Sv2BlindSignatureSetWire = domain.clone().into();
+    let roundtrip: BlindSignatureSet = wire.try_into().unwrap();
+    assert_eq!(domain, roundtrip);
+}
+
+#[test]
+fn test_domain_array_insert_and_get() {
+    let keyset_id = cdk::nuts::nut02::Id::from(&cdk::nuts::Keys::new(BTreeMap::new()));
+    let id_u64: u64 = KeysetId(keyset_id).into();
+
+    let mut domain = BlindedMessageSet::new(id_u64);
+    let amount = Amount::from(8u64); // 2^3
+    let bm = make_blinded_message_for_amount(amount, keyset_id);
+    domain.insert(bm.clone());
+
+    assert!(domain.get(8).is_some());
+    assert_eq!(domain.get(8).unwrap(), &bm);
+}
+
+#[test]
+fn test_sv2_keyset_wire_roundtrip() {
+    let sv2 = test_sv2_keyset();          // helper from existing code
+    let wire: Sv2KeySetWire = (&sv2.keys).try_into().unwrap();
+    let domain: Sv2KeySet = wire.clone().try_into().unwrap();
+    let wire2: Sv2KeySetWire = (&domain.keys).try_into().unwrap();
+    assert_eq!(wire, wire2);
+}
+
+/// Generate a valid `BlindedMessage` for the given `amount` and `keyset_id`.
+fn make_blinded_message(
+    amount: Amount,
+    keyset_id: cdk::nuts::nut02::Id,
+) -> BlindedMessage {
+    let secp = Secp256k1::new();
+    let mut rng = rand::thread_rng();
+
+    // Fresh secret key → compressed pubkey → Cashu `PublicKey`
+    let sk = fresh_secret_key(&mut rng);
+    let pk = SecpPublicKey::from_secret_key(&secp, &sk);
+    let blinded_secret =
+        PublicKey::from_slice(&pk.serialize()).expect("compressed pubkey is always 33 B");
+
+    BlindedMessage {
+        amount,
+        keyset_id,
+        blinded_secret,
+        witness: None,
+    }
+}
+
+/// Generate a valid `secp256k1::SecretKey`.
+fn fresh_secret_key(rng: &mut impl RngCore) -> SecretKey {
+    loop {
+        let mut bytes = [0u8; 32];
+        rng.fill_bytes(&mut bytes);
+
+        // `from_slice` returns Err if `bytes` ≥ group order or zero.
+        if let Ok(sk) = SecretKey::from_slice(&bytes) {
+            return sk;
+        }
+    }
+}
+
+fn make_pubkey() -> cdk::nuts::PublicKey {
+    use secp256k1::{Secp256k1, PublicKey as SecpPublicKey};
+    let secp = Secp256k1::new();
+    let mut rng = rand::thread_rng();
+    let sk = fresh_secret_key(&mut rng);
+    let pk: SecpPublicKey = SecpPublicKey::from_secret_key(&secp, &sk);
+    cdk::nuts::PublicKey::from_slice(&pk.serialize()).unwrap()
+}
+
+fn make_blinded_message_for_amount(
+    amount: Amount,
+    keyset_id: cdk::nuts::nut02::Id,
+) -> BlindedMessage {
+    BlindedMessage {
+        amount,
+        keyset_id,
+        blinded_secret: make_pubkey(),
+        witness: None,
+    }
+}
+
+fn make_blind_signature_for_amount(
+    amount: Amount,
+    keyset_id: cdk::nuts::nut02::Id,
+) -> BlindSignature {
+    BlindSignature {
+        amount,
+        keyset_id,
+        c: make_pubkey(),
+        dleq: None,
+    }
+}
