@@ -5,9 +5,11 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
-axum = "0.6"
+axum = "0.8"
 home = "0.5"
+hyper = "1"
 tokio = { version = "1", features = ["full"] }
+tower = "0.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 bip39 = "2.0"
@@ -18,11 +20,11 @@ serde_json = "1"
 bitcoin = { version= "0.32.2" }
 uuid = { version = "1.7", features = ["v4"] }
 
-cdk = { git = "https://github.com/vnprc/cdk.git", package = "cdk", rev = "64ec7f6f" }
-cdk-axum = { git = "https://github.com/vnprc/cdk.git", package = "cdk-axum", rev = "64ec7f6f", features = ["redis"]}
-cdk-mintd = { git = "https://github.com/vnprc/cdk.git", package = "cdk-mintd", rev = "64ec7f6f" }
-cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", package = "cdk-sqlite", rev = "64ec7f6f" }
-cdk-redb = { git = "https://github.com/vnprc/cdk.git", package = "cdk-redb", rev = "64ec7f6f" }
+cdk = { path = "/home/evan/work/cdk/crates/cdk" }
+cdk-axum = { path = "/home/evan/work/cdk/crates/cdk-axum" }
+cdk-mintd = { path = "/home/evan/work/cdk/crates/cdk-mintd" }
+cdk-sqlite = { path = "/home/evan/work/cdk/crates/cdk-sqlite" }
+cdk-signatory = { path = "/home/evan/work/cdk/crates/cdk-signatory" }
 toml = "0.8.22"
 
 shared_config = { path = "../roles-utils/config" }

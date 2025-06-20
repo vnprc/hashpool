@@ -1,6 +1,7 @@
 use async_channel::{bounded, unbounded};
-use cdk::wallet::{client::MintConnector, MintQuote, Wallet};
-use cdk::cdk_database::WalletMemoryDatabase;
+use cdk::wallet::{MintConnector, MintQuote, SendKind, SendOptions, Wallet};
+use cdk::amount::SplitTarget;
+use cdk_sqlite::WalletSqliteDatabase;
 use cdk::nuts::CurrencyUnit;
 use cdk::{HttpClient, mint_url::MintUrl};
 use bip39::Mnemonic;
@@ -51,21 +52,44 @@ pub struct TranslatorSv2 {
 }
 
 fn create_wallet(mint_url: String, mnemonic: String) -> Result<Arc<Wallet>> {
+    println!("Parsing mnemonic...");
     let seed = Mnemonic::from_str(&mnemonic)
         .with_context(|| format!("Invalid mnemonic: '{}'", mnemonic))?
         .to_seed_normalized("")
         .to_vec();
+    println!("Seed derived.");
 
-    let localstore = WalletMemoryDatabase::default();
+println!("Creating localstore...");
 
+let localstore: Arc<WalletSqliteDatabase> = match tokio::task::block_in_place(|| {
+    tokio::runtime::Handle::current().block_on(WalletSqliteDatabase::new("./wallet.sqlite"))
+}) {
+    Ok(store) => {
+        println!("Localstore created.");
+        Arc::new(store)
+    }
+    Err(e) => {
+        println!("❌ Failed to create WalletSqliteDatabase: {:?}", e);
+        return Err(e).context("WalletSqliteDatabase::new failed");
+    }
+};
+    println!("Localstore created.");
+
+    println!("Creating wallet...");
     let wallet = Wallet::new(
         &mint_url,
         CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string()),
-        Arc::new(localstore),
+        localstore,
         &seed,
-        None
+        None,
     )
     .context("Failed to create wallet")?;
+    println!("Wallet created.");
+
+    let balance = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(wallet.total_balance())
+    });
+    println!("Wallet constructed: {:?}", balance);
 
     Ok(Arc::new(wallet))
 }
@@ -83,7 +107,7 @@ impl TranslatorSv2 {
         let mut rng = rand::thread_rng();
         let mint_url = extract_mint_url(&config);
         let wait_time = rng.gen_range(0..=3000);
-        let mint_client = HttpClient::new(MintUrl::from_str(&mint_url).unwrap());
+        let mint_client = HttpClient::new(MintUrl::from_str(&mint_url).unwrap(), None);
 
         Self {
             config: config.clone(),
@@ -416,8 +440,23 @@ impl TranslatorSv2 {
             ),
         }
 
+        let options = SendOptions{
+            memo: None,
+            conditions: None,
+            amount_split_target: SplitTarget::None,
+            send_kind: SendKind::OnlineExact,
+            include_fee: false,
+            metadata: HashMap::new(),
+        };
+        let send = tokio::runtime::Handle::current()
+            .block_on(wallet.prepare_send(cdk::Amount::from(1), options)).unwrap();
+
         // the people need ehash, let's give it to them
-        match rt.block_on(wallet.send(cdk::Amount::from(1),None,None,&cdk::amount::SplitTarget::None, &cdk::wallet::SendKind::OnlineExact, false)) {
+        match rt.block_on(
+    wallet.send(
+                send,
+                None,
+            )) {
             Ok(token) => info!(
                 "eHash token: {}",
                 token,
