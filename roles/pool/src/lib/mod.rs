@@ -15,7 +15,7 @@ use template_receiver::TemplateRx;
 use tracing::{error, info, warn};
 
 use tokio::select;
-use cdk::{nuts::{CurrencyUnit, KeySet, Keys}, Amount, amount::AmountStr};
+use cdk::{nuts::{CurrencyUnit, KeySet, Keys}, Amount};
 
 use std::collections::BTreeMap;
 use cdk::util::hex;
@@ -235,7 +235,7 @@ impl PoolSv2<'_> {
             let pubkey_bytes = hex::decode(pubkey_hex).expect("bad pubkey hex");
             let pubkey = PublicKey::from_slice(&pubkey_bytes).expect("bad pubkey");
     
-            keys_map.insert(AmountStr::from(Amount::from(amount)), pubkey);
+            keys_map.insert(Amount::from(amount), pubkey);
         }
     
         KeySet {

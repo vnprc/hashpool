@@ -186,7 +186,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                     let header_hash = Hash::from_slice(m.hash.inner_as_ref())
                         .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid header hash: {e}")))?;
 
-                    let quote_request = cdk::nuts::nut04::MintQuoteMiningShareRequest {
+                    let quote_request = cdk::nuts::nutXX::MintQuoteMiningShareRequest {
                         amount: calculate_work(header_hash.to_byte_array()).into(),
                         unit: cdk::nuts::CurrencyUnit::Custom("HASH".to_string()),
                         header_hash,
@@ -223,7 +223,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid header hash: {e}")))?;
                     let amount = calculate_work(header_hash.to_byte_array());
 
-                    let quote_request = cdk::nuts::nut04::MintQuoteMiningShareRequest {
+                    let quote_request = cdk::nuts::nutXX::MintQuoteMiningShareRequest {
                         amount: amount.into(),
                         unit: cdk::nuts::CurrencyUnit::Custom("HASH".to_string()),
                         header_hash: Hash::from_slice(m.hash.inner_as_ref())
