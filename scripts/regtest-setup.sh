@@ -11,7 +11,7 @@ if [ "${BITCOIND_NETWORK:-}" != "regtest" ]; then
   exit 1
 fi
 
-BITCOIN_CONF="${DEVENV_ROOT:-$(pwd)}/bitcoin.conf"
+BITCOIN_CONF="${DEVENV_ROOT:-$(pwd)}/config/bitcoin.conf"
 DATADIR="${BITCOIND_DATADIR:-$(pwd)/.devenv/state/bitcoind}"
 
 get_conf_value() {
