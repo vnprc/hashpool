@@ -4,16 +4,11 @@ use std::sync::Arc;
 use std::str::FromStr;
 
 use axum::Router;
-use cdk::cdk_database::mint_memory::MintMemoryDatabase;
-use cdk::cdk_database::{self, MintDatabase};
-use cdk::mint::{Mint, MintBuilder, MintMeltLimits};
-use cdk::nuts::nut17::SupportedMethods;
-use cdk::nuts::{CurrencyUnit, PaymentMethod};
+use cdk::mint::Mint;
+use cdk::nuts::CurrencyUnit;
 use cdk::types::QuoteTTL;
 use cdk_axum::cache::HttpCache;
-use cdk_mintd::config::{self, LnBackend, DatabaseEngine};
-use cdk_mintd::setup::LnBackendSetup;
-use cdk_redb::MintRedbDatabase;
+use cdk_mintd::config::{self, LnBackend};
 use cdk_sqlite::MintSqliteDatabase;
 use redis::AsyncCommands;
 use tokio::sync::Notify;
@@ -134,9 +129,13 @@ async fn main() -> Result<()> {
     //     vec![],
     // ).build().await?);
 
+    let db_path = work_dir.join("mint.sqlite");
+    let sqlite_db = MintSqliteDatabase::new(&db_path).await?;
+    sqlite_db.migrate().await;
+
     let mint = Arc::new(Mint::new(
         &mnemonic.to_seed_normalized(""),
-        Arc::new(MintMemoryDatabase::default()),
+        Arc::new(sqlite_db),
         HashMap::new(),
         currency_units,
         derivation_paths,
@@ -173,7 +172,7 @@ async fn main() -> Result<()> {
     let redis_key = &active_keyset_prefix;
 
     // Cache and broadcast
-    redis_conn.set(redis_key, &keyset_json).await?;
+    redis_conn.set::<_, _, ()>(redis_key, &keyset_json).await?;
 
     tracing::info!(
         "Published keyset {} to Redis key '{}",
