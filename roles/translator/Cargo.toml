@@ -46,13 +46,14 @@ async-compat = "0.2.1"
 rand = "0.8.4"
 bitcoin = "0.30"
 mining_sv2 = { version = "^1.0.0", path = "../../protocols/v2/subprotocols/mining" }
-cdk = { path = "/home/evan/work/cdk/crates/cdk" }
-cdk-sqlite = { path = "/home/evan/work/cdk/crates/cdk-sqlite" }
 uuid = { version = "1", features = ["v4"] }
 ureq = { version = "2", features = ["tls"] }
 shared_config = { path = "../roles-utils/config" }
 bip39 = "2.0"
 anyhow = "1.0"
+
+cdk = { git = "https://github.com/vnprc/cdk", rev = "eeaac56" }
+cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", package = "cdk-sqlite", rev = "eeaac56" }
 
 [dev-dependencies]
 sha2 = "0.10.6"
