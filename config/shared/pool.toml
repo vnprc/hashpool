@@ -18,3 +18,8 @@ port = 34254
 
 [proxy]
 port = 34255
+
+[bitcoin]
+# network set by var in devenv.nix
+portRegtest = "18443"
+portTestnet = "48332"

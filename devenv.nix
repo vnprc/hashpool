@@ -11,21 +11,22 @@
     stdenv = pkgs.stdenv;
   };
 
-  # supported values: "regtest", "testnet4"
-  bitcoinNetwork = "regtest";
-  # Set the default bitcoind RPC port, based on the network
-  bitcoindRpcPort =
-    if bitcoinNetwork == "regtest" then
-      "18443"
-    else if bitcoinNetwork == "testnet4" then
-      "48332"
-    else
-      abort "Invalid network {$bitcoinNetwork}";
   bitcoindDataDir = "${config.devenv.root}/.devenv/state/bitcoind";
   lightningClnDataDir = "${config.devenv.root}/.devenv/state/cln";
 
   poolConfig = builtins.fromTOML (builtins.readFile ./config/shared/pool.toml);
   minerConfig = builtins.fromTOML (builtins.readFile ./config/shared/miner.toml);
+
+  # supported values: "regtest", "testnet4"
+  bitcoinNetwork = "regtest";
+  # Set the default bitcoind RPC port, based on the network
+  bitcoindRpcPort =
+    if bitcoinNetwork == "regtest" then
+      poolConfig.bitcoin.portRegtest
+    else if bitcoinNetwork == "testnet4" then
+      poolConfig.bitcoin.portTestnet
+    else
+      abort "Invalid network {$bitcoinNetwork}";
 
   # add logging to any command
   withLogging = command: logFile: ''
