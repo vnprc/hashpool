@@ -44,4 +44,4 @@ update-bitcoind:
 # generate blocks in regtest
 generate-blocks COUNT="1":
     @echo "Generating {{COUNT}} blocks in regtest..."
-    @bitcoin-cli -datadir=.devenv/state/bitcoind -conf=$(pwd)/bitcoin.conf -rpcuser=username -rpcpassword=password -regtest -rpcwallet=regtest -generate {{COUNT}}
+    @bitcoin-cli -datadir=.devenv/state/bitcoind -conf=$(pwd)/config/bitcoin.conf -rpcuser=username -rpcpassword=password -regtest -rpcwallet=regtest -generate {{COUNT}}
