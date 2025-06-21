@@ -958,6 +958,7 @@ dependencies = [
 [[package]]
 name = "cashu"
 version = "0.10.0"
+source = "git+https://github.com/vnprc/cdk?rev=eeaac56#eeaac560324fb6d7e845fa169d611aef1f7bf044"
 dependencies = [
  "bitcoin 0.32.6",
  "bitcoin_hashes 0.16.0",
@@ -1011,6 +1012,7 @@ dependencies = [
 [[package]]
 name = "cdk"
 version = "0.10.0"
+source = "git+https://github.com/vnprc/cdk?rev=eeaac56#eeaac560324fb6d7e845fa169d611aef1f7bf044"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1042,6 +1044,7 @@ dependencies = [
 [[package]]
 name = "cdk-axum"
 version = "0.10.0"
+source = "git+https://github.com/vnprc/cdk?rev=eeaac56#eeaac560324fb6d7e845fa169d611aef1f7bf044"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1050,6 +1053,7 @@ dependencies = [
  "futures",
  "moka",
  "paste",
+ "redis 0.31.0",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1061,6 +1065,7 @@ dependencies = [
 [[package]]
 name = "cdk-cln"
 version = "0.10.0"
+source = "git+https://github.com/vnprc/cdk?rev=eeaac56#eeaac560324fb6d7e845fa169d611aef1f7bf044"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.6",
@@ -1078,6 +1083,7 @@ dependencies = [
 [[package]]
 name = "cdk-common"
 version = "0.10.0"
+source = "git+https://github.com/vnprc/cdk?rev=eeaac56#eeaac560324fb6d7e845fa169d611aef1f7bf044"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1100,6 +1106,7 @@ dependencies = [
 [[package]]
 name = "cdk-fake-wallet"
 version = "0.10.0"
+source = "git+https://github.com/vnprc/cdk?rev=eeaac56#eeaac560324fb6d7e845fa169d611aef1f7bf044"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.6",
@@ -1118,6 +1125,7 @@ dependencies = [
 [[package]]
 name = "cdk-lnbits"
 version = "0.10.0"
+source = "git+https://github.com/vnprc/cdk?rev=eeaac56#eeaac560324fb6d7e845fa169d611aef1f7bf044"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1136,6 +1144,7 @@ dependencies = [
 [[package]]
 name = "cdk-lnd"
 version = "0.10.0"
+source = "git+https://github.com/vnprc/cdk?rev=eeaac56#eeaac560324fb6d7e845fa169d611aef1f7bf044"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1152,6 +1161,7 @@ dependencies = [
 [[package]]
 name = "cdk-mint-rpc"
 version = "0.10.0"
+source = "git+https://github.com/vnprc/cdk?rev=eeaac56#eeaac560324fb6d7e845fa169d611aef1f7bf044"
 dependencies = [
  "anyhow",
  "cdk",
@@ -1171,6 +1181,7 @@ dependencies = [
 [[package]]
 name = "cdk-mintd"
 version = "0.10.0"
+source = "git+https://github.com/vnprc/cdk?rev=eeaac56#eeaac560324fb6d7e845fa169d611aef1f7bf044"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1206,6 +1217,7 @@ dependencies = [
 [[package]]
 name = "cdk-payment-processor"
 version = "0.10.0"
+source = "git+https://github.com/vnprc/cdk?rev=eeaac56#eeaac560324fb6d7e845fa169d611aef1f7bf044"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1231,8 +1243,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "cdk-redb"
+version = "0.10.0"
+source = "git+https://github.com/vnprc/cdk?rev=eeaac56#eeaac560324fb6d7e845fa169d611aef1f7bf044"
+dependencies = [
+ "async-trait",
+ "cdk-common",
+ "lightning-invoice",
+ "redb",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.12",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "cdk-signatory"
 version = "0.10.0"
+source = "git+https://github.com/vnprc/cdk?rev=eeaac56#eeaac560324fb6d7e845fa169d611aef1f7bf044"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1256,6 +1285,7 @@ dependencies = [
 [[package]]
 name = "cdk-sqlite"
 version = "0.10.0"
+source = "git+https://github.com/vnprc/cdk?rev=eeaac56#eeaac560324fb6d7e845fa169d611aef1f7bf044"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.6",
@@ -3154,6 +3184,7 @@ dependencies = [
  "cdk",
  "cdk-axum",
  "cdk-mintd",
+ "cdk-redb",
  "cdk-signatory",
  "cdk-sqlite",
  "home",
@@ -3883,6 +3914,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "redb"
+version = "2.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cef6a6d3a65ea334d6cdfb31fa2525c20184b7aa7bd1ad1e2e37502610d4609f"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "redis"
 version = "0.23.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3920,6 +3960,31 @@ dependencies = [
  "sha1_smol",
  "socket2 0.5.10",
  "tokio",
+ "tokio-util",
+ "url",
+]
+
+[[package]]
+name = "redis"
+version = "0.31.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0bc1ea653e0b2e097db3ebb5b7f678be339620b8041f66b30a308c1d45d36a7f"
+dependencies = [
+ "bytes",
+ "cfg-if",
+ "combine",
+ "futures-util",
+ "itoa",
+ "num-bigint",
+ "percent-encoding",
+ "pin-project-lite",
+ "rustls 0.23.27",
+ "rustls-native-certs",
+ "ryu",
+ "sha1_smol",
+ "socket2 0.5.10",
+ "tokio",
+ "tokio-rustls 0.26.2",
  "tokio-util",
  "url",
 ]
