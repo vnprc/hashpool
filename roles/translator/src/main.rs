@@ -54,10 +54,16 @@ async fn main() {
         Err(e) => panic!("failed to load config: {}", e),
     };
 
+    // override config file with env var for improved devex configurability
+    if let Ok(db_path_override) = std::env::var("CDK_WALLET_DB_PATH") {
+        tracing::info!("Overriding wallet.dbPath with env var CDK_WALLET_DB_PATH={}", db_path_override);
+        proxy_config.wallet.db_path = db_path_override;
+    }
+
     proxy_config.mint = Some(global_config.mint);
     proxy_config.redis = Some(global_config.redis);
 
-    info!("Proxy Config: {:?}", &proxy_config);
+    tracing::info!("Proxy Config: {:?}", &proxy_config);
 
     lib::TranslatorSv2::new(proxy_config).start().await;
 }
