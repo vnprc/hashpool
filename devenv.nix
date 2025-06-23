@@ -13,6 +13,8 @@
 
   bitcoindDataDir = "${config.devenv.root}/.devenv/state/bitcoind";
   lightningClnDataDir = "${config.devenv.root}/.devenv/state/cln";
+  translatorWalletDb = "${config.devenv.root}/.devenv/state/translator/wallet";
+  mintDb = "${config.devenv.root}/.devenv/state/mint";
 
   poolConfig = builtins.fromTOML (builtins.readFile ./config/shared/pool.toml);
   minerConfig = builtins.fromTOML (builtins.readFile ./config/shared/miner.toml);
@@ -57,11 +59,18 @@ in {
   # TODO split bitcoind configs into poolside and minerside
   env.BITCOIND_DATADIR = config.devenv.root + "/.devenv/state/bitcoind";
   env.IN_DEVENV = "1";
+  env.TRANSLATOR_WALLET_DB = translatorWalletDb;
+  env.MINT_DB = mintDb;
 
-  # Ensure logs directory exists before processes run
-  tasks.create-logs-dir = {
-    exec = "mkdir -p ${config.devenv.root}/logs";
-    before = ["devenv:enterShell"];
+  # Ensure log and db directories exists before processes run
+  tasks.create-dirs = {
+    exec = ''
+      echo "Creating persistent directories..."
+      mkdir -p ${config.devenv.root}/logs
+      mkdir -p ${translatorWalletDb}
+      mkdir -p ${mintDb}
+    '';
+    before = ["proxy" "mint" "pool"];
   };
 
   # https://devenv.sh/packages/
@@ -121,6 +130,7 @@ in {
     # TODO switch to miner shared config
     proxy = {
       exec = withLogging ''
+        export CDK_WALLET_DB_PATH=${config.env.TRANSLATOR_WALLET_DB}
         ${waitForPort minerConfig.pool.port "Pool"}
         cargo -C roles/translator -Z unstable-options run -- \
           -c ${config.devenv.root}/config/tproxy.config.toml \
