@@ -10,6 +10,7 @@ description = "cashu mint to expose ehash and ecash operations to end user walle
 
 [database]
 engine = "sqlite"
+db_path = ".devenv/state/mint/mint.sqlite"
 
 [ln]
 ln_backend = "fakewallet"

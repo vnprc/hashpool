@@ -13,8 +13,8 @@
 
   bitcoindDataDir = "${config.devenv.root}/.devenv/state/bitcoind";
   lightningClnDataDir = "${config.devenv.root}/.devenv/state/cln";
-  translatorWalletDb = "${config.devenv.root}/.devenv/state/translator/wallet";
-  mintDb = "${config.devenv.root}/.devenv/state/mint";
+  translatorWalletDb = "${config.devenv.root}/.devenv/state/translator/wallet.sqlite";
+  mintDb = "${config.devenv.root}/.devenv/state/mint/mint.sqlite";
 
   poolConfig = builtins.fromTOML (builtins.readFile ./config/shared/pool.toml);
   minerConfig = builtins.fromTOML (builtins.readFile ./config/shared/miner.toml);
@@ -169,6 +169,7 @@ in {
 
     mint = {
       exec = withLogging ''
+        export CDK_MINT_DB_PATH=${config.env.MINT_DB}
         ${waitForPort poolConfig.redis.port "Redis"}
         cargo -C roles/mint -Z unstable-options run -- \
           -c ${config.devenv.root}/config/mint.config.toml \
