@@ -27,6 +27,7 @@ pub struct ProxyConfig {
 #[derive(Debug, Deserialize, Clone)]
 pub struct WalletConfig {
     pub mnemonic: String,
+    pub db_path: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
