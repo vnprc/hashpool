@@ -10,6 +10,7 @@ use futures::FutureExt;
 use rand::Rng;
 pub use roles_logic_sv2::utils::Mutex;
 use status::Status;
+use std::path::{Path, PathBuf};
 use std::{
     net::{IpAddr, SocketAddr},
     str::FromStr,
@@ -39,7 +40,7 @@ pub mod utils;
 // TODO add to config
 pub const HASH_CURRENCY_UNIT: &str = "HASH";
 
-use std::{thread, time::Duration};
+use std::{thread, time::Duration, env};
 use tokio::runtime::Handle;
 use anyhow::{Result, Context};
 
@@ -47,49 +48,64 @@ use anyhow::{Result, Context};
 pub struct TranslatorSv2 {
     config: ProxyConfig,
     reconnect_wait_time: u64,
-    wallet: Arc<Wallet>,
+    wallet: Option<Arc<Wallet>>,
     mint_client: HttpClient,
 }
 
-fn create_wallet(mint_url: String, mnemonic: String) -> Result<Arc<Wallet>> {
-    println!("Parsing mnemonic...");
+fn resolve_and_prepare_db_path(config_path: &str) -> PathBuf {
+    let path = Path::new(config_path);
+    let full_path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        env::current_dir()
+            .expect("Failed to get current working directory")
+            .join(path)
+    };
+
+    if let Some(parent) = full_path.parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent).expect("Failed to create parent directory for DB path");
+        }
+    }
+
+    full_path
+}
+
+pub async fn create_wallet(
+    mint_url: String,
+    mnemonic: String,
+    db_path: String,
+) -> Result<Arc<Wallet>> {
+    tracing::debug!("Parsing mnemonic...");
     let seed = Mnemonic::from_str(&mnemonic)
         .with_context(|| format!("Invalid mnemonic: '{}'", mnemonic))?
         .to_seed_normalized("")
         .to_vec();
-    println!("Seed derived.");
+    tracing::debug!("Seed derived.");
 
-println!("Creating localstore...");
+    let db_path = resolve_and_prepare_db_path(&db_path);
+    tracing::debug!("Resolved db_path: {}", db_path.display());
 
-let localstore: Arc<WalletSqliteDatabase> = match tokio::task::block_in_place(|| {
-    tokio::runtime::Handle::current().block_on(WalletSqliteDatabase::new("./wallet.sqlite"))
-}) {
-    Ok(store) => {
-        println!("Localstore created.");
-        Arc::new(store)
-    }
-    Err(e) => {
-        println!("❌ Failed to create WalletSqliteDatabase: {:?}", e);
-        return Err(e).context("WalletSqliteDatabase::new failed");
-    }
-};
-    println!("Localstore created.");
+    tracing::debug!("Creating localstore...");
+    let localstore = WalletSqliteDatabase::new(db_path)
+        .await
+        .context("WalletSqliteDatabase::new failed")?;
 
-    println!("Creating wallet...");
+    tracing::debug!("Creating wallet...");
     let wallet = Wallet::new(
         &mint_url,
         CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string()),
-        localstore,
+        Arc::new(localstore),
         &seed,
         None,
     )
     .context("Failed to create wallet")?;
-    println!("Wallet created.");
+    tracing::debug!("Wallet created.");
 
     let balance = tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(wallet.total_balance())
     });
-    println!("Wallet constructed: {:?}", balance);
+    tracing::debug!("Wallet constructed: {:?}", balance);
 
     Ok(Arc::new(wallet))
 }
@@ -112,13 +128,22 @@ impl TranslatorSv2 {
         Self {
             config: config.clone(),
             reconnect_wait_time: wait_time,
-            wallet: create_wallet(mint_url, config.wallet.mnemonic.clone())
-                .unwrap_or_else(|e| panic!("Failed to initialize wallet: {:?}", e)),
+            wallet: None,
             mint_client: mint_client,
         }
     }
 
-    pub async fn start(self) {
+    pub async fn start(mut self) {
+        let wallet = create_wallet(
+            extract_mint_url(&self.config),
+            self.config.wallet.mnemonic.clone(),
+            self.config.wallet.db_path.clone(),
+        )
+        .await
+        .expect("Failed to create wallet");
+
+        self.wallet = Some(wallet);
+
         let (tx_status, rx_status) = unbounded();
 
         let target = Arc::new(Mutex::new(vec![0; 32]));
@@ -216,6 +241,8 @@ impl TranslatorSv2 {
         tx_status: async_channel::Sender<Status<'static>>,
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
     ) {
+        let wallet = self.wallet.as_ref().unwrap().clone();
+
         let proxy_config = self.config.clone();
         // Sender/Receiver to send a SV2 `SubmitSharesExtended` from the `Bridge` to the `Upstream`
         // (Sender<SubmitSharesExtended<'static>>, Receiver<SubmitSharesExtended<'static>>)
@@ -263,7 +290,7 @@ impl TranslatorSv2 {
             target.clone(),
             diff_config.clone(),
             task_collector_upstream,
-            self.wallet.clone(),
+            wallet.clone(),
         )
         .await
         {
@@ -274,7 +301,6 @@ impl TranslatorSv2 {
             }
         };
         let task_collector_init_task = task_collector.clone();
-        let wallet = self.wallet.clone();
         // Spawn a task to do all of this init work so that the main thread
         // can listen for signals and failures on the status channel. This
         // allows for the tproxy to fail gracefully if any of these init tasks
@@ -360,7 +386,7 @@ impl TranslatorSv2 {
     }
 
     fn spawn_proof_sweeper(&self) {
-        let wallet = self.wallet.clone();
+        let wallet = self.wallet.as_ref().unwrap().clone();
         let mint_client = self.mint_client.clone();
 
         task::spawn_blocking(move || {
