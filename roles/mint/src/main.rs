@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::str::FromStr;
 
@@ -24,7 +24,7 @@ use bitcoin::bip32::{ChildNumber, DerivationPath};
 use shared_config::PoolGlobalConfig;
 
 use toml;
-use std::fs;
+use std::{env, fs};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -129,7 +129,16 @@ async fn main() -> Result<()> {
 
     let cache: HttpCache = mint_settings.info.http_cache.into();
 
-    let db = Arc::new(MintSqliteDatabase::new("mint.sqlite").await?);
+    // TODO update settings to accept mint db path, just use env var for now
+    let mut mint_db_path = resolve_and_prepare_db_path(".devenv/state/mint/db/mint.sqlite");
+
+    // override config file with env var for improved devex configurability
+    if let Ok(db_path_override) = std::env::var("CDK_MINT_DB_PATH") {
+        tracing::info!("Overriding mint.dbPath with env var CDK_MINT_DB_PATH={}", db_path_override);
+        mint_db_path = resolve_and_prepare_db_path(&db_path_override);
+    }
+
+    let db = Arc::new(MintSqliteDatabase::new(mint_db_path).await?);
 
     let signatory = Arc::new(
         DbSignatory::new(
@@ -379,4 +388,23 @@ async fn delete_key(
             tracing::warn!("Failed to delete key '{}': {:?}", key, e);
         }
     }
+}
+
+fn resolve_and_prepare_db_path(config_path: &str) -> PathBuf {
+    let path = Path::new(config_path);
+    let full_path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        env::current_dir()
+            .expect("Failed to get current working directory")
+            .join(path)
+    };
+
+    if let Some(parent) = full_path.parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent).expect("Failed to create parent directory for DB path");
+        }
+    }
+
+    full_path
 }
