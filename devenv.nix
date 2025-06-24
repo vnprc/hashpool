@@ -162,7 +162,7 @@ in {
       exec = withLogging ''
         ${waitForPort poolConfig.redis.port "Redis"}
         cargo -C roles/mint -Z unstable-options run -- \
-          -c ${config.devenv.root}/roles/mint/config/mint.config.toml \
+          -c ${config.devenv.root}/config/mint.config.toml \
           -g ${config.devenv.root}/config/shared/pool.toml
       '' "mint.log";
     };
