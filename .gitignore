@@ -20,7 +20,6 @@ cobertura.xml
 /examples/*/Cargo.lock
 /scripts/sv2.h
 /logs
-/config/jds-config-local.toml
 
 # Devenv
 .devenv*

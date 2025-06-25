@@ -103,13 +103,12 @@ in {
     jd-server = {
       exec = withLogging ''
         # Prepare config file
-        cp ${config.devenv.root}/roles/jd-server/config-examples/jds-config-local-example.toml ${config.devenv.root}/config/jds-config-local.toml
-        sed -i s/__PORT__/${config.env.BITCOIND_RPC_PORT}/ ${config.devenv.root}/config/jds-config-local.toml
+        sed -i -E "s/(core_rpc_port\s*=\s*)[0-9]+/\1${config.env.BITCOIND_RPC_PORT}/" ${config.devenv.root}/config/jds.config.toml
         if [ "$BITCOIND_NETWORK" = "regtest" ]; then
           DEVENV_ROOT=${config.devenv.root} BITCOIND_DATADIR=${bitcoindDataDir} ${config.devenv.root}/scripts/regtest-setup.sh
         fi
         ${waitForPort poolConfig.pool.port "Pool"}
-        cargo -C roles/jd-server -Z unstable-options run -- -c ${config.devenv.root}/config/jds-config-local.toml
+        cargo -C roles/jd-server -Z unstable-options run -- -c ${config.devenv.root}/config/jds.config.toml
       '' "jd-server.log";
     };
 
