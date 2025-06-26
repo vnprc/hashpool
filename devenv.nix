@@ -95,7 +95,7 @@ in {
       exec = withLogging ''
         ${waitForPort poolConfig.mint.port "Mint"}
         cargo -C roles/pool -Z unstable-options run -- \
-          -c ${config.devenv.root}/roles/pool/config-examples/pool-config-local-tp-example.toml \
+          -c ${config.devenv.root}/config/pool.config.toml \
           -g ${config.devenv.root}/config/shared/pool.toml
       '' "pool.log";
     };
@@ -114,16 +114,16 @@ in {
 
     jd-client = {
       exec = withLogging ''
-        cargo -C roles/jd-client -Z unstable-options run -- -c ${config.devenv.root}/roles/jd-client/config-examples/jdc-config-local-example.toml
+        cargo -C roles/jd-client -Z unstable-options run -- -c ${config.devenv.root}/config/jdc.config.toml
       '' "job-client.log";
     };
 
-    # TODO switch to miner config
+    # TODO switch to miner shared config
     proxy = {
       exec = withLogging ''
         ${waitForPort minerConfig.pool.port "Pool"}
         cargo -C roles/translator -Z unstable-options run -- \
-          -c ${config.devenv.root}/roles/translator/config-examples/tproxy-config-local-jdc-example.toml \
+          -c ${config.devenv.root}/config/tproxy.config.toml \
           -g ${config.devenv.root}/config/shared/pool.toml
       '' "proxy.log";
     };
