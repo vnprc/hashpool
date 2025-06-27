@@ -1,6 +1,15 @@
+# list available just commands
+default:
+	@just --list
+	@echo "Run 'just <recipe>' to execute a command."
+
 # format nix files
 formatnix:
 	alejandra .
+
+# enter devenv shell
+shell:
+	devenv shell
 
 # start development processes
 up:
