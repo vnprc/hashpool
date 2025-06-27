@@ -61,6 +61,7 @@ in {
   env.IN_DEVENV = "1";
   env.TRANSLATOR_WALLET_DB = translatorWalletDb;
   env.MINT_DB = mintDb;
+  env.RUST_LOG = "info";
 
   # Ensure log and db directories exists before processes run
   tasks.create-dirs = {
@@ -160,7 +161,7 @@ in {
         ${waitForPort minerConfig.proxy.port "Proxy"}
         cd roles/test-utils/mining-device-sv1
         while true; do
-          RUST_LOG=debug stdbuf -oL cargo run 2>&1 | tee -a ${config.devenv.root}/logs/miner.log
+          stdbuf -oL cargo run 2>&1 | tee -a ${config.devenv.root}/logs/miner.log
           echo "Miner crashed. Restarting..." >> ${config.devenv.root}/logs/miner.log
           sleep 5
         done
