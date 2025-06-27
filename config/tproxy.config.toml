@@ -37,3 +37,4 @@ channel_nominal_hashrate = 10_000_000_000.0
 
 [wallet]
 mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+db_path = ".devenv/state/translator/wallet.sqlite"
