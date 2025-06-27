@@ -262,16 +262,17 @@ impl Bridge {
                 info!("SHARE MEETS UPSTREAM TARGET");
                 match share {
                     Share::Extended(mut share) => {
-                        let premint_secrets = self_.safe_lock(|bridge| {
-                            match bridge.create_blinded_secrets(&share) {
-                                Ok(secrets) => secrets,
-                                Err(e) => {
-                                    println!("Failed to create blinded secret: {:?}", e);
-                                    // TODO fail gracefully
-                                    panic!();
-                                }
+                        let premint_secrets = match self_.safe_lock(|bridge| bridge.create_blinded_secrets(&share)) {
+                            Ok(Ok(secrets)) => secrets,
+                            Ok(Err(e)) => {
+                                error!(?e, ?share, "Failed to create blinded secrets");
+                                return Ok(()); // skip this share
                             }
-                        })?;
+                            Err(lock_err) => {
+                                error!(?lock_err, "Failed to lock bridge for blinded secrets");
+                                return Ok(());
+                            }
+                        };
 
                         let blinded_message_set = match BlindedMessageSet::try_from(premint_secrets) {
                             Ok(set) => set,
