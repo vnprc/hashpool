@@ -348,7 +348,6 @@ pub fn hash_rate_from_target(target: U256<'static>, share_per_min: f64) -> Resul
     }
 
     let mut target_arr: [u8; 32] = [0; 32];
-    // TODO I never touched this code, why did it suddenly fail to compile?
     target_arr.copy_from_slice(target.inner_as_ref());
     target_arr.reverse();
     let target = Uint256::from_be_bytes(target_arr);
