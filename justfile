@@ -62,3 +62,9 @@ generate-blocks COUNT="1":
 # Opens the translator wallet database with sqlite3
 wallet-db:
     sqlite3 .devenv/state/translator/wallet.sqlite
+
+# Opens the translator wallet database with sqlite3
+delete-wallet-db:
+    rm .devenv/state/translator/wallet.sqlite \
+       .devenv/state/translator/wallet.sqlite-shm \
+       .devenv/state/translator/wallet.sqlite-wal
