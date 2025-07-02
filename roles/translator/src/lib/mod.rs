@@ -134,13 +134,26 @@ impl TranslatorSv2 {
     }
 
     pub async fn start(mut self) {
+        let config = &self.config;
+
         let wallet = create_wallet(
             extract_mint_url(&self.config),
-            self.config.wallet.mnemonic.clone(),
-            self.config.wallet.db_path.clone(),
+            config.wallet.mnemonic.clone(),
+            config.wallet.db_path.clone(),
         )
         .await
         .expect("Failed to create wallet");
+
+        if let Some(mint_cfg) = &config.mint {
+            let mint_url = MintUrl::from_str(&mint_cfg.url)
+                .expect("Invalid mint URL");
+
+            wallet
+                .localstore
+                .add_mint(mint_url, None)
+                .await
+                .expect("Failed to add mint to localstore");
+        }
 
         self.wallet = Some(wallet);
 
