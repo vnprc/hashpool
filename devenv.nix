@@ -72,7 +72,7 @@ in {
       pkgs.just
       pkgs.coreutils # Provides stdbuf for disabling output buffering
       pkgs.redis
-      pkgs.clightning # Lightning - CLN
+      pkgs.clightning
     ]
     ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [pkgs.darwin.apple_sdk.frameworks.Security];
 
