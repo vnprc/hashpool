@@ -11,9 +11,13 @@ formatnix:
 shell:
 	devenv shell
 
-# start development processes
-up:
-	devenv up
+# start development processes; pass 'backtrace' to enable RUST_BACKTRACE=1
+up mode="":
+    @if [ "{{mode}}" = "backtrace" ]; then \
+        RUST_BACKTRACE=1 devenv up; \
+    else \
+        devenv up; \
+    fi
 
 # point cdk cargo dependencies to local repo
 local-cdk:
