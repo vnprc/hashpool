@@ -1,7 +1,7 @@
 [info]
-listen_host = "127.0.0.1"
+listen_host = "localhost"
 listen_port = 3338
-url = "http://127.0.0.1:3338"
+url = "http://localhost:3338"
 mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
 
 [mint_info]
