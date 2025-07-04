@@ -36,7 +36,7 @@ use roles_logic_sv2::{
     Error::NoUpstreamsConnected,
 };
 use std::{
-    backtrace::Backtrace, net::SocketAddr, sync::{atomic::AtomicBool, Arc}
+    net::SocketAddr, sync::{atomic::AtomicBool, Arc}
 };
 use tokio::{
     task::AbortHandle,
@@ -705,8 +705,7 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
 
         tokio::spawn(async move {
             if let Err(e) = wallet_clone.add_keyset(keyset.keys, true, 0).await {
-                let bt = Backtrace::capture();
-                warn!("Failed to add keyset to wallet: {:?}\nBacktrace:\n{:?}", e, bt);
+                warn!("Failed to add keyset to wallet: {:?}", e);
             }
         });
 
