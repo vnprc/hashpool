@@ -2,7 +2,7 @@ use cdk::{amount::{Amount, AmountStr}, nuts::{BlindSignature, BlindedMessage, Cu
 use core::array;
 use std::{collections::BTreeMap, convert::{TryFrom, TryInto}};
 pub use std::error::Error;
-use tracing::error;
+use tracing::warn;
 
 #[cfg(not(feature = "with_serde"))]
 pub use binary_sv2::binary_codec_sv2::{self, Decodable as Deserialize, Encodable as Serialize, *};
@@ -610,32 +610,27 @@ pub fn format_quote_event_json(req: &MintQuoteMiningShareRequest, msgs: &[Blinde
     out
 }
 
-fn sv2_signing_keys_to_keys(keys: &[Sv2SigningKey]) -> Option<Keys> {
+fn sv2_signing_keys_to_keys(keys: &[Sv2SigningKey]) -> Result<Keys, String> {
     let mut map = BTreeMap::new();
     for (i, k) in keys.iter().enumerate() {
         let mut pubkey_bytes = [0u8; 33];
         pubkey_bytes[0] = if k.parity_bit { 0x03 } else { 0x02 };
         pubkey_bytes[1..].copy_from_slice(k.pubkey.inner_as_ref());
 
-        match PublicKey::from_slice(&pubkey_bytes) {
-            Ok(pubkey) => {
-                map.insert(
-                    AmountStr::from(Amount::from(k.amount)),
-                    pubkey,
-                );
-            }
-            Err(e) => {
-                error!("ERROR sv2_signing_keys_to_keys: Failed to parse public key for key {}: {:?}", i, e);
-                return None;
-            }
-        }
+        let pubkey = PublicKey::from_slice(&pubkey_bytes)
+            .map_err(|e| format!("Failed to parse public key for key {}: {:?}", i, e))?;
+
+        map.insert(
+            AmountStr::from(Amount::from(k.amount)),
+            pubkey,
+        );
     }
-    Some(Keys::new(map))
+    Ok(Keys::new(map))
 }
 
 fn calculate_keyset_id(keys: &[Sv2SigningKey]) -> u64 {
     match sv2_signing_keys_to_keys(keys) {
-        Some(keys_map) => {
+        Ok(keys_map) => {
             let id = cdk::nuts::nut02::Id::from(&keys_map);
             let id_bytes = id.to_bytes();
 
@@ -644,8 +639,8 @@ fn calculate_keyset_id(keys: &[Sv2SigningKey]) -> u64 {
 
             u64::from_be_bytes(padded)
         }
-        None => {
-            error!("ERROR calculate_keyset_id: Failed to generate Keys, defaulting keyset ID to 0");
+        Err(e) => {
+            warn!("Failed to generate Keys, defaulting keyset ID to 0: {}", e);
             0
         }
     }
