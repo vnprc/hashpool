@@ -63,8 +63,18 @@ generate-blocks COUNT="1":
 wallet-db:
     sqlite3 .devenv/state/translator/wallet.sqlite
 
-# Opens the translator wallet database with sqlite3
+# Opens the mint database with sqlite3
+mint-db:
+    sqlite3 .devenv/state/mint/mint.sqlite
+
+# delete all wallet db files
 delete-wallet-db:
     rm .devenv/state/translator/wallet.sqlite \
        .devenv/state/translator/wallet.sqlite-shm \
        .devenv/state/translator/wallet.sqlite-wal
+
+# delete all mint db files
+delete-mint-db:
+    rm .devenv/state/mint/mint.sqlite \
+       .devenv/state/mint/mint.sqlite-shm \
+       .devenv/state/mint/mint.sqlite-wal
