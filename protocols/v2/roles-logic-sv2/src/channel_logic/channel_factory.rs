@@ -837,7 +837,16 @@ impl ChannelFactory {
 
         trace!("On checking target header is: {:?}", header);
         let hash_ = header.block_hash();
-        let hash = hash_.as_hash().into_inner();
+        let mut hash = hash_.as_hash().into_inner();
+        hash.reverse();
+
+        // Hashpool: set hash on the share for use in indexing the blinded secret
+        match &mut m {
+            Share::Extended(extended_share) => {
+                extended_share.hash = hash.into();
+            }
+            Share::Standard(_) => (),
+        };
 
         if tracing::level_enabled!(tracing::Level::DEBUG)
             || tracing::level_enabled!(tracing::Level::TRACE)
@@ -850,16 +859,7 @@ impl ChannelFactory {
             let mut upstream_target = upstream_target.to_vec();
             upstream_target.reverse();
             debug!("Upstream target: {:?}", upstream_target.to_vec().to_hex());
-            let mut hash = hash;
-            hash.reverse();
             debug!("Hash           : {:?}", hash.to_vec().to_hex());
-            // Hashpool: set hash on the share for use in indexing the blinded secret
-            match &mut m {
-                Share::Extended(extended_share) => {
-                    extended_share.hash = hash.into();
-                }
-                Share::Standard(_) => (),
-            };
         }
         let hash: Target = hash.into();
 
