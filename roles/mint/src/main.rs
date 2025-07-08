@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::str::FromStr;
 
 use cdk::mint::Mint;
-use cdk::nuts::{CurrencyUnit};
+use cdk::nuts::CurrencyUnit;
 use cdk::types::QuoteTTL;
 use cdk_axum::cache::HttpCache;
 use cdk_mintd::config::{self, LnBackend};
