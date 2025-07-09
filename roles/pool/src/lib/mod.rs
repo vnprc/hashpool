@@ -242,6 +242,7 @@ impl PoolSv2<'_> {
             id,
             unit,
             keys: Keys::new(keys_map),
+            final_expiry: None,
         }
     }
 
