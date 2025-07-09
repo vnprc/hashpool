@@ -704,7 +704,7 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
             .map_err(|e| RolesLogicError::KeysetError(e.to_string()))?;
 
         tokio::spawn(async move {
-            if let Err(e) = wallet_clone.add_keyset(keyset.keys, true, 0).await {
+            if let Err(e) = wallet_clone.add_keyset(keyset, true, 0).await {
                 warn!("Failed to add keyset to wallet: {:?}", e);
             }
         });
