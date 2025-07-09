@@ -287,6 +287,7 @@ impl<'a> TryFrom<Sv2KeySet<'a>> for KeySet {
             id,
             unit: CurrencyUnit::Custom("HASH".to_string()),
             keys: cdk::nuts::Keys::new(keys_map),
+            final_expiry: None,
         })
     }
 }
@@ -571,7 +572,7 @@ pub fn format_quote_event_json(req: &MintQuoteMiningShareRequest, msgs: &[Blinde
         out,
         "\"amount\":{},\"header_hash\":\"{}\",",
         req.amount.to_string(),
-        hex::encode(req.header_hash.to_byte_array())
+        req.header_hash
     ).unwrap();
 
     match &req.description {
@@ -631,7 +632,7 @@ fn sv2_signing_keys_to_keys(keys: &[Sv2SigningKey]) -> Result<Keys, String> {
 fn calculate_keyset_id(keys: &[Sv2SigningKey]) -> u64 {
     match sv2_signing_keys_to_keys(keys) {
         Ok(keys_map) => {
-            let id = cdk::nuts::nut02::Id::from(&keys_map);
+            let id = cdk::nuts::nut02::Id::v1_from_keys(&keys_map);
             let id_bytes = id.to_bytes();
 
             let mut padded = [0u8; 8];

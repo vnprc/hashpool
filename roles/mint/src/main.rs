@@ -130,7 +130,7 @@ async fn main() -> Result<()> {
     let cache: HttpCache = mint_settings.info.http_cache.into();
 
     // TODO update settings to accept mint db path, just use env var for now
-    let mut mint_db_path = resolve_and_prepare_db_path(".devenv/state/mint/db/mint.sqlite");
+    let mut mint_db_path = resolve_and_prepare_db_path(".devenv/state/mint/mint.sqlite");
 
     // override config file with env var for improved devex configurability
     if let Ok(db_path_override) = std::env::var("CDK_MINT_DB_PATH") {

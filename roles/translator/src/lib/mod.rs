@@ -486,6 +486,7 @@ impl TranslatorSv2 {
             send_kind: SendKind::OnlineExact,
             include_fee: false,
             metadata: HashMap::new(),
+            max_proofs: None,
         };
         let send = tokio::runtime::Handle::current()
             .block_on(wallet.prepare_send(cdk::Amount::from(1), options)).unwrap();
