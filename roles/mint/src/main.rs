@@ -159,7 +159,26 @@ async fn main() -> Result<()> {
     .await.unwrap());
 
     // mint.check_pending_mint_quotes().await?;
-    mint.check_pending_melt_quotes().await?;
+    // mint.check_pending_melt_quotes().await?;
+    
+    // Set mint info in database
+    use cdk::nuts::{MintInfo, Nuts};
+    let mint_info = MintInfo {
+        name: Some(mint_settings.mint_info.name.clone()),
+        description: Some(mint_settings.mint_info.description.clone()),
+        pubkey: None,
+        version: None,
+        description_long: None,
+        contact: None,
+        nuts: Nuts::new(),
+        icon_url: None,
+        urls: None,
+        motd: None,
+        time: None,
+        tos_url: None,
+    };
+    mint.set_mint_info(mint_info).await?;
+    
     mint.set_quote_ttl(QuoteTTL::new(10_000, 10_000)).await?;
 
     let router = cdk_axum::create_mint_router_with_custom_cache(mint.clone(), cache).await?;
