@@ -52,8 +52,8 @@ shared_config = { path = "../roles-utils/config" }
 bip39 = "2.0"
 anyhow = "1.0"
 
-cdk = { git = "https://github.com/vnprc/cdk", rev = "eeaac56" }
-cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", package = "cdk-sqlite", rev = "eeaac56" }
+cdk = { git = "https://github.com/vnprc/cdk.git", package = "cdk", rev = "2e5f7c84" }
+cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", package = "cdk-sqlite", rev = "2e5f7c84" }
 
 [dev-dependencies]
 sha2 = "0.10.6"
