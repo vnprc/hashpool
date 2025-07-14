@@ -60,7 +60,7 @@ generate-blocks COUNT="1":
     @bitcoin-cli -datadir=.devenv/state/bitcoind -conf=$(pwd)/config/bitcoin.conf -rpcuser=username -rpcpassword=password -regtest -rpcwallet=regtest -generate {{COUNT}}
 
 # Open cdk sqlite terminal client (wallet or mint)
-db TYPE:
+db TYPE="":
     @if [ "{{TYPE}}" = "wallet" ]; then \
         sqlite3 .devenv/state/translator/wallet.sqlite; \
     elif [ "{{TYPE}}" = "mint" ]; then \
