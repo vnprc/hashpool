@@ -59,22 +59,25 @@ generate-blocks COUNT="1":
     @echo "Generating {{COUNT}} blocks in regtest..."
     @bitcoin-cli -datadir=.devenv/state/bitcoind -conf=$(pwd)/config/bitcoin.conf -rpcuser=username -rpcpassword=password -regtest -rpcwallet=regtest -generate {{COUNT}}
 
-# Opens the translator wallet database with sqlite3
-wallet-db:
-    sqlite3 .devenv/state/translator/wallet.sqlite
+# Open cdk sqlite terminal client (wallet or mint)
+db TYPE:
+    @if [ "{{TYPE}}" = "wallet" ]; then \
+        sqlite3 .devenv/state/translator/wallet.sqlite; \
+    elif [ "{{TYPE}}" = "mint" ]; then \
+        sqlite3 .devenv/state/mint/mint.sqlite; \
+    else \
+        echo "Error: TYPE must be 'wallet' or 'mint'"; \
+        exit 1; \
+    fi
 
-# Opens the mint database with sqlite3
-mint-db:
-    sqlite3 .devenv/state/mint/mint.sqlite
-
-# delete all wallet db files
-delete-wallet-db:
-    rm .devenv/state/translator/wallet.sqlite \
-       .devenv/state/translator/wallet.sqlite-shm \
-       .devenv/state/translator/wallet.sqlite-wal
-
-# delete all mint db files
-delete-mint-db:
-    rm .devenv/state/mint/mint.sqlite \
-       .devenv/state/mint/mint.sqlite-shm \
-       .devenv/state/mint/mint.sqlite-wal
+# delete all cashu persistent storage
+clean:
+    @echo "deleting all sqlite redis data..."
+    rm -f .devenv/state/translator/wallet.sqlite \
+          .devenv/state/translator/wallet.sqlite-shm \
+          .devenv/state/translator/wallet.sqlite-wal \
+          .devenv/state/mint/mint.sqlite \
+          .devenv/state/mint/mint.sqlite-shm \
+          .devenv/state/mint/mint.sqlite-wal \
+          .devenv/state/redis/dump.rdb
+    @echo "all sqlite and redis data deleted"
