@@ -6,15 +6,15 @@ use args::Args;
 use error::{Error, ProxyResult};
 pub use lib::{downstream_sv1, error, proxy, proxy_config, status, upstream_sv2};
 use proxy_config::ProxyConfig;
-use shared_config::PoolGlobalConfig;
+use shared_config::MinerGlobalConfig;
 
 use ext_config::{Config, File, FileFormat};
 
-use tracing::{error, info};
+use tracing::error;
 
 /// Process CLI args, if any.
 #[allow(clippy::result_large_err)]
-fn process_cli_args<'a>() -> ProxyResult<'a, (ProxyConfig, PoolGlobalConfig)> {
+fn process_cli_args<'a>() -> ProxyResult<'a, (ProxyConfig, MinerGlobalConfig)> {
     // Parse CLI arguments
     let args = Args::from_args().map_err(|help| {
         error!("{}", help);
@@ -39,7 +39,7 @@ fn process_cli_args<'a>() -> ProxyResult<'a, (ProxyConfig, PoolGlobalConfig)> {
         Error::BadCliArgs
     })?;
 
-    let global_config = PoolGlobalConfig::from_path(global_path)
+    let global_config = MinerGlobalConfig::from_path(global_path)
         .map_err(|_| Error::BadCliArgs)?;
 
     Ok((proxy_config, global_config))
@@ -61,7 +61,6 @@ async fn main() {
     }
 
     proxy_config.mint = Some(global_config.mint);
-    proxy_config.redis = Some(global_config.redis);
 
     tracing::info!("Proxy Config: {:?}", &proxy_config);
 
