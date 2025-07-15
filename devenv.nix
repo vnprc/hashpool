@@ -128,14 +128,13 @@ in {
       '' "job-client.log";
     };
 
-    # TODO switch to miner shared config
     proxy = {
       exec = withLogging ''
         export CDK_WALLET_DB_PATH=${config.env.TRANSLATOR_WALLET_DB}
         ${waitForPort minerConfig.pool.port "Pool"}
         cargo -C roles/translator -Z unstable-options run -- \
           -c ${config.devenv.root}/config/tproxy.config.toml \
-          -g ${config.devenv.root}/config/shared/pool.toml
+          -g ${config.devenv.root}/config/shared/miner.toml
       '' "proxy.log";
     };
 

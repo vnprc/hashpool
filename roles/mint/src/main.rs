@@ -219,7 +219,6 @@ async fn main() -> Result<()> {
         mint.clone(),
         redis_url.clone(),
         create_quote_prefix.clone(),
-        quote_id_prefix.clone(),
     ));
 
     tokio::spawn(poll_and_clean_up_quote_ids(
@@ -256,8 +255,6 @@ async fn wait_for_invoices(mint: Arc<Mint>, shutdown: Arc<Notify>) {
 
 async fn handle_quote_payload(
     mint: Arc<Mint>,
-    redis_url: &str,
-    quote_id_prefix: &str,
     payload: &str,
 ) {
     let envelope: QuoteRequestEnvelope = match serde_json::from_str(payload) {
@@ -269,21 +266,7 @@ async fn handle_quote_payload(
     };
 
     match mint.create_paid_mint_mining_share_quote(envelope.quote_request, envelope.blinded_messages).await {
-        Ok(resp) => {
-            tracing::info!("Quote created: {:?}", resp);
-            let quote_mapping_key = format!("{}:{}", quote_id_prefix, resp.request);
-            match redis::Client::open(redis_url) {
-                Ok(client) => match client.get_async_connection().await {
-                    Ok(mut redis_conn) => {
-                        if let Err(e) = redis_conn.set::<_, _, ()>(&quote_mapping_key, resp.quote.to_string()).await {
-                            tracing::error!("Failed to write quote to redis: {:?}", e);
-                        }
-                    }
-                    Err(e) => tracing::error!("Failed to get redis connection: {:?}", e),
-                },
-                Err(e) => tracing::error!("Redis client open failed: {:?}", e),
-            }
-        }
+        Ok(resp) => tracing::info!("Quote created: {:?}", resp),
         Err(err) => tracing::error!("Quote creation failed: {}", err),
     }
 }
@@ -292,7 +275,6 @@ async fn poll_for_quotes(
     mint: Arc<Mint>,
     redis_url: String,
     create_quote_key: String,
-    quote_id_prefix: String,
 ) {
     loop {
         let client_result = redis::Client::open(redis_url.clone());
@@ -319,7 +301,7 @@ async fn poll_for_quotes(
             .await;
 
         if let Ok(Some((_, payload))) = res {
-            handle_quote_payload(mint.clone(), &redis_url, &quote_id_prefix, &payload).await;
+            handle_quote_payload(mint.clone(), &payload).await;
         }
     }
 }
