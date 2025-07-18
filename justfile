@@ -70,14 +70,29 @@ db TYPE="":
         exit 1; \
     fi
 
-# delete all cashu persistent storage
-clean:
-    @echo "deleting all sqlite redis data..."
-    rm -f .devenv/state/translator/wallet.sqlite \
-          .devenv/state/translator/wallet.sqlite-shm \
-          .devenv/state/translator/wallet.sqlite-wal \
-          .devenv/state/mint/mint.sqlite \
-          .devenv/state/mint/mint.sqlite-shm \
-          .devenv/state/mint/mint.sqlite-wal \
-          .devenv/state/redis/dump.rdb
-    @echo "all sqlite and redis data deleted"
+# delete persistent storage; options: cashu, regtest, testnet4
+clean TYPE="":
+    @if [ "{{TYPE}}" = "cashu" ]; then \
+        echo "deleting all sqlite and redis data..."; \
+        rm -f .devenv/state/translator/wallet.sqlite \
+              .devenv/state/translator/wallet.sqlite-shm \
+              .devenv/state/translator/wallet.sqlite-wal \
+              .devenv/state/mint/mint.sqlite \
+              .devenv/state/mint/mint.sqlite-shm \
+              .devenv/state/mint/mint.sqlite-wal \
+              .devenv/state/redis/dump.rdb; \
+        echo "all sqlite and redis data deleted"; \
+    elif [ "{{TYPE}}" = "regtest" ]; then \
+        echo "deleting regtest data..."; \
+        rm -rf .devenv/state/bitcoind/regtest .devenv/state/cln/regtest; \
+        rm -f .devenv/state/cln/lightningd-regtest.pid; \
+        echo "regtest data deleted"; \
+    elif [ "{{TYPE}}" = "testnet4" ]; then \
+        echo "deleting testnet4 data..."; \
+        rm -rf .devenv/state/bitcoind/testnet4 .devenv/state/cln/testnet4; \
+        rm -f .devenv/state/cln/lightningd-testnet4.pid; \
+        echo "testnet4 data deleted"; \
+    else \
+        echo "Error: TYPE must be 'cashu', 'regtest', or 'testnet4'"; \
+        exit 1; \
+    fi
