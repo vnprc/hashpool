@@ -1,5 +1,6 @@
 use super::super::mining_pool::Downstream;
 use bitcoin_hashes::sha256::Hash;
+use cdk::secp256k1::hashes::Hash as CdkHashTrait;
 use mining_sv2::cashu::{calculate_work, BlindedMessageSet};
 use roles_logic_sv2::{
     errors::Error,
@@ -14,6 +15,39 @@ use roles_logic_sv2::{
 use shared_config::RedisConfig;
 use std::{convert::{TryFrom, TryInto}, sync::Arc};
 use tracing::error;
+
+/// Creates a mint quote request and enqueues it for processing
+fn create_and_enqueue_mining_share_quote(
+    m: SubmitSharesExtended<'_>,
+    redis_config: &RedisConfig,
+) -> Result<(), roles_logic_sv2::Error> {
+    let header_hash = Hash::from_slice(m.hash.inner_as_ref())
+        .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid header hash: {e}")))?;
+    
+    let amount = calculate_work(header_hash.to_byte_array());
+    
+    let blinded_message_set = BlindedMessageSet::try_from(m.blinded_messages.clone())
+        .expect("Failed to convert Sv2BlindedMessageSetWire to BlindedMessageSet");
+    
+    let blinded_message_vec: Vec<cdk::nuts::BlindedMessage> = blinded_message_set.items.iter()
+        .filter_map(|item| item.clone())
+        .collect();
+    
+    let quote_request = cdk::nuts::nutXX::MintQuoteMiningShareRequest {
+        amount: amount.into(),
+        unit: cdk::nuts::CurrencyUnit::Custom("HASH".to_string()),
+        // TODO handle unwrap
+        header_hash: CdkHashTrait::from_slice(&header_hash.to_byte_array()).unwrap(),  // Convert to CDK Hash type
+        description: None,
+        pubkey: None,
+        blinded_messages: blinded_message_vec.clone(),
+    };
+    
+    let json = mining_sv2::cashu::format_quote_event_json(&quote_request, &blinded_message_vec);
+    tokio::spawn(enqueue_quote_event(redis_config.clone(), json));
+    
+    Ok(())
+}
 
 impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> for Downstream {
     fn get_channel_type(&self) -> SupportedChannelTypes {
@@ -157,7 +191,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
 
     fn handle_submit_shares_extended(
         &mut self,
-        m: SubmitSharesExtended,
+        m: SubmitSharesExtended<'_>,
     ) -> Result<SendTo<()>, Error> {
         let res = self
             .channel_factory
@@ -183,27 +217,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         while self.solution_sender.try_send(solution.clone()).is_err() {};
                     }
 
-                    let header_hash = Hash::from_slice(m.hash.inner_as_ref())
-                        .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid header hash: {e}")))?;
-
-                    let quote_request = cdk::nuts::nutXX::MintQuoteMiningShareRequest {
-                        amount: calculate_work(header_hash.to_byte_array()).into(),
-                        unit: cdk::nuts::CurrencyUnit::Custom("HASH".to_string()),
-                        header_hash: header_hash.to_string(),
-                        description: None,
-                        pubkey: None,
-                    };
-
-                    let blinded_message_set = BlindedMessageSet::try_from(m.blinded_messages.clone())
-                    .expect("Failed to convert Sv2BlindedMessageSetWire to BlindedMessageSet");
-
-                    let blinded_message_vec: Vec<cdk::nuts::BlindedMessage> = blinded_message_set.items.iter()
-                        .filter_map(|item| item.clone())
-                        .collect();
-
-                    let json = mining_sv2::cashu::format_quote_event_json(&quote_request, &blinded_message_vec);
-                    // TODO ensure future resolves
-                    tokio::spawn(enqueue_quote_event(self.redis_config.clone(), json));
+                    create_and_enqueue_mining_share_quote(m.clone(), &self.redis_config)?;
     
 
                     let success = SubmitSharesSuccess {
@@ -219,28 +233,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
 
                 },
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetDownstreamTarget => {
-                    let header_hash = Hash::from_slice(m.hash.inner_as_ref())
-                        .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid header hash: {e}")))?;
-                    let amount = calculate_work(header_hash.to_byte_array());
-
-                    let quote_request = cdk::nuts::nutXX::MintQuoteMiningShareRequest {
-                        amount: amount.into(),
-                        unit: cdk::nuts::CurrencyUnit::Custom("HASH".to_string()),
-                        header_hash: header_hash.to_string(),
-                        description: None,
-                        pubkey: None,
-                    };
-
-                    let blinded_message_set = BlindedMessageSet::try_from(m.blinded_messages.clone())
-                    .expect("Failed to convert Sv2BlindedMessageSetWire to BlindedMessageSet");
-
-                    let blinded_message_vec: Vec<cdk::nuts::BlindedMessage> = blinded_message_set.items.iter()
-                        .filter_map(|item| item.clone())
-                        .collect();
-
-                    let json = mining_sv2::cashu::format_quote_event_json(&quote_request, &blinded_message_vec);
-                    // TODO ensure future resolves
-                    tokio::spawn(enqueue_quote_event(self.redis_config.clone(), json));
+                    create_and_enqueue_mining_share_quote(m.clone(), &self.redis_config)?;
 
                     let success = SubmitSharesSuccess {
                         channel_id: m.channel_id,

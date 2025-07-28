@@ -121,7 +121,7 @@ async fn main() -> Result<()> {
     currency_units.insert(hash_currency_unit.clone(), (0, NUM_KEYS));
 
     let mut derivation_paths = HashMap::new();
-    derivation_paths.insert(hash_currency_unit, DerivationPath::from(vec![
+    derivation_paths.insert(hash_currency_unit.clone(), DerivationPath::from(vec![
         ChildNumber::from_hardened_idx(0).expect("Failed to create purpose index 0"),
         ChildNumber::from_hardened_idx(HASH_DERIVATION_PATH).expect(&format!("Failed to create coin type index {}", HASH_DERIVATION_PATH)),
         ChildNumber::from_hardened_idx(0).expect("Failed to create account index 0"),
@@ -162,7 +162,23 @@ async fn main() -> Result<()> {
     // mint.check_pending_melt_quotes().await?;
     
     // Set mint info in database
-    use cdk::nuts::{MintInfo, Nuts};
+    use cdk::nuts::{MintInfo, Nuts, PaymentMethod, MintMethodSettings};
+    use cdk::Amount;
+    
+    // Configure NUT-04 settings for MiningShare payment method with HASH unit
+    let mining_share_method = MintMethodSettings {
+        method: PaymentMethod::MiningShare,
+        unit: hash_currency_unit.clone(),
+        min_amount: Some(Amount::from(1)),
+        // TODO update units to 2^bits not just raw bits
+        max_amount: Some(Amount::from(256)),
+        options: None,
+    };
+    
+    let mut nuts = Nuts::new();
+    nuts.nut04.methods.push(mining_share_method);
+    nuts.nut04.disabled = false;
+    
     let mint_info = MintInfo {
         name: Some(mint_settings.mint_info.name.clone()),
         description: Some(mint_settings.mint_info.description.clone()),
@@ -170,7 +186,7 @@ async fn main() -> Result<()> {
         version: None,
         description_long: None,
         contact: None,
-        nuts: Nuts::new(),
+        nuts,
         icon_url: None,
         urls: None,
         motd: None,
@@ -181,7 +197,7 @@ async fn main() -> Result<()> {
     
     mint.set_quote_ttl(QuoteTTL::new(10_000, 10_000)).await?;
 
-    let router = cdk_axum::create_mint_router_with_custom_cache(mint.clone(), cache).await?;
+    let router = cdk_axum::create_mint_router_with_custom_cache(mint.clone(), cache, false).await?;
     let shutdown = Arc::new(Notify::new());
 
     tokio::spawn(wait_for_invoices(mint.clone(), shutdown.clone()));
@@ -238,14 +254,6 @@ async fn main() -> Result<()> {
 
 // TODO move this somewhere more appropriate. Into cdk probably
 use cdk::nuts::nutXX::MintQuoteMiningShareRequest;
-use cdk::nuts::BlindedMessage;
-use serde::Deserialize;
-
-#[derive(Debug, Deserialize)]
-struct QuoteRequestEnvelope {
-    quote_request: MintQuoteMiningShareRequest,
-    blinded_messages: Vec<BlindedMessage>,
-}
 
 async fn wait_for_invoices(mint: Arc<Mint>, shutdown: Arc<Notify>) {
     if let Err(e) = mint.wait_for_paid_invoices(shutdown).await {
@@ -257,15 +265,15 @@ async fn handle_quote_payload(
     mint: Arc<Mint>,
     payload: &str,
 ) {
-    let envelope: QuoteRequestEnvelope = match serde_json::from_str(payload) {
-        Ok(e) => e,
+    let quote_request: MintQuoteMiningShareRequest = match serde_json::from_str(payload) {
+        Ok(q) => q,
         Err(e) => {
             tracing::warn!("Failed to parse quote request: {}", e);
             return;
         }
     };
 
-    match mint.create_paid_mint_mining_share_quote(envelope.quote_request, envelope.blinded_messages).await {
+    match mint.create_mint_mining_share_quote(quote_request).await {
         Ok(resp) => tracing::info!("Quote created: {:?}", resp),
         Err(err) => tracing::error!("Quote creation failed: {}", err),
     }
@@ -360,17 +368,18 @@ async fn check_and_delete_quote_id(
     let value: String = conn.get(key).await?;
     let uuid = Uuid::parse_str(&value)?;
 
-    match mint.check_mint_quote(&uuid).await {
-        Ok(quote) => {
-            if quote.state == MintQuoteState::Issued {
+    match mint.localstore.get_mint_quote(&uuid).await {
+        Ok(Some(quote)) => {
+            if quote.state() == MintQuoteState::Issued {
                 delete_key(conn, key).await;
             }
         }
-        Err(cdk::Error::UnknownQuote) => {
+        Ok(None) => {
             delete_key(conn, key).await;
         }
         Err(e) => {
-            tracing::warn!("check_mint_quote error for key '{}': {:?}", key, e);
+            tracing::error!("get_mint_quote error for key '{}': {:?}", key, e);
+            delete_key(conn, key).await;
         }
     }
 
