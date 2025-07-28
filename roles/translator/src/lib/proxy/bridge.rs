@@ -1,4 +1,5 @@
 use async_channel::{Receiver, Sender};
+use cdk::secp256k1::hashes::Hash;
 use cdk::wallet::Wallet;
 use cdk::nuts::CurrencyUnit;
 use roles_logic_sv2::{
@@ -262,8 +263,8 @@ impl Bridge {
                 info!("SHARE MEETS UPSTREAM TARGET");
                 match share {
                     Share::Extended(mut share) => {
-                        let premint_secrets = match self_.safe_lock(|bridge| bridge.create_blinded_secrets(&share)) {
-                            Ok(Ok(secrets)) => secrets,
+                        let mint_quote_request = match self_.safe_lock(|bridge| bridge.get_mint_quote(&share)) {
+                            Ok(Ok(request)) => request,
                             Ok(Err(e)) => {
                                 error!(?e, ?share, "Failed to create blinded secrets");
                                 return Ok(()); // skip this share
@@ -274,13 +275,32 @@ impl Bridge {
                             }
                         };
 
-                        let blinded_message_set = match BlindedMessageSet::try_from(premint_secrets) {
-                            Ok(set) => set,
-                            Err(e) => {
-                                error!("BlindedMessageSet conversion failed: {:?}", e);
+                        // Get keyset_id from wallet
+                        // TODO retrieve latest keyset in get_mint_quote and save it on quote
+                        // TODO: replace custom blinded message encoding in cashu.rs with mint quote encoding instead, 
+                        // including NUT-20 locking key, keyset id, and blinded messages
+                        let keyset_id = match self_.safe_lock(|bridge| {
+                            let wallet = bridge.wallet.clone();
+                            tokio::task::block_in_place(|| {
+                                tokio::runtime::Handle::current().block_on(wallet.get_active_mint_keyset())
+                            })
+                        }) {
+                            Ok(Ok(keyset)) => u64::from(mining_sv2::cashu::KeysetId(keyset.id)),
+                            Ok(Err(e)) => {
+                                error!(?e, "Failed to get active keyset from wallet");
+                                return Ok(()); // skip this share
+                            }
+                            Err(lock_err) => {
+                                error!(?lock_err, "Failed to lock bridge for keyset access");
                                 return Ok(());
                             }
                         };
+
+                        // Convert Vec<BlindedMessage> to BlindedMessageSet
+                        let mut blinded_message_set = BlindedMessageSet::new(keyset_id);
+                        for blinded_message in mint_quote_request.blinded_messages {
+                            blinded_message_set.insert(blinded_message);
+                        }
                         let sv2_blinded_message_set_wire= Sv2BlindedMessageSetWire::from(blinded_message_set);
 
                         share.blinded_messages = sv2_blinded_message_set_wire;
@@ -310,21 +330,23 @@ impl Bridge {
         Ok(())
     }
 
-    fn create_blinded_secrets(
+    fn get_mint_quote(
         &mut self,
         share: &SubmitSharesExtended,
-    ) -> Result<cdk::nuts::PreMintSecrets, Error<'static>> {
+    ) -> Result<cdk::nuts::nutXX::MintQuoteMiningShareRequest, Error<'static>> {
         // TODO is it better to recalculate this value from the share or to pass it over the wire?
-        let share_hash = share.hash.to_vec().to_hex();
+        let hash_bytes = share.hash.to_vec();
+        // Convert to CDK's expected hash type (different bitcoin_hashes version)
+        let share_hash = cdk::secp256k1::hashes::sha256::Hash::from_slice(&hash_bytes)
+            .map_err(|e| Error::SubprotocolMining(format!("Invalid hash: {}", e)))?;
         let work = calculate_work(share.hash.to_vec().try_into()?);
 
         tokio::task::block_in_place(|| {
             let wallet_clone = self.wallet.clone();
             tokio::runtime::Handle::current()
-                .block_on(wallet_clone.create_premint_secrets(
-                    work,
-                    &share_hash,
-                    CurrencyUnit::Custom("HASH".to_string()),
+                .block_on(wallet_clone.mint_mining_share_quote(
+                    work.into(),  // Convert u64 to Amount
+                    share_hash,   // Use Hash type, not String
                 ))
                 .map_err(Error::WalletError)
         })

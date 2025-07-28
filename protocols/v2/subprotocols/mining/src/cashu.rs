@@ -561,7 +561,7 @@ pub fn format_quote_event_json(req: &MintQuoteMiningShareRequest, msgs: &[Blinde
     use serde_json;
 
     let mut out = String::new();
-    out.push_str("{\"quote_request\":{");
+    out.push('{');
 
     match &req.unit {
         CurrencyUnit::Custom(s) => write!(out, "\"unit\":\"{}\",", s).unwrap(),
@@ -581,11 +581,11 @@ pub fn format_quote_event_json(req: &MintQuoteMiningShareRequest, msgs: &[Blinde
     }
 
     match &req.pubkey {
-        Some(pk) => write!(out, "\"pubkey\":\"{}\"", hex::encode(pk.to_bytes())).unwrap(),
-        None => write!(out, "\"pubkey\":null").unwrap(),
+        Some(pk) => write!(out, "\"pubkey\":\"{}\",", hex::encode(pk.to_bytes())).unwrap(),
+        None => write!(out, "\"pubkey\":null,").unwrap(),
     }
 
-    out.push_str("},\"blinded_messages\":[");
+    out.push_str("\"blinded_messages\":[");
     for (i, m) in msgs.iter().enumerate() {
         if i > 0 {
             out.push(',');
@@ -740,12 +740,13 @@ mod tests {
             map.insert(Amount::from(1u64 << i), helper_make_pubkey());
         }
         let keys = Keys::new(map);
-        let id = cdk::nuts::nut02::Id::from(&keys);
+        let id = cdk::nuts::nut02::Id::v1_from_keys(&keys);
 
         let keyset = KeySet {
             id,
             unit: CurrencyUnit::Custom("HASH".into()),
             keys,
+            final_expiry: None,
         };
 
         let sv2: Sv2KeySet = keyset.clone().try_into().unwrap();
@@ -779,19 +780,21 @@ mod tests {
     #[test]
     fn test_format_quote_event_json_contains_fields() {
         let hash = sha256::Hash::hash(b"test");
-        let req = cdk::nuts::nutXX::MintQuoteMiningShareRequest {
-            amount: Amount::from(1000u64),
-            unit: CurrencyUnit::Custom("HASH".into()),
-            header_hash: hash,
-            description: Some("test quote".into()),
-            pubkey: None,
-        };
 
         let blinded_msg = BlindedMessage {
             amount: Amount::from(1000u64),
-            keyset_id: cdk::nuts::nut02::Id::from(&cdk::nuts::Keys::new(BTreeMap::new())),
+            keyset_id: cdk::nuts::nut02::Id::v1_from_keys(&cdk::nuts::Keys::new(BTreeMap::new())),
             blinded_secret: helper_make_pubkey(),
             witness: None,
+        };
+
+        let req = cdk::nuts::nutXX::MintQuoteMiningShareRequest {
+            amount: Amount::from(1000u64),
+            unit: CurrencyUnit::Custom("HASH".into()),
+            header_hash: cdk::secp256k1::hashes::Hash::from_slice(&hash.to_byte_array()).unwrap(),
+            description: Some("test quote".into()),
+            pubkey: None,
+            blinded_messages: vec![blinded_msg.clone()],
         };
 
         let out = format_quote_event_json(&req, &[blinded_msg]);
@@ -803,7 +806,7 @@ mod tests {
     #[test]
     fn test_blinded_message_set_roundtrip() {
         let keys = Keys::new(BTreeMap::new());
-        let keyset_id_obj = cdk::nuts::nut02::Id::from(&keys);
+        let keyset_id_obj = cdk::nuts::nut02::Id::v1_from_keys(&keys);
         let keyset_id_u64 = KeysetId(keyset_id_obj).into();
 
         let mut domain = BlindedMessageSet::new(keyset_id_u64);
@@ -842,7 +845,7 @@ mod tests {
     #[test]
     fn test_blind_signature_set_roundtrip() {
         let keys = Keys::new(BTreeMap::new());
-        let keyset_id_obj = cdk::nuts::nut02::Id::from(&keys);
+        let keyset_id_obj = cdk::nuts::nut02::Id::v1_from_keys(&keys);
         let keyset_id_u64 = KeysetId(keyset_id_obj).into();
 
         let mut domain = BlindSignatureSet::new(keyset_id_u64);
@@ -861,7 +864,7 @@ mod tests {
     #[test]
     fn test_domain_array_insert_and_get() {
         let keys = Keys::new(BTreeMap::new());
-        let keyset_id_obj = cdk::nuts::nut02::Id::from(&keys);
+        let keyset_id_obj = cdk::nuts::nut02::Id::v1_from_keys(&keys);
         let keyset_id_u64 = KeysetId(keyset_id_obj).into();
 
         let mut domain = BlindedMessageSet::new(keyset_id_u64);

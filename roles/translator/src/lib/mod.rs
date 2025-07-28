@@ -447,11 +447,40 @@ impl TranslatorSv2 {
 
         let quote_ids: Vec<String> = quotes.iter().map(|q| q.id.clone()).collect();
         let uuid_mapping = Self::lookup_uuids_batch(rt, mint_client, &quote_ids);
-
         for quote in quotes {
             if let Some(uuid) = uuid_mapping.get(&quote.id) {
+                // Update the quote's ID to use the mint UUID instead of header hash
+                let mut updated_quote = quote.clone();
+                updated_quote.id = uuid.clone();
+                
+                // TODO: use share hash as mint db mint_quote primary key, requires NUT-20 support
+                // Risk: Temporary duplicate quotes/secrets if delete fails, but no data loss
+                if let Err(e) = rt.block_on(wallet.localstore.add_mint_quote(updated_quote)) {
+                    tracing::error!("Failed to add updated quote {} with mint UUID {}: {}", quote.id, uuid, e);
+                    continue;
+                }
+                
+                // Update premint secrets to use mint UUID key (same add-first pattern)
+                // TODO update cdk to use share hash as the primary field for mining share
+                if let Ok(Some(secrets)) = rt.block_on(wallet.localstore.get_premint_secrets(&quote.id)) {
+                    if let Err(e) = rt.block_on(wallet.localstore.add_premint_secrets(uuid, secrets)) {
+                        tracing::error!("Failed to add premint secrets for mint UUID {}: {}", uuid, e);
+                        continue;
+                    }
+                }
+                
+                tracing::debug!("Successfully updated quote and secrets {} to use mint UUID {}", quote.id, uuid);
+                
+                // Remove old quote and secrets only after successful adds
+                if let Err(e) = rt.block_on(wallet.localstore.remove_mint_quote(&quote.id)) {
+                    tracing::warn!("Failed to remove old quote {} (new UUID {} exists): {}", quote.id, uuid, e);
+                }
+                if let Err(e) = rt.block_on(wallet.localstore.remove_premint_secrets(&quote.id)) {
+                    tracing::warn!("Failed to remove old premint secrets {} (new UUID {} exists): {}", quote.id, uuid, e);
+                }
+                
                 // TODO get latest keyset
-                match rt.block_on(wallet.get_mining_share_proofs(uuid, &quote.id)) {
+                match rt.block_on(wallet.mint_mining_share(uuid)) {
                     Ok(_proofs) => {
                         Self::log_success(wallet, rt, quote);
                     }
@@ -471,11 +500,11 @@ impl TranslatorSv2 {
         match rt.block_on(wallet.total_balance()) {
             Ok(balance) => info!(
                 "Successfully minted ehash tokens for share {} with amount {}. Total wallet balance: {}",
-                quote.id, quote.amount, balance
+                quote.id, quote.amount.map_or_else(|| "<missing>".to_string(), |a| a.to_string()), balance
             ),
             Err(e) => info!(
                 "Minted ehash tokens for share {} with amount {}, but failed to get total balance: {:?}",
-                quote.id, quote.amount, e
+                quote.id, quote.amount.map_or_else(|| "<missing>".to_string(), |a| a.to_string()), e
             ),
         }
 
