@@ -416,10 +416,43 @@ impl TranslatorSv2 {
                 };
 
                 Self::process_quotes_batch(&wallet, &rt, &quotes, &mint_client);
+                
+                // the people need ehash, let's give it to them
+                Self::generate_single_ehash_token(&wallet, &rt);
 
                 thread::sleep(Duration::from_secs(60));
             }
         });
+    }
+
+    fn generate_single_ehash_token(wallet: &Arc<Wallet>, rt: &Handle) {
+        tracing::debug!("Creating single ehash token for distribution");
+        
+        let options = cdk::wallet::SendOptions {
+            memo: None,
+            conditions: None,
+            amount_split_target: SplitTarget::None,
+            send_kind: cdk::wallet::SendKind::OnlineExact,
+            include_fee: false,
+            metadata: std::collections::HashMap::new(),
+            max_proofs: None,
+        };
+        
+        match rt.block_on(wallet.prepare_send(cdk::Amount::from(1), options)) {
+            Ok(send) => {
+                match rt.block_on(wallet.send(send, None)) {
+                    Ok(token) => {
+                        tracing::info!("Generated ehash token: {}", token);
+                    },
+                    Err(e) => {
+                        tracing::error!("Failed to generate ehash token: {}", e);
+                    }
+                }
+            },
+            Err(e) => {
+                tracing::error!("Failed to prepare send for ehash token: {}", e);
+            }
+        }
     }
 
     fn lookup_uuids_batch(rt: &Handle, mint_client: &HttpClient, share_hashes: &[String]) -> std::collections::HashMap<String, String> {
@@ -505,41 +538,6 @@ impl TranslatorSv2 {
             Err(e) => info!(
                 "Minted ehash tokens for share {} with amount {}, but failed to get total balance: {:?}",
                 quote.id, quote.amount.map_or_else(|| "<missing>".to_string(), |a| a.to_string()), e
-            ),
-        }
-
-        let options = SendOptions{
-            memo: None,
-            conditions: None,
-            amount_split_target: SplitTarget::None,
-            send_kind: SendKind::OnlineExact,
-            include_fee: false,
-            metadata: HashMap::new(),
-            max_proofs: None,
-        };
-        let send = tokio::runtime::Handle::current()
-            .block_on(wallet.prepare_send(cdk::Amount::from(1), options)).unwrap();
-
-        // Validate quote.id is a proper UUID before attempting swap
-        if uuid::Uuid::parse_str(&quote.id).is_err() {
-            tracing::warn!("Skipping send for invalid quote_id (not a UUID): {}", quote.id);
-            return;
-        }
-
-        // the people need ehash, let's give it to them
-        tracing::debug!("About to send eHash token for quote_id: {}", quote.id);
-        match rt.block_on(
-    wallet.send(
-                send,
-                None,
-            )) {
-            Ok(token) => info!(
-                "eHash token: {}",
-                token,
-            ),
-            Err(e) => error!(
-                "Error sending ehash token for quote_id {}: {}",
-                quote.id, e,
             ),
         }
     }
