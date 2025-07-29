@@ -520,7 +520,14 @@ impl TranslatorSv2 {
         let send = tokio::runtime::Handle::current()
             .block_on(wallet.prepare_send(cdk::Amount::from(1), options)).unwrap();
 
+        // Validate quote.id is a proper UUID before attempting swap
+        if uuid::Uuid::parse_str(&quote.id).is_err() {
+            tracing::warn!("Skipping send for invalid quote_id (not a UUID): {}", quote.id);
+            return;
+        }
+
         // the people need ehash, let's give it to them
+        tracing::debug!("About to send eHash token for quote_id: {}", quote.id);
         match rt.block_on(
     wallet.send(
                 send,
@@ -530,9 +537,9 @@ impl TranslatorSv2 {
                 "eHash token: {}",
                 token,
             ),
-            Err(e) => info!(
-                "Error sending ehash token {}",
-                e,
+            Err(e) => error!(
+                "Error sending ehash token for quote_id {}: {}",
+                quote.id, e,
             ),
         }
     }
