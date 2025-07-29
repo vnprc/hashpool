@@ -275,29 +275,8 @@ impl Bridge {
                             }
                         };
 
-                        // Get keyset_id from wallet
-                        // TODO retrieve latest keyset in get_mint_quote and save it on quote
-                        // TODO: replace custom blinded message encoding in cashu.rs with mint quote encoding instead, 
-                        // including NUT-20 locking key, keyset id, and blinded messages
-                        let keyset_id = match self_.safe_lock(|bridge| {
-                            let wallet = bridge.wallet.clone();
-                            tokio::task::block_in_place(|| {
-                                tokio::runtime::Handle::current().block_on(wallet.get_active_mint_keyset())
-                            })
-                        }) {
-                            Ok(Ok(keyset)) => u64::from(mining_sv2::cashu::KeysetId(keyset.id)),
-                            Ok(Err(e)) => {
-                                error!(?e, "Failed to get active keyset from wallet");
-                                return Ok(()); // skip this share
-                            }
-                            Err(lock_err) => {
-                                error!(?lock_err, "Failed to lock bridge for keyset access");
-                                return Ok(());
-                            }
-                        };
-
                         // Convert Vec<BlindedMessage> to BlindedMessageSet
-                        let mut blinded_message_set = BlindedMessageSet::new(keyset_id);
+                        let mut blinded_message_set = BlindedMessageSet::new(u64::from(mining_sv2::cashu::KeysetId(mint_quote_request.keyset_id)));
                         for blinded_message in mint_quote_request.blinded_messages {
                             blinded_message_set.insert(blinded_message);
                         }
