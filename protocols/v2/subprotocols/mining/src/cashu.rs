@@ -585,6 +585,8 @@ pub fn format_quote_event_json(req: &MintQuoteMiningShareRequest, msgs: &[Blinde
         None => write!(out, "\"pubkey\":null,").unwrap(),
     }
 
+    write!(out, "\"keyset_id\":\"{}\",", hex::encode(req.keyset_id.to_bytes())).unwrap();
+
     out.push_str("\"blinded_messages\":[");
     for (i, m) in msgs.iter().enumerate() {
         if i > 0 {

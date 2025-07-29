@@ -41,6 +41,7 @@ fn create_and_enqueue_mining_share_quote(
         description: None,
         pubkey: None,
         blinded_messages: blinded_message_vec.clone(),
+        keyset_id: mining_sv2::cashu::KeysetId::try_from(blinded_message_set.keyset_id).expect("invalid keyset ID").0,
     };
     
     let json = mining_sv2::cashu::format_quote_event_json(&quote_request, &blinded_message_vec);
@@ -218,7 +219,6 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                     }
 
                     create_and_enqueue_mining_share_quote(m.clone(), &self.redis_config)?;
-    
 
                     let success = SubmitSharesSuccess {
                         channel_id: m.channel_id,
