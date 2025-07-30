@@ -5,6 +5,7 @@ use std::str::FromStr;
 
 use cdk::mint::Mint;
 use cdk::nuts::CurrencyUnit;
+use cdk::nuts::nutXX::MintQuoteMiningShareRequest;
 use cdk::types::QuoteTTL;
 use cdk_axum::cache::HttpCache;
 use cdk_mintd::config::{self, LnBackend};
@@ -251,9 +252,6 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
-
-// TODO move this somewhere more appropriate. Into cdk probably
-use cdk::nuts::nutXX::MintQuoteMiningShareRequest;
 
 async fn wait_for_invoices(mint: Arc<Mint>, shutdown: Arc<Notify>) {
     if let Err(e) = mint.wait_for_paid_invoices(shutdown).await {
