@@ -33,15 +33,23 @@ fn create_and_enqueue_mining_share_quote(
         .filter_map(|item| item.clone())
         .collect();
     
+    // Convert header_hash to CDK Hash type
+    let cdk_header_hash = CdkHashTrait::from_slice(&header_hash.to_byte_array())
+        .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Failed to convert header hash: {}", e)))?;
+
+    // Convert keyset_id
+    let cdk_keyset_id = mining_sv2::cashu::KeysetId::try_from(blinded_message_set.keyset_id)
+        .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid keyset ID: {}", e)))?
+        .0;
+
     let quote_request = cdk::nuts::nutXX::MintQuoteMiningShareRequest {
         amount: amount.into(),
         unit: cdk::nuts::CurrencyUnit::Custom("HASH".to_string()),
-        // TODO handle unwrap
-        header_hash: CdkHashTrait::from_slice(&header_hash.to_byte_array()).unwrap(),  // Convert to CDK Hash type
+        header_hash: cdk_header_hash,
         description: None,
         pubkey: None,
         blinded_messages: blinded_message_vec.clone(),
-        keyset_id: mining_sv2::cashu::KeysetId::try_from(blinded_message_set.keyset_id).expect("invalid keyset ID").0,
+        keyset_id: cdk_keyset_id,
     };
     
     let json = mining_sv2::cashu::format_quote_event_json(&quote_request, &blinded_message_vec);
