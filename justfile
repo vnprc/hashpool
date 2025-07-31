@@ -62,9 +62,9 @@ generate-blocks COUNT="1":
 # Open cdk sqlite terminal client (wallet or mint)
 db TYPE="":
     @if [ "{{TYPE}}" = "wallet" ]; then \
-        sqlite3 .devenv/state/translator/wallet.sqlite; \
+        sqlite3 -cmd ".mode line" .devenv/state/translator/wallet.sqlite; \
     elif [ "{{TYPE}}" = "mint" ]; then \
-        sqlite3 .devenv/state/mint/mint.sqlite; \
+        sqlite3 -cmd ".mode line" .devenv/state/mint/mint.sqlite; \
     else \
         echo "Error: TYPE must be 'wallet' or 'mint'"; \
         exit 1; \
