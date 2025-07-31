@@ -535,7 +535,7 @@ pub trait ParseUpstreamMiningMessages<
                 }
             }
             Ok(Mining::NewExtendedMiningJob(m)) => {
-                info!("Received new extended mining job for channel id: {} with job id: {} is_future: {}",m.channel_id, m.job_id, m.is_future());
+                debug!("Received new extended mining job for channel id: {} with job id: {} is_future: {}",m.channel_id, m.job_id, m.is_future());
                 debug!("NewExtendedMiningJob: {:?}", m);
                 match channel_type {
                     SupportedChannelTypes::Standard => Err(Error::UnexpectedMessage(
