@@ -5,7 +5,6 @@ url = "redis://localhost:6379"
 
 # redis keys
 create_quote_prefix = "mint:quotes:create"
-quote_id_prefix = "mint:quotes:hash"
 active_keyset_prefix = "mint:keyset:active"
 
 [mint]
