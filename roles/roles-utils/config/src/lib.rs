@@ -6,7 +6,6 @@ pub struct RedisConfig {
     pub url: String,
     pub active_keyset_prefix: String,
     pub create_quote_prefix: String,
-    pub quote_id_prefix: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
