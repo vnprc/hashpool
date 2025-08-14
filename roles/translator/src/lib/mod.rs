@@ -304,6 +304,7 @@ impl TranslatorSv2 {
             diff_config.clone(),
             task_collector_upstream,
             wallet.clone(),
+            proxy_config.ehash_config.clone(),
         )
         .await
         {

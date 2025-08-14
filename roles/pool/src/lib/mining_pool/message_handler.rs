@@ -1,7 +1,7 @@
 use super::super::mining_pool::Downstream;
 use bitcoin_hashes::sha256::Hash;
 use cdk::secp256k1::hashes::Hash as CdkHashTrait;
-use mining_sv2::cashu::{calculate_work, BlindedMessageSet};
+use mining_sv2::cashu::{calculate_work_with_config, BlindedMessageSet};
 use roles_logic_sv2::{
     errors::Error,
     handlers::mining::{ParseDownstreamMiningMessages, SendTo, SupportedChannelTypes},
@@ -20,11 +20,17 @@ use tracing::error;
 fn create_and_enqueue_mining_share_quote(
     m: SubmitSharesExtended<'_>,
     redis_config: &RedisConfig,
+    min_leading_zeros: u32,
+    max_representable_bits: u32,
 ) -> Result<(), roles_logic_sv2::Error> {
     let header_hash = Hash::from_slice(m.hash.inner_as_ref())
         .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid header hash: {e}")))?;
     
-    let amount = calculate_work(header_hash.to_byte_array());
+    let amount = calculate_work_with_config(
+        header_hash.to_byte_array(),
+        min_leading_zeros,
+        max_representable_bits,
+    );
     
     let blinded_message_set = BlindedMessageSet::try_from(m.blinded_messages.clone())
         .expect("Failed to convert Sv2BlindedMessageSetWire to BlindedMessageSet");
@@ -226,7 +232,12 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         while self.solution_sender.try_send(solution.clone()).is_err() {};
                     }
 
-                    create_and_enqueue_mining_share_quote(m.clone(), &self.redis_config)?;
+                    create_and_enqueue_mining_share_quote(
+                        m.clone(),
+                        &self.redis_config,
+                        self.ehash_config.min_leading_zeros,
+                        self.ehash_config.max_representable_bits,
+                    )?;
 
                     let success = SubmitSharesSuccess {
                         channel_id: m.channel_id,
@@ -241,7 +252,12 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
 
                 },
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetDownstreamTarget => {
-                    create_and_enqueue_mining_share_quote(m.clone(), &self.redis_config)?;
+                    create_and_enqueue_mining_share_quote(
+                        m.clone(),
+                        &self.redis_config,
+                        self.ehash_config.min_leading_zeros,
+                        self.ehash_config.max_representable_bits,
+                    )?;
 
                     let success = SubmitSharesSuccess {
                         channel_id: m.channel_id,

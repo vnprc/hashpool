@@ -16,6 +16,38 @@ pub struct ProxyConfig {
     pub upstream_difficulty_config: UpstreamDifficultyConfig,
     pub mint: Option<MintConfig>,
     pub wallet: WalletConfig,
+    #[serde(default)]
+    pub ehash_config: EHashConfig,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct EHashConfig {
+    /// Minimum number of leading zero bits required for a share to be rewarded
+    /// Default: 36 (recommended for mainnet)
+    #[serde(default = "default_min_leading_zeros")]
+    pub min_leading_zeros: u32,
+    
+    /// Maximum representable difficulty bits to compress the range from 256 to this value
+    /// Default: 64 (to prevent u64 overflow while allowing high-difficulty shares)
+    #[serde(default = "default_max_representable_bits")]
+    pub max_representable_bits: u32,
+}
+
+fn default_min_leading_zeros() -> u32 {
+    36
+}
+
+fn default_max_representable_bits() -> u32 {
+    64
+}
+
+impl Default for EHashConfig {
+    fn default() -> Self {
+        Self {
+            min_leading_zeros: default_min_leading_zeros(),
+            max_representable_bits: default_max_representable_bits(),
+        }
+    }
 }
 
 pub struct UpstreamConfig {
@@ -79,6 +111,7 @@ impl ProxyConfig {
             upstream_difficulty_config: upstream.difficulty_config,
             mint: None,
             wallet,
+            ehash_config: EHashConfig::default(),
         }
     }
 }

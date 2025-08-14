@@ -106,6 +106,38 @@ pub struct Configuration {
     pub redis: Option<RedisConfig>,
     #[cfg(feature = "test_only_allow_unencrypted")]
     pub test_only_listen_adress_plain: String,
+    #[serde(default)]
+    pub ehash_config: EHashConfig,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct EHashConfig {
+    /// Minimum number of leading zero bits required for a share to be rewarded
+    /// Default: 36 (recommended for mainnet)
+    #[serde(default = "default_min_leading_zeros")]
+    pub min_leading_zeros: u32,
+    
+    /// Maximum representable difficulty bits to compress the range from 256 to this value
+    /// Default: 64 (to prevent u64 overflow while allowing high-difficulty shares)
+    #[serde(default = "default_max_representable_bits")]
+    pub max_representable_bits: u32,
+}
+
+fn default_min_leading_zeros() -> u32 {
+    36
+}
+
+fn default_max_representable_bits() -> u32 {
+    64
+}
+
+impl Default for EHashConfig {
+    fn default() -> Self {
+        Self {
+            min_leading_zeros: default_min_leading_zeros(),
+            max_representable_bits: default_max_representable_bits(),
+        }
+    }
 }
 
 impl Configuration {
@@ -180,6 +212,7 @@ impl Configuration {
             coinbase_outputs,
             pool_signature: pool_connection.signature,
             redis: None,
+            ehash_config: EHashConfig::default(),
             #[cfg(feature = "test_only_allow_unencrypted")]
             test_only_listen_adress_plain,
         }
@@ -195,6 +228,7 @@ pub struct Downstream {
     solution_sender: Sender<SubmitSolution<'static>>,
     channel_factory: Arc<Mutex<PoolChannelFactory>>,
     redis_config: RedisConfig,
+    ehash_config: EHashConfig,
 }
 
 // TODO remove after porting mint to use Sv2 data types
@@ -220,6 +254,7 @@ pub struct Pool {
     last_prev_hash_template_id: u64,
     status_tx: status::Sender,
     redis_config: RedisConfig,
+    ehash_config: EHashConfig,
 }
 
 impl Downstream {
@@ -233,6 +268,7 @@ impl Downstream {
         status_tx: status::Sender,
         address: SocketAddr,
         redis_config: RedisConfig,
+        ehash_config: EHashConfig,
     ) -> PoolResult<Arc<Mutex<Self>>> {
         let setup_connection = Arc::new(Mutex::new(SetupConnectionHandler::new()));
         let downstream_data =
@@ -252,6 +288,7 @@ impl Downstream {
             solution_sender,
             channel_factory,
             redis_config,
+            ehash_config,
         }));
 
         let cloned = self_.clone();
@@ -501,6 +538,7 @@ impl Pool {
         let solution_sender = self_.safe_lock(|p| p.solution_sender.clone())?;
         let status_tx = self_.safe_lock(|s| s.status_tx.clone())?;
         let channel_factory = self_.safe_lock(|s| s.channel_factory.clone())?;
+        let ehash_config = self_.safe_lock(|s| s.ehash_config.clone())?;
 
         let downstream = Downstream::new(
             receiver,
@@ -512,6 +550,7 @@ impl Pool {
             status_tx.listener_to_connection(),
             address,
             redis_config,
+            ehash_config,
         )
         .await?;
 
@@ -667,6 +706,7 @@ impl Pool {
             last_prev_hash_template_id: 0,
             status_tx: status_tx.clone(),
             redis_config: config.redis.clone().unwrap(),
+            ehash_config: config.ehash_config.clone(),
         }));
 
         let cloned = pool.clone();
