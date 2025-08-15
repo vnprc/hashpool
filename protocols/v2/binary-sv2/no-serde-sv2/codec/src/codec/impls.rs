@@ -87,6 +87,11 @@ impl<'a> GetMarker for U32AsRef<'a> {
         FieldMarker::Primitive(PrimitiveMarker::U32AsRef)
     }
 }
+impl<'a> GetMarker for CompressedPubKey<'a> {
+    fn get_marker() -> FieldMarker {
+        FieldMarker::Primitive(PrimitiveMarker::CompressedPubKey)
+    }
+}
 
 // IMPL DECODABLE FOR PRIMITIVES
 
@@ -222,6 +227,14 @@ impl<'a> Decodable<'a> for U32AsRef<'a> {
         Ok(vec![PrimitiveMarker::U32AsRef.into()])
     }
 
+    fn from_decoded_fields(mut data: Vec<DecodableField<'a>>) -> Result<Self, Error> {
+        data.pop().ok_or(Error::NoDecodableFieldPassed)?.try_into()
+    }
+}
+impl<'a> Decodable<'a> for CompressedPubKey<'a> {
+    fn get_structure(_: &[u8]) -> Result<Vec<FieldMarker>, Error> {
+        Ok(vec![PrimitiveMarker::CompressedPubKey.into()])
+    }
     fn from_decoded_fields(mut data: Vec<DecodableField<'a>>) -> Result<Self, Error> {
         data.pop().ok_or(Error::NoDecodableFieldPassed)?.try_into()
     }
@@ -376,6 +389,16 @@ impl<'a> TryFrom<DecodablePrimitive<'a>> for U32AsRef<'a> {
     fn try_from(value: DecodablePrimitive<'a>) -> Result<Self, Self::Error> {
         match value {
             DecodablePrimitive::U32AsRef(val) => Ok(val),
+            _ => Err(Error::PrimitiveConversionError),
+        }
+    }
+}
+impl<'a> TryFrom<DecodablePrimitive<'a>> for CompressedPubKey<'a> {
+    type Error = Error;
+
+    fn try_from(value: DecodablePrimitive<'a>) -> Result<Self, Self::Error> {
+        match value {
+            DecodablePrimitive::CompressedPubKey(val) => Ok(val),
             _ => Err(Error::PrimitiveConversionError),
         }
     }
@@ -820,6 +843,11 @@ impl<'a> From<Inner<'a, true, 64, 0, 0>> for FieldMarker {
         FieldMarker::Primitive(PrimitiveMarker::Signature)
     }
 }
+impl<'a> From<Inner<'a, true, 33, 0, 0>> for FieldMarker {
+    fn from(_: Inner<'a, true, 33, 0, 0>) -> Self {
+        FieldMarker::Primitive(PrimitiveMarker::CompressedPubKey)
+    }
+}
 
 impl<'a> From<B032<'a>> for FieldMarker {
     fn from(_: B032<'a>) -> Self {
@@ -847,5 +875,34 @@ impl<'a> From<Inner<'a, false, 1, 3, { 2_usize.pow(24) - 1 }>> for FieldMarker {
 impl<'a> From<U32AsRef<'a>> for FieldMarker {
     fn from(_: U32AsRef<'a>) -> Self {
         FieldMarker::Primitive(PrimitiveMarker::U32AsRef)
+    }
+}
+
+// CompressedPubKey implementations
+impl<'a> TryFrom<DecodableField<'a>> for CompressedPubKey<'a> {
+    type Error = Error;
+
+    fn try_from(value: DecodableField<'a>) -> Result<Self, Self::Error> {
+        match value {
+            DecodableField::Primitive(p) => p.try_into(),
+            _ => Err(Error::DecodableConversionError),
+        }
+    }
+}
+
+impl<'a> From<CompressedPubKey<'a>> for EncodableField<'a> {
+    fn from(v: CompressedPubKey<'a>) -> Self {
+        EncodableField::Primitive(EncodablePrimitive::CompressedPubKey(v))
+    }
+}
+
+impl<'a> TryFrom<EncodableField<'a>> for CompressedPubKey<'a> {
+    type Error = Error;
+
+    fn try_from(value: EncodableField<'a>) -> Result<Self, Self::Error> {
+        match value {
+            EncodableField::Primitive(EncodablePrimitive::CompressedPubKey(v)) => Ok(v),
+            _ => Err(Error::NonPrimitiveTypeCannotBeEncoded),
+        }
     }
 }
