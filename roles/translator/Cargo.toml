@@ -51,9 +51,10 @@ ureq = { version = "2", features = ["tls"] }
 shared_config = { path = "../roles-utils/config" }
 bip39 = "2.0"
 anyhow = "1.0"
+hex = "0.4"
 
-cdk = { git = "https://github.com/vnprc/cdk.git", package = "cdk", rev = "321ed6d2" }
-cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", package = "cdk-sqlite", rev = "321ed6d2" }
+cdk = { git = "https://github.com/vnprc/cdk.git", package = "cdk", rev = "da8b14b7" }
+cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", package = "cdk-sqlite", rev = "da8b14b7" }
 
 [dev-dependencies]
 sha2 = "0.10.6"

@@ -228,6 +228,9 @@ pub fn into_static(m: AnyMessage<'_>) -> AnyMessage<'static> {
                     ntime: m.ntime,
                     version: m.version,
                     extranonce: m.extranonce.into_static(),
+                    hash: m.hash.into_static(),
+                    locking_pubkey: m.locking_pubkey.into_static(),
+                    keyset_id: m.keyset_id.into_static(),
                 };
                 PoolMessages::Mining(parsers::Mining::SubmitSharesExtended(m))
             }

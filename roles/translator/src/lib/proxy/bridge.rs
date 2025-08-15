@@ -1,7 +1,5 @@
 use async_channel::{Receiver, Sender};
-use cdk::secp256k1::hashes::Hash;
 use cdk::wallet::Wallet;
-use cdk::nuts::CurrencyUnit;
 use roles_logic_sv2::{
     channel_logic::channel_factory::{ExtendedChannelKind, ProxyExtendedChannelFactory, Share},
     mining_sv2::{
@@ -10,8 +8,8 @@ use roles_logic_sv2::{
     parsers::Mining,
     utils::{GroupId, Mutex},
 };
-use stratum_common::bitcoin::hashes::hex::ToHex;
 use std::sync::Arc;
+use cdk::util::hex;
 use tokio::{sync::broadcast, task::AbortHandle};
 use v1::{client_to_server::Submit, server_to_client, utils::HexU32Be};
 
@@ -26,7 +24,8 @@ use super::super::{
 use error_handling::handle_result;
 use roles_logic_sv2::{channel_logic::channel_factory::OnNewShare, Error as RolesLogicError};
 use tracing::{debug, error, info, warn};
-use mining_sv2::cashu::{calculate_work, BlindedMessageSet, Sv2BlindedMessageSetWire, Sv2KeySet};
+use mining_sv2::cashu::Sv2KeySet;
+use mining_sv2::{Deserialize, CompressedPubKey};
 
 /// Bridge between the SV2 `Upstream` and SV1 `Downstream` responsible for the following messaging
 /// translation:
@@ -70,6 +69,9 @@ pub struct Bridge {
     last_job_id: u32,
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
     wallet: Arc<Wallet>,
+    locking_pubkey: String, // TODO: move this to wallet configuration
+    // Track share hashes for quote sweeping since we no longer create wallet quotes
+    share_hashes: Arc<Mutex<Vec<String>>>,
 }
 
 impl Bridge {
@@ -87,6 +89,8 @@ impl Bridge {
         up_id: u32,
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
         wallet: Arc<Wallet>,
+        locking_pubkey: String, // TODO: move this to wallet configuration
+        share_hashes: Arc<Mutex<Vec<String>>>,
     ) -> Arc<Mutex<Self>> {
         let ids = Arc::new(Mutex::new(GroupId::new()));
         let share_per_min = 1.0;
@@ -118,8 +122,11 @@ impl Bridge {
             last_job_id: 0,
             task_collector,
             wallet,
+            locking_pubkey,
+            share_hashes,
         }))
     }
+
 
     #[allow(clippy::result_large_err)]
     pub fn on_new_sv1_connection(
@@ -262,28 +269,16 @@ impl Bridge {
             Ok(Ok(OnNewShare::SendSubmitShareUpstream((share, _)))) => {
                 info!("SHARE MEETS UPSTREAM TARGET");
                 match share {
-                    Share::Extended(mut share) => {
-                        let mint_quote_request = match self_.safe_lock(|bridge| bridge.get_mint_quote(&share)) {
-                            Ok(Ok(request)) => request,
-                            Ok(Err(e)) => {
-                                error!(?e, ?share, "Failed to create blinded secrets");
-                                return Ok(()); // skip this share
-                            }
-                            Err(lock_err) => {
-                                error!(?lock_err, "Failed to lock bridge for blinded secrets");
-                                return Ok(());
-                            }
-                        };
-
-                        // Convert Vec<BlindedMessage> to BlindedMessageSet
-                        let mut blinded_message_set = BlindedMessageSet::new(u64::from(mining_sv2::cashu::KeysetId(mint_quote_request.keyset_id)));
-                        for blinded_message in mint_quote_request.blinded_messages {
-                            blinded_message_set.insert(blinded_message);
-                        }
-                        let sv2_blinded_message_set_wire= Sv2BlindedMessageSetWire::from(blinded_message_set);
-
-                        share.blinded_messages = sv2_blinded_message_set_wire;
-    
+                    Share::Extended(share) => {
+                        // Record share hash for quote sweeping
+                        let hash_hex = hex::encode(&share.hash.inner_as_ref());
+                        let _ = self_.safe_lock(|s| {
+                            let _ = s.share_hashes.safe_lock(|hashes| {
+                                hashes.push(hash_hex.clone());
+                                debug!("Recorded share hash for sweeping: {}", hash_hex);
+                            });
+                        });
+                        
                         tx_sv2_submit_shares_ext.send(share).await?;
                     }
                     // We are in an extended channel; shares are extended
@@ -309,27 +304,6 @@ impl Bridge {
         Ok(())
     }
 
-    fn get_mint_quote(
-        &mut self,
-        share: &SubmitSharesExtended,
-    ) -> Result<cdk::nuts::nutXX::MintQuoteMiningShareRequest, Error<'static>> {
-        // TODO is it better to recalculate this value from the share or to pass it over the wire?
-        let hash_bytes = share.hash.to_vec();
-        // Convert to CDK's expected hash type (different bitcoin_hashes version)
-        let share_hash = cdk::secp256k1::hashes::sha256::Hash::from_slice(&hash_bytes)
-            .map_err(|e| Error::SubprotocolMining(format!("Invalid hash: {}", e)))?;
-        let work = calculate_work(share.hash.to_vec().try_into()?);
-
-        tokio::task::block_in_place(|| {
-            let wallet_clone = self.wallet.clone();
-            tokio::runtime::Handle::current()
-                .block_on(wallet_clone.mint_mining_share_quote(
-                    work.into(),  // Convert u64 to Amount
-                    share_hash,   // Use Hash type, not String
-                ))
-                .map_err(Error::WalletError)
-        })
-    }
 
     /// Translates a SV1 `mining.submit` message to a SV2 `SubmitSharesExtended` message.
     #[allow(clippy::result_large_err)]
@@ -339,18 +313,67 @@ impl Bridge {
         sv1_submit: Submit,
         version_rolling_mask: Option<HexU32Be>,
     ) -> ProxyResult<'static, SubmitSharesExtended<'static>> {
+        tracing::info!("Processing share submission for channel {} with job_id {}", channel_id, sv1_submit.job_id);
+        tracing::debug!("Getting last valid job version from channel factory");
         let last_version = self
             .channel_factory
             .last_valid_job_version()
-            .ok_or(Error::RolesSv2Logic(RolesLogicError::NoValidJob))?;
-        let version = match (sv1_submit.version_bits, version_rolling_mask) {
+            .ok_or_else(|| {
+                tracing::error!("No valid job found in channel factory - this means no mining job has been received yet");
+                Error::RolesSv2Logic(RolesLogicError::NoValidJob)
+            })?;
+        tracing::debug!("Last valid job version: {}", last_version);
+        tracing::debug!("Checking version bits: {:?}, mask: {:?}", sv1_submit.version_bits, version_rolling_mask);
+        let version = match (&sv1_submit.version_bits, &version_rolling_mask) {
             // regarding version masking see https://github.com/slushpool/stratumprotocol/blob/master/stratum-extensions.mediawiki#changes-in-request-miningsubmit
             (Some(vb), Some(mask)) => (last_version & !mask.0) | (vb.0 & mask.0),
             (None, None) => last_version,
-            _ => return Err(Error::V1Protocol(v1::error::Error::InvalidSubmission)),
+            _ => {
+                tracing::error!("Invalid version bits combination: version_bits={:?}, mask={:?}", sv1_submit.version_bits, version_rolling_mask);
+                return Err(Error::V1Protocol(v1::error::Error::InvalidSubmission));
+            },
         };
+        tracing::debug!("Computed version: {}", version);
         let mining_device_extranonce: Vec<u8> = sv1_submit.extra_nonce2.into();
         let extranonce2 = mining_device_extranonce;
+        // Parse locking pubkey from hex string
+        tracing::debug!("Parsing locking pubkey: {}", self.locking_pubkey);
+        let mut pubkey_bytes = hex::decode(&self.locking_pubkey)
+            .map_err(|e| {
+                tracing::error!("Failed to decode locking pubkey hex '{}': {}", self.locking_pubkey, e);
+                Error::V1Protocol(v1::error::Error::InvalidSubmission)
+            })?;
+        tracing::debug!("Decoded pubkey bytes ({} bytes)", pubkey_bytes.len());
+        let locking_pubkey = CompressedPubKey::from_bytes(&mut pubkey_bytes)
+            .map_err(|e| {
+                tracing::error!("Failed to parse pubkey from bytes: {:?}", e);
+                Error::V1Protocol(v1::error::Error::InvalidSubmission)
+            })?
+            .into_static();
+        tracing::debug!("Successfully created locking pubkey");
+
+            
+        // Get the active keyset ID from the wallet  
+        let keyset_id_bytes = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                match self.wallet.get_active_mint_keyset().await {
+                    Ok(keyset) => {
+                        let bytes = keyset.id.to_bytes();
+                        // Pad to 32 bytes for B032 compatibility
+                        let mut array = [0u8; 32];
+                        let copy_len = bytes.len().min(32);
+                        array[..copy_len].copy_from_slice(&bytes[..copy_len]);
+                        array
+                    },
+                    Err(e) => {
+                        tracing::error!("Failed to get active keyset from wallet: {}", e);
+                        // Use placeholder keyset ID as fallback
+                        [0u8; 32]
+                    }
+                }
+            })
+        });
+        
         Ok(SubmitSharesExtended {
             channel_id,
             // I put 0 below cause sequence_number is not what should be TODO
@@ -362,7 +385,8 @@ impl Bridge {
             extranonce: extranonce2.try_into()?,
             // initialize to all zeros, will be updated later
             hash: [0u8; 32].into(),
-            blinded_messages: Sv2BlindedMessageSetWire::default(),
+            locking_pubkey,
+            keyset_id: keyset_id_bytes.to_vec().try_into().unwrap(),
         })
     }
 
@@ -577,6 +601,7 @@ impl Bridge {
             ))
         });
     }
+
 }
 pub struct OpenSv1Downstream {
     pub channel_id: u32,

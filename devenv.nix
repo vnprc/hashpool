@@ -20,7 +20,7 @@
   minerConfig = builtins.fromTOML (builtins.readFile ./config/shared/miner.toml);
 
   # supported values: "regtest", "testnet4"
-  bitcoinNetwork = "regtest";
+  bitcoinNetwork = "testnet4";
   # Set the default bitcoind RPC port, based on the network
   bitcoindRpcPort =
     if bitcoinNetwork == "regtest" then

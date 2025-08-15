@@ -554,11 +554,10 @@ pub fn calculate_work(hash: [u8; 32]) -> u64 {
 // TODO delete this function. Probably use serde after upgrading to SRI 1.3
 use cdk::nuts::nutXX::MintQuoteMiningShareRequest;
 
-pub fn format_quote_event_json(req: &MintQuoteMiningShareRequest, msgs: &[BlindedMessage]) -> String {
+pub fn format_quote_event_json(req: &MintQuoteMiningShareRequest) -> String {
     use std::fmt::Write;
     use cdk::nuts::CurrencyUnit;
     use cdk::util::hex;
-    use serde_json;
 
     let mut out = String::new();
     out.push('{');
@@ -585,31 +584,9 @@ pub fn format_quote_event_json(req: &MintQuoteMiningShareRequest, msgs: &[Blinde
         None => write!(out, "\"pubkey\":null,").unwrap(),
     }
 
-    write!(out, "\"keyset_id\":\"{}\",", hex::encode(req.keyset_id.to_bytes())).unwrap();
+    write!(out, "\"keyset_id\":\"{}\"", hex::encode(req.keyset_id.to_bytes())).unwrap();
 
-    out.push_str("\"blinded_messages\":[");
-    for (i, m) in msgs.iter().enumerate() {
-        if i > 0 {
-            out.push(',');
-        }
-        write!(
-            out,
-            "{{\"amount\":{},\"id\":\"{}\",\"B_\":\"{}\",\"witness\":",
-            m.amount.to_string(),
-            hex::encode(m.keyset_id.to_bytes()),
-            hex::encode(m.blinded_secret.to_bytes())
-        ).unwrap();
-
-        match &m.witness {
-            Some(w) => {
-                let json = serde_json::to_value(w).unwrap();
-                write!(out, "{}", json).unwrap();
-                out.push('}');
-            }
-            None => out.push_str("null}"),
-        }
-    }
-    out.push_str("]}");
+    out.push('}');
     out
 }
 
@@ -795,11 +772,11 @@ mod tests {
             unit: CurrencyUnit::Custom("HASH".into()),
             header_hash: cdk::secp256k1::hashes::Hash::from_slice(&hash.to_byte_array()).unwrap(),
             description: Some("test quote".into()),
-            pubkey: None,
-            blinded_messages: vec![blinded_msg.clone()],
+            pubkey: helper_make_pubkey(),
+            keyset_id: cdk::nuts::nut02::Id::v1_from_keys(&cdk::nuts::Keys::new(BTreeMap::new())),
         };
 
-        let out = format_quote_event_json(&req, &[blinded_msg]);
+        let out = format_quote_event_json(&req);
 
         assert!(out.contains("test quote"));
         assert!(out.contains("HASH"));

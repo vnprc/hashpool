@@ -1,7 +1,7 @@
 use super::super::mining_pool::Downstream;
 use bitcoin_hashes::sha256::Hash;
 use cdk::secp256k1::hashes::Hash as CdkHashTrait;
-use mining_sv2::cashu::{calculate_work, BlindedMessageSet};
+use mining_sv2::cashu::calculate_work;
 use roles_logic_sv2::{
     errors::Error,
     handlers::mining::{ParseDownstreamMiningMessages, SendTo, SupportedChannelTypes},
@@ -13,7 +13,7 @@ use roles_logic_sv2::{
     utils::Mutex,
 };
 use shared_config::RedisConfig;
-use std::{convert::{TryFrom, TryInto}, sync::Arc};
+use std::{convert::TryInto, sync::Arc};
 use tracing::error;
 
 /// Creates a mint quote request and enqueues it for processing
@@ -26,33 +26,44 @@ fn create_and_enqueue_mining_share_quote(
     
     let amount = calculate_work(header_hash.to_byte_array());
     
-    let blinded_message_set = BlindedMessageSet::try_from(m.blinded_messages.clone())
-        .expect("Failed to convert Sv2BlindedMessageSetWire to BlindedMessageSet");
-    
-    let blinded_message_vec: Vec<cdk::nuts::BlindedMessage> = blinded_message_set.items.iter()
-        .filter_map(|item| item.clone())
-        .collect();
+    // Convert locking_pubkey from SV2 format to CDK format
+    let pubkey_bytes = m.locking_pubkey.inner_as_ref().to_vec();
+    tracing::debug!("Pool received pubkey bytes ({} bytes): {:?}", pubkey_bytes.len(), pubkey_bytes);
+    tracing::debug!("Pool received pubkey hex: {}", cdk::util::hex::encode(&pubkey_bytes));
+    let pubkey = cdk::nuts::PublicKey::from_slice(&pubkey_bytes)
+        .map_err(|e| {
+            tracing::error!("CDK PublicKey::from_slice failed with bytes ({} bytes): {:?}, hex: {}, error: {}", 
+                pubkey_bytes.len(), pubkey_bytes, cdk::util::hex::encode(&pubkey_bytes), e);
+            roles_logic_sv2::Error::KeysetError(format!("Invalid locking pubkey: {}", e))
+        })?;
     
     // Convert header_hash to CDK Hash type
     let cdk_header_hash = CdkHashTrait::from_slice(&header_hash.to_byte_array())
         .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Failed to convert header hash: {}", e)))?;
-
-    // Convert keyset_id
-    let cdk_keyset_id = mining_sv2::cashu::KeysetId::try_from(blinded_message_set.keyset_id)
-        .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid keyset ID: {}", e)))?
-        .0;
-
+    
+    // Convert keyset_id from SV2 format to CDK format
+    let keyset_id_bytes = m.keyset_id.inner_as_ref();
+    // Find the actual length of the keyset ID by finding where the padding starts
+    let actual_length = keyset_id_bytes.iter().rposition(|&x| x != 0).map(|i| i + 1).unwrap_or(0);
+    let actual_keyset_bytes = if actual_length > 0 {
+        &keyset_id_bytes[..actual_length]
+    } else {
+        // All zeros - this is a placeholder, create a default keyset ID
+        &[0u8, 0, 0, 0, 0, 0, 0, 0, 0] // Version 0 + 8 zero bytes
+    };
+    let keyset_id = cdk::nuts::nut02::Id::from_bytes(actual_keyset_bytes)
+        .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid keyset ID: {}", e)))?;
+    
     let quote_request = cdk::nuts::nutXX::MintQuoteMiningShareRequest {
         amount: amount.into(),
         unit: cdk::nuts::CurrencyUnit::Custom("HASH".to_string()),
         header_hash: cdk_header_hash,
         description: None,
-        pubkey: None,
-        blinded_messages: blinded_message_vec.clone(),
-        keyset_id: cdk_keyset_id,
+        pubkey: Some(pubkey),
+        keyset_id,
     };
     
-    let json = mining_sv2::cashu::format_quote_event_json(&quote_request, &blinded_message_vec);
+    let json = mining_sv2::cashu::format_quote_event_json(&quote_request);
     tokio::spawn(enqueue_quote_event(redis_config.clone(), json));
     
     Ok(())

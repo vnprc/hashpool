@@ -16,6 +16,7 @@ use codec_sv2::{HandshakeRole, Initiator};
 use error_handling::handle_result;
 use key_utils::Secp256k1PublicKey;
 use mining_sv2::cashu::{calculate_work, Sv2KeySet};
+use hex;
 use network_helpers_sv2::Connection;
 use roles_logic_sv2::{
     common_messages_sv2::{Protocol, SetupConnection},
@@ -698,14 +699,23 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
 
         let m_static = m.into_static();
         let wallet_clone = self.wallet.clone();
+        
+        info!("Converting SV2 keyset to wallet keyset for channel {}", m_static.channel_id);
         let sv2_keyset = Sv2KeySet::try_from(m_static.keyset.clone())
             .map_err(|e| RolesLogicError::KeysetError(format!("{:?}", e)))?;
         let keyset = KeySet::try_from(sv2_keyset)
             .map_err(|e| RolesLogicError::KeysetError(e.to_string()))?;
-
+        
+        info!("Adding keyset with ID {} to wallet", hex::encode(keyset.id.to_bytes()));
+        let keyset_id_bytes = keyset.id.to_bytes();
         tokio::spawn(async move {
-            if let Err(e) = wallet_clone.add_keyset(keyset, true, 0).await {
-                warn!("Failed to add keyset to wallet: {:?}", e);
+            match wallet_clone.add_keyset(keyset.clone(), true, 0).await {
+                Ok(_) => {
+                    info!("Successfully added keyset {} to wallet", hex::encode(&keyset_id_bytes));
+                },
+                Err(e) => {
+                    error!("Failed to add keyset {} to wallet: {:?}", hex::encode(&keyset_id_bytes), e);
+                }
             }
         });
 

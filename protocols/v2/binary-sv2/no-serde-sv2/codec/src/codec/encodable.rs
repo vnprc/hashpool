@@ -1,7 +1,7 @@
 use crate::{
     codec::GetSize,
     datatypes::{
-        ShortTxId, Signature, Sv2DataType, U32AsRef, B016M, B0255, B032, B064K, U24, U256,
+        CompressedPubKey, ShortTxId, Signature, Sv2DataType, U32AsRef, B016M, B0255, B032, B064K, U24, U256,
     },
     Error,
 };
@@ -102,6 +102,8 @@ pub enum EncodablePrimitive<'a> {
     B064K(B064K<'a>),
     /// B016M Primitive, representing a B016M type
     B016M(B016M<'a>),
+    /// CompressedPubKey Primitive, representing a CompressedPubKey type
+    CompressedPubKey(CompressedPubKey<'a>),
 }
 
 impl<'a> EncodablePrimitive<'a> {
@@ -128,6 +130,7 @@ impl<'a> EncodablePrimitive<'a> {
             Self::B0255(v) => v.to_slice(dst),
             Self::B064K(v) => v.to_slice(dst),
             Self::B016M(v) => v.to_slice(dst),
+            Self::CompressedPubKey(v) => v.to_slice(dst),
         }
     }
 
@@ -179,6 +182,7 @@ impl<'a> GetSize for EncodablePrimitive<'a> {
             Self::B0255(v) => v.get_size(),
             Self::B064K(v) => v.get_size(),
             Self::B016M(v) => v.get_size(),
+            Self::CompressedPubKey(v) => v.get_size(),
         }
     }
 }

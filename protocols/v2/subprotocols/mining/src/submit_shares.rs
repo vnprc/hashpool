@@ -2,10 +2,9 @@
 use alloc::vec::Vec;
 #[cfg(not(feature = "with_serde"))]
 use binary_sv2::binary_codec_sv2;
-use binary_sv2::{Deserialize, PubKey, Serialize, Str0255, B032};
+use binary_sv2::{Deserialize, PubKey, CompressedPubKey, Serialize, Str0255, B032};
 #[cfg(not(feature = "with_serde"))]
 use core::convert::TryInto;
-use crate::cashu::Sv2BlindedMessageSetWire;
 
 /// Message used by downstream to send result of its hashing work to an upstream.
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -68,8 +67,10 @@ pub struct SubmitSharesExtended<'decoder> {
     pub extranonce: B032<'decoder>,
     // block template header hash, used to index the blinded secret
     pub hash: PubKey<'decoder>,
-    // Premint secrets
-    pub blinded_messages: Sv2BlindedMessageSetWire<'decoder>,
+    // Locking pubkey for mint quote
+    pub locking_pubkey: CompressedPubKey<'decoder>,
+    // Keyset ID for mint quote
+    pub keyset_id: B032<'decoder>,
 }
 
 /// Message used by upstream to accept [`SubmitSharesStandard`] or [`SubmitSharesExtended`].
@@ -154,6 +155,9 @@ impl<'d> GetSize for SubmitSharesExtended<'d> {
             + self.ntime.get_size()
             + self.version.get_size()
             + self.extranonce.get_size()
+            + self.hash.get_size()
+            + self.locking_pubkey.get_size()
+            + self.keyset_id.get_size()
     }
 }
 #[cfg(feature = "with_serde")]

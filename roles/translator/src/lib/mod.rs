@@ -1,5 +1,5 @@
 use async_channel::{bounded, unbounded};
-use cdk::wallet::{MintConnector, MintQuote, SendKind, SendOptions, Wallet};
+use cdk::wallet::{MintConnector, MintQuote, Wallet};
 use cdk::amount::SplitTarget;
 use cdk_sqlite::WalletSqliteDatabase;
 use cdk::nuts::CurrencyUnit;
@@ -40,7 +40,7 @@ pub mod utils;
 // TODO add to config
 pub const HASH_CURRENCY_UNIT: &str = "HASH";
 
-use std::{thread, time::Duration, env};
+use std::{time::Duration, env};
 use tokio::runtime::Handle;
 use anyhow::{Result, Context};
 
@@ -134,6 +134,10 @@ impl TranslatorSv2 {
     }
 
     pub async fn start(mut self) {
+        // Initialize and validate wallet config
+        self.config.wallet.initialize()
+            .expect("Failed to initialize wallet config");
+        
         let config = &self.config;
 
         let wallet = create_wallet(
@@ -184,7 +188,6 @@ impl TranslatorSv2 {
         debug!("Starting up status listener");
         let wait_time = self.reconnect_wait_time;
 
-        self.spawn_proof_sweeper();
 
         // Check all tasks if is_finished() is true, if so exit
         loop {
@@ -257,6 +260,8 @@ impl TranslatorSv2 {
         let wallet = self.wallet.as_ref().unwrap().clone();
 
         let proxy_config = self.config.clone();
+        
+        
         // Sender/Receiver to send a SV2 `SubmitSharesExtended` from the `Bridge` to the `Upstream`
         // (Sender<SubmitSharesExtended<'static>>, Receiver<SubmitSharesExtended<'static>>)
         let (tx_sv2_submit_shares_ext, rx_sv2_submit_shares_ext) = bounded(10);
@@ -314,6 +319,11 @@ impl TranslatorSv2 {
             }
         };
         let task_collector_init_task = task_collector.clone();
+        
+        // Create shared list for tracking share hashes for quote sweeping
+        let share_hashes = Arc::new(Mutex::new(Vec::<String>::new()));
+        let share_hashes_for_task = share_hashes.clone();
+        
         // Spawn a task to do all of this init work so that the main thread
         // can listen for signals and failures on the status channel. This
         // allows for the tproxy to fail gracefully if any of these init tasks
@@ -359,6 +369,7 @@ impl TranslatorSv2 {
             }
 
             let task_collector_bridge = task_collector_init_task.clone();
+            
             // Instantiate a new `Bridge` and begins handling incoming messages
             let b = proxy::Bridge::new(
                 rx_sv1_downstream,
@@ -372,6 +383,9 @@ impl TranslatorSv2 {
                 up_id,
                 task_collector_bridge,
                 wallet,
+                // Safe to unwrap: initialize() ensures locking_pubkey is set
+                proxy_config.wallet.locking_pubkey.as_ref().unwrap().clone(),
+                share_hashes_for_task.clone(),
             );
             proxy::Bridge::start(b.clone());
 
@@ -393,36 +407,65 @@ impl TranslatorSv2 {
                 diff_config,
                 task_collector_downstream,
             );
+            
         }); // End of init task
         let _ =
             task_collector.safe_lock(|t| t.push((task.abort_handle(), "init task".to_string())));
+        
+        // Only spawn proof sweeper if we have a private key for signing
+        if self.config.wallet.locking_privkey.is_some() {
+            info!("Spawning proof sweeper");
+            self.spawn_proof_sweeper(share_hashes.clone());
+        }
     }
 
-    fn spawn_proof_sweeper(&self) {
+    fn spawn_proof_sweeper(&self, _share_hashes: Arc<Mutex<Vec<String>>>) {
         let wallet = self.wallet.as_ref().unwrap().clone();
         let mint_client = self.mint_client.clone();
+        let locking_pubkey = self.config.wallet.locking_pubkey.as_ref().unwrap().clone();
+        let locking_privkey = self.config.wallet.locking_privkey.clone();
 
-        task::spawn_blocking(move || {
-            let rt = Handle::current();
-
+        task::spawn(async move {
             loop {
-                let quotes = match rt.block_on(wallet.localstore.get_mint_quotes()) {
-                    Ok(q) => q,
-                    Err(e) => {
-                        tracing::warn!("Failed to get mint quotes: {:?}", e);
-                        thread::sleep(Duration::from_secs(10));
-                        continue;
-                    }
-                };
-
-                Self::process_quotes_batch(&wallet, &rt, &quotes, &mint_client);
+                // Process quotes using locking key approach
+                Self::process_quotes_by_locking_key_async(&wallet, &mint_client, &locking_pubkey, locking_privkey.as_deref()).await;
                 
                 // the people need ehash, let's give it to them
-                Self::generate_single_ehash_token(&wallet, &rt);
+                Self::generate_single_ehash_token_async(&wallet).await;
 
-                thread::sleep(Duration::from_secs(60));
+                tokio::time::sleep(Duration::from_secs(60)).await;
             }
         });
+    }
+
+    async fn generate_single_ehash_token_async(wallet: &Arc<Wallet>) {
+        tracing::debug!("Creating single ehash token for distribution");
+        
+        let options = cdk::wallet::SendOptions {
+            memo: None,
+            conditions: None,
+            amount_split_target: SplitTarget::None,
+            send_kind: cdk::wallet::SendKind::OnlineExact,
+            include_fee: false,
+            metadata: std::collections::HashMap::new(),
+            max_proofs: None,
+        };
+        
+        match wallet.prepare_send(cdk::Amount::from(1), options).await {
+            Ok(send) => {
+                match wallet.send(send, None).await {
+                    Ok(token) => {
+                        tracing::info!("Generated ehash token: {}", token);
+                    },
+                    Err(e) => {
+                        tracing::error!("Failed to generate ehash token: {}", e);
+                    }
+                }
+            },
+            Err(e) => {
+                tracing::error!("Failed to prepare send for ehash token: {}", e);
+            }
+        }
     }
 
     fn generate_single_ehash_token(wallet: &Arc<Wallet>, rt: &Handle) {
@@ -471,6 +514,110 @@ impl TranslatorSv2 {
                 HashMap::new()
             }
         }
+    }
+
+    async fn process_quotes_by_locking_key_async(wallet: &Arc<Wallet>, _mint_client: &HttpClient, locking_pubkey: &str, locking_privkey: Option<&str>) {
+        // Parse the hex locking pubkey into a PublicKey
+        let pubkey_bytes: Vec<u8> = match hex::decode(locking_pubkey) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                tracing::warn!("Failed to decode locking pubkey {}: {:?}", locking_pubkey, e);
+                return;
+            }
+        };
+        
+        let pubkey = match cdk::nuts::PublicKey::from_slice(&pubkey_bytes) {
+            Ok(pk) => pk,
+            Err(e) => {
+                tracing::warn!("Failed to parse locking pubkey: {:?}", e);
+                return;
+            }
+        };
+
+        // First, let's debug the lookup step to see if we find any quotes
+        tracing::debug!("Looking up quotes for pubkey: {}", locking_pubkey);
+        
+        let quote_lookup_items = match wallet.lookup_mint_quotes_by_pubkeys(&[pubkey]).await {
+            Ok(items) => {
+                tracing::info!("Found {} quote lookup items for pubkey {}", items.len(), locking_pubkey);
+                for item in &items {
+                    tracing::debug!("Quote lookup item: quote={}, method={}, pubkey={:?}", 
+                                  item.quote, item.method, item.pubkey);
+                }
+                items
+            }
+            Err(e) => {
+                tracing::error!("Failed to lookup quotes for pubkey {}: {}", locking_pubkey, e);
+                return;
+            }
+        };
+
+        if quote_lookup_items.is_empty() {
+            tracing::warn!("No quotes found for pubkey {} - nothing to mint", locking_pubkey);
+            return;
+        }
+
+        // Parse the secret key if provided
+        let secret_key = match locking_privkey {
+            Some(privkey_hex) => {
+                match hex::decode(privkey_hex) {
+                    Ok(privkey_bytes) => {
+                        match cdk::nuts::SecretKey::from_slice(&privkey_bytes) {
+                            Ok(sk) => Some(sk),
+                            Err(e) => {
+                                tracing::warn!("Failed to parse locking privkey: {:?}", e);
+                                None
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to decode locking privkey hex: {:?}", e);
+                        None
+                    }
+                }
+            }
+            None => None,
+        };
+
+        // Check if we have any keysets available before attempting to mint
+        match wallet.get_mint_keysets().await {
+            Ok(keysets) => {
+                if keysets.is_empty() {
+                    tracing::warn!("No keysets available in wallet - skipping mint attempt");
+                    return;
+                }
+                tracing::debug!("Wallet has {} keysets available", keysets.len());
+            }
+            Err(e) => {
+                tracing::error!("Failed to get keysets: {}", e);
+                return;
+            }
+        }
+
+        // Now use the convenience function that does everything for us:
+        // 1. Query mint for quote IDs by pubkey (using our locking key lookup API)  
+        // 2. Retrieve those quotes from the mint
+        // 3. Mint them all
+        tracing::debug!("Attempting to mint tokens for {} quotes", quote_lookup_items.len());
+        match wallet.mint_tokens_for_pubkey(pubkey, secret_key).await {
+            Ok(proofs) => {
+                tracing::info!("Successfully minted {} ehash tokens for pubkey {}", proofs.len(), locking_pubkey);
+                if proofs.is_empty() {
+                    tracing::warn!("mint_tokens_for_pubkey returned 0 proofs despite {} quotes being found - this suggests the quotes may not be paid or mintable", quote_lookup_items.len());
+                }
+            }
+            Err(e) => {
+                tracing::error!("Failed to mint ehash tokens for pubkey {}: {}", locking_pubkey, e);
+            }
+        }
+    }
+
+
+
+    fn lookup_uuid_for_quote(_rt: &Handle, _mint_client: &HttpClient, quote_id: &str) -> Option<String> {
+        // TODO: Implement proper UUID lookup via HTTP API
+        // For now, use the quote_id directly as UUID since the new API should provide UUIDs
+        Some(quote_id.to_string())
     }
 
     fn process_quotes_batch(wallet: &Arc<Wallet>, rt: &Handle, quotes: &[MintQuote], mint_client: &HttpClient) {

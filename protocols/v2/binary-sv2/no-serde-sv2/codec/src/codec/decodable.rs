@@ -1,7 +1,7 @@
 use crate::{
     codec::{GetSize, SizeHint},
     datatypes::{
-        ShortTxId, Signature, Sv2DataType, U32AsRef, B016M, B0255, B032, B064K, U24, U256,
+        CompressedPubKey, ShortTxId, Signature, Sv2DataType, U32AsRef, B016M, B0255, B032, B064K, U24, U256,
     },
     Error,
 };
@@ -91,6 +91,7 @@ pub enum PrimitiveMarker {
     B0255,
     B064K,
     B016M,
+    CompressedPubKey,
 }
 
 /// Recursive enum representing data structure fields.
@@ -135,6 +136,7 @@ pub enum DecodablePrimitive<'a> {
     B0255(B0255<'a>),
     B064K(B064K<'a>),
     B016M(B016M<'a>),
+    CompressedPubKey(CompressedPubKey<'a>),
 }
 
 /// Recursive enum representing a Decode-able field.
@@ -176,6 +178,7 @@ impl SizeHint for PrimitiveMarker {
             Self::B0255 => B0255::size_hint(data, offset),
             Self::B064K => B064K::size_hint(data, offset),
             Self::B016M => B016M::size_hint(data, offset),
+            Self::CompressedPubKey => CompressedPubKey::size_hint(data, offset),
         }
     }
 }
@@ -280,6 +283,9 @@ impl PrimitiveMarker {
             Self::B016M => {
                 DecodablePrimitive::B016M(B016M::from_bytes_unchecked(&mut data[offset..]))
             }
+            Self::CompressedPubKey => {
+                DecodablePrimitive::CompressedPubKey(CompressedPubKey::from_bytes_unchecked(&mut data[offset..]))
+            }
         }
     }
 
@@ -333,6 +339,7 @@ impl<'a> GetSize for DecodablePrimitive<'a> {
             DecodablePrimitive::B0255(v) => v.get_size(),
             DecodablePrimitive::B064K(v) => v.get_size(),
             DecodablePrimitive::B016M(v) => v.get_size(),
+            DecodablePrimitive::CompressedPubKey(v) => v.get_size(),
         }
     }
 }
