@@ -70,8 +70,6 @@ pub struct Bridge {
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
     wallet: Arc<Wallet>,
     locking_pubkey: String, // TODO: move this to wallet configuration
-    // Track share hashes for quote sweeping since we no longer create wallet quotes
-    share_hashes: Arc<Mutex<Vec<String>>>,
 }
 
 impl Bridge {
@@ -90,7 +88,6 @@ impl Bridge {
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
         wallet: Arc<Wallet>,
         locking_pubkey: String, // TODO: move this to wallet configuration
-        share_hashes: Arc<Mutex<Vec<String>>>,
     ) -> Arc<Mutex<Self>> {
         let ids = Arc::new(Mutex::new(GroupId::new()));
         let share_per_min = 1.0;
@@ -123,7 +120,6 @@ impl Bridge {
             task_collector,
             wallet,
             locking_pubkey,
-            share_hashes,
         }))
     }
 
@@ -271,13 +267,6 @@ impl Bridge {
                 match share {
                     Share::Extended(share) => {
                         // Record share hash for quote sweeping
-                        let hash_hex = hex::encode(&share.hash.inner_as_ref());
-                        let _ = self_.safe_lock(|s| {
-                            let _ = s.share_hashes.safe_lock(|hashes| {
-                                hashes.push(hash_hex.clone());
-                                debug!("Recorded share hash for sweeping: {}", hash_hex);
-                            });
-                        });
                         
                         tx_sv2_submit_shares_ext.send(share).await?;
                     }

@@ -1,5 +1,5 @@
 use async_channel::{bounded, unbounded};
-use cdk::wallet::{MintConnector, MintQuote, Wallet};
+use cdk::wallet::Wallet;
 use cdk::amount::SplitTarget;
 use cdk_sqlite::WalletSqliteDatabase;
 use cdk::nuts::CurrencyUnit;
@@ -15,7 +15,6 @@ use std::{
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::Arc,
-    collections::HashMap,
 };
 
 use tokio::{
@@ -41,7 +40,6 @@ pub mod utils;
 pub const HASH_CURRENCY_UNIT: &str = "HASH";
 
 use std::{time::Duration, env};
-use tokio::runtime::Handle;
 use anyhow::{Result, Context};
 
 #[derive(Clone, Debug)]
@@ -320,9 +318,6 @@ impl TranslatorSv2 {
         };
         let task_collector_init_task = task_collector.clone();
         
-        // Create shared list for tracking share hashes for quote sweeping
-        let share_hashes = Arc::new(Mutex::new(Vec::<String>::new()));
-        let share_hashes_for_task = share_hashes.clone();
         
         // Spawn a task to do all of this init work so that the main thread
         // can listen for signals and failures on the status channel. This
@@ -385,7 +380,6 @@ impl TranslatorSv2 {
                 wallet,
                 // Safe to unwrap: initialize() ensures locking_pubkey is set
                 proxy_config.wallet.locking_pubkey.as_ref().unwrap().clone(),
-                share_hashes_for_task.clone(),
             );
             proxy::Bridge::start(b.clone());
 
@@ -415,11 +409,11 @@ impl TranslatorSv2 {
         // Only spawn proof sweeper if we have a private key for signing
         if self.config.wallet.locking_privkey.is_some() {
             info!("Spawning proof sweeper");
-            self.spawn_proof_sweeper(share_hashes.clone());
+            self.spawn_proof_sweeper();
         }
     }
 
-    fn spawn_proof_sweeper(&self, _share_hashes: Arc<Mutex<Vec<String>>>) {
+    fn spawn_proof_sweeper(&self) {
         let wallet = self.wallet.as_ref().unwrap().clone();
         let mint_client = self.mint_client.clone();
         let locking_pubkey = self.config.wallet.locking_pubkey.as_ref().unwrap().clone();
@@ -468,53 +462,7 @@ impl TranslatorSv2 {
         }
     }
 
-    fn generate_single_ehash_token(wallet: &Arc<Wallet>, rt: &Handle) {
-        tracing::debug!("Creating single ehash token for distribution");
-        
-        let options = cdk::wallet::SendOptions {
-            memo: None,
-            conditions: None,
-            amount_split_target: SplitTarget::None,
-            send_kind: cdk::wallet::SendKind::OnlineExact,
-            include_fee: false,
-            metadata: std::collections::HashMap::new(),
-            max_proofs: None,
-        };
-        
-        match rt.block_on(wallet.prepare_send(cdk::Amount::from(1), options)) {
-            Ok(send) => {
-                match rt.block_on(wallet.send(send, None)) {
-                    Ok(token) => {
-                        tracing::info!("Generated ehash token: {}", token);
-                    },
-                    Err(e) => {
-                        tracing::error!("Failed to generate ehash token: {}", e);
-                    }
-                }
-            },
-            Err(e) => {
-                tracing::error!("Failed to prepare send for ehash token: {}", e);
-            }
-        }
-    }
 
-    fn lookup_uuids_batch(rt: &Handle, mint_client: &HttpClient, share_hashes: &[String]) -> std::collections::HashMap<String, String> {
-        if share_hashes.is_empty() {
-            return HashMap::new();
-        }
-
-        let quotes_shares_future = mint_client.get_quotes_shares(share_hashes.to_vec());
-
-        match rt.block_on(quotes_shares_future) {
-            Ok(response) => {
-                response.quote_ids.iter().map(|(id, uuid)| (id.clone(), uuid.clone())).collect::<HashMap<String, String>>()
-            },
-            Err(e) => {
-                tracing::error!("Failed to lookup batch UUIDs from mint: {}", e);
-                HashMap::new()
-            }
-        }
-    }
 
     async fn process_quotes_by_locking_key_async(wallet: &Arc<Wallet>, _mint_client: &HttpClient, locking_pubkey: &str, locking_privkey: Option<&str>) {
         // Parse the hex locking pubkey into a PublicKey
@@ -601,7 +549,21 @@ impl TranslatorSv2 {
         tracing::debug!("Attempting to mint tokens for {} quotes", quote_lookup_items.len());
         match wallet.mint_tokens_for_pubkey(pubkey, secret_key).await {
             Ok(proofs) => {
-                tracing::info!("Successfully minted {} ehash tokens for pubkey {}", proofs.len(), locking_pubkey);
+                let total_amount: u64 = proofs.iter().map(|p| u64::from(p.amount)).sum();
+                match wallet.total_balance().await {
+                    Ok(balance) => {
+                        tracing::info!(
+                            "Successfully minted ehash tokens for pubkey {} with amount {}. Total wallet balance: {}",
+                            locking_pubkey, total_amount, balance
+                        );
+                    }
+                    Err(e) => {
+                        tracing::info!(
+                            "Minted ehash tokens for pubkey {} with amount {}, but failed to get total balance: {:?}",
+                            locking_pubkey, total_amount, e
+                        );
+                    }
+                }
                 if proofs.is_empty() {
                     tracing::warn!("mint_tokens_for_pubkey returned 0 proofs despite {} quotes being found - this suggests the quotes may not be paid or mintable", quote_lookup_items.len());
                 }
@@ -614,80 +576,8 @@ impl TranslatorSv2 {
 
 
 
-    fn lookup_uuid_for_quote(_rt: &Handle, _mint_client: &HttpClient, quote_id: &str) -> Option<String> {
-        // TODO: Implement proper UUID lookup via HTTP API
-        // For now, use the quote_id directly as UUID since the new API should provide UUIDs
-        Some(quote_id.to_string())
-    }
 
-    fn process_quotes_batch(wallet: &Arc<Wallet>, rt: &Handle, quotes: &[MintQuote], mint_client: &HttpClient) {
-        if quotes.is_empty() {
-            return;
-        }
 
-        let quote_ids: Vec<String> = quotes.iter().map(|q| q.id.clone()).collect();
-        let uuid_mapping = Self::lookup_uuids_batch(rt, mint_client, &quote_ids);
-        for quote in quotes {
-            if let Some(uuid) = uuid_mapping.get(&quote.id) {
-                // Update the quote's ID to use the mint UUID instead of header hash
-                let mut updated_quote = quote.clone();
-                updated_quote.id = uuid.clone();
-                
-                // TODO: use share hash as mint db mint_quote primary key, requires NUT-20 support
-                // Risk: Temporary duplicate quotes/secrets if delete fails, but no data loss
-                if let Err(e) = rt.block_on(wallet.localstore.add_mint_quote(updated_quote)) {
-                    tracing::error!("Failed to add updated quote {} with mint UUID {}: {}", quote.id, uuid, e);
-                    continue;
-                }
-                
-                // Update premint secrets to use mint UUID key (same add-first pattern)
-                // TODO update cdk to use share hash as the primary field for mining share
-                if let Ok(Some(secrets)) = rt.block_on(wallet.localstore.get_premint_secrets(&quote.id)) {
-                    if let Err(e) = rt.block_on(wallet.localstore.add_premint_secrets(uuid, secrets)) {
-                        tracing::error!("Failed to add premint secrets for mint UUID {}: {}", uuid, e);
-                        continue;
-                    }
-                }
-                
-                tracing::debug!("Successfully updated quote and secrets {} to use mint UUID {}", quote.id, uuid);
-                
-                // Remove old quote and secrets only after successful adds
-                if let Err(e) = rt.block_on(wallet.localstore.remove_mint_quote(&quote.id)) {
-                    tracing::warn!("Failed to remove old quote {} (new UUID {} exists): {}", quote.id, uuid, e);
-                }
-                if let Err(e) = rt.block_on(wallet.localstore.remove_premint_secrets(&quote.id)) {
-                    tracing::warn!("Failed to remove old premint secrets {} (new UUID {} exists): {}", quote.id, uuid, e);
-                }
-                
-                // TODO get latest keyset
-                match rt.block_on(wallet.mint_mining_share(uuid)) {
-                    Ok(_proofs) => {
-                        Self::log_success(wallet, rt, quote);
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to mint ehash tokens for share {} error: {}", quote.id, e);
-                    }
-                }
-            }
-        }
-    }
-
-    fn log_success(
-        wallet: &Arc<Wallet>,
-        rt: &Handle,
-        quote: &MintQuote,
-    ) {
-        match rt.block_on(wallet.total_balance()) {
-            Ok(balance) => info!(
-                "Successfully minted ehash tokens for share {} with amount {}. Total wallet balance: {}",
-                quote.id, quote.amount.map_or_else(|| "<missing>".to_string(), |a| a.to_string()), balance
-            ),
-            Err(e) => info!(
-                "Minted ehash tokens for share {} with amount {}, but failed to get total balance: {:?}",
-                quote.id, quote.amount.map_or_else(|| "<missing>".to_string(), |a| a.to_string()), e
-            ),
-        }
-    }
 }
 
 fn kill_tasks(task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>) {
