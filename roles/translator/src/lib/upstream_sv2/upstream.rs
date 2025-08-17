@@ -10,6 +10,7 @@ use crate::{
 };
 use async_channel::{Receiver, Sender};
 use async_std::net::TcpStream;
+use tokio::sync::broadcast;
 use binary_sv2::u256_from_int;
 use cdk::{nuts::KeySet, wallet::Wallet};
 use codec_sv2::{HandshakeRole, Initiator};
@@ -106,6 +107,7 @@ pub struct Upstream {
     pub(super) difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
     wallet: Arc<Wallet>,
+    keyset_sender: broadcast::Sender<Vec<u8>>,
 }
 
 impl PartialEq for Upstream {
@@ -134,6 +136,7 @@ impl Upstream {
         difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
         wallet: Arc<Wallet>,
+        keyset_sender: broadcast::Sender<Vec<u8>>,
     ) -> ProxyResult<'static, Arc<Mutex<Self>>> {
         // Connect to the SV2 Upstream role retry connection every 5 seconds.
         let socket = loop {
@@ -184,6 +187,7 @@ impl Upstream {
             difficulty_config,
             task_collector,
             wallet,
+            keyset_sender,
         })))
     }
 
@@ -708,10 +712,17 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
         
         info!("Adding keyset with ID {} to wallet", hex::encode(keyset.id.to_bytes()));
         let keyset_id_bytes = keyset.id.to_bytes();
+        let keyset_sender_clone = self.keyset_sender.clone();
         tokio::spawn(async move {
             match wallet_clone.add_keyset(keyset.clone(), true, 0).await {
                 Ok(_) => {
                     info!("Successfully added keyset {} to wallet", hex::encode(&keyset_id_bytes));
+                    // Broadcast the keyset ID to Bridge for share submission
+                    if let Err(e) = keyset_sender_clone.send(keyset_id_bytes.clone()) {
+                        error!("Failed to broadcast keyset update: {:?}", e);
+                    } else {
+                        info!("Broadcasted keyset {} to Bridge", hex::encode(&keyset_id_bytes));
+                    }
                 },
                 Err(e) => {
                     error!("Failed to add keyset {} to wallet: {:?}", hex::encode(&keyset_id_bytes), e);

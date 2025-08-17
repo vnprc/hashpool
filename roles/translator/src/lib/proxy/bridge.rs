@@ -70,6 +70,8 @@ pub struct Bridge {
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
     wallet: Arc<Wallet>,
     locking_pubkey: String, // TODO: move this to wallet configuration
+    keyset_receiver: broadcast::Receiver<Vec<u8>>,
+    current_keyset_id: Option<Vec<u8>>,
 }
 
 impl Bridge {
@@ -88,6 +90,7 @@ impl Bridge {
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
         wallet: Arc<Wallet>,
         locking_pubkey: String, // TODO: move this to wallet configuration
+        keyset_receiver: broadcast::Receiver<Vec<u8>>,
     ) -> Arc<Mutex<Self>> {
         let ids = Arc::new(Mutex::new(GroupId::new()));
         let share_per_min = 1.0;
@@ -120,6 +123,8 @@ impl Bridge {
             task_collector,
             wallet,
             locking_pubkey,
+            keyset_receiver,
+            current_keyset_id: None,
         }))
     }
 
@@ -297,7 +302,7 @@ impl Bridge {
     /// Translates a SV1 `mining.submit` message to a SV2 `SubmitSharesExtended` message.
     #[allow(clippy::result_large_err)]
     fn translate_submit(
-        &self,
+        &mut self,
         channel_id: u32,
         sv1_submit: Submit,
         version_rolling_mask: Option<HexU32Be>,
@@ -342,26 +347,27 @@ impl Bridge {
         tracing::debug!("Successfully created locking pubkey");
 
             
-        // Get the active keyset ID from the wallet  
-        let keyset_id_bytes = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                match self.wallet.get_active_mint_keyset().await {
-                    Ok(keyset) => {
-                        let bytes = keyset.id.to_bytes();
-                        // Pad to 32 bytes for B032 compatibility
-                        let mut array = [0u8; 32];
-                        let copy_len = bytes.len().min(32);
-                        array[..copy_len].copy_from_slice(&bytes[..copy_len]);
-                        array
-                    },
-                    Err(e) => {
-                        tracing::error!("Failed to get active keyset from wallet: {}", e);
-                        // Use placeholder keyset ID as fallback
-                        [0u8; 32]
-                    }
-                }
-            })
-        });
+        // Check for new keyset updates and store the latest one
+        while let Ok(new_keyset) = self.keyset_receiver.try_recv() {
+            tracing::info!("Received new keyset ID: {}", hex::encode(&new_keyset));
+            self.current_keyset_id = Some(new_keyset);
+        }
+        
+        // Use the current keyset or placeholder if none available
+        let keyset_id_bytes = match &self.current_keyset_id {
+            Some(keyset_bytes) => {
+                // Pad to 32 bytes for B032 compatibility
+                let mut array = [0u8; 32];
+                let copy_len = keyset_bytes.len().min(32);
+                array[..copy_len].copy_from_slice(&keyset_bytes[..copy_len]);
+                tracing::debug!("Using stored keyset ID: {}", hex::encode(keyset_bytes));
+                array
+            },
+            None => {
+                tracing::debug!("No keyset available yet, using placeholder");
+                [0u8; 32]
+            }
+        };
         
         Ok(SubmitSharesExtended {
             channel_id,
