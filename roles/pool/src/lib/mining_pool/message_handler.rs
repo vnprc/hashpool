@@ -43,16 +43,26 @@ fn create_and_enqueue_mining_share_quote(
     
     // Convert keyset_id from SV2 format to CDK format
     let keyset_id_bytes = m.keyset_id.inner_as_ref();
-    // Find the actual length of the keyset ID by finding where the padding starts
-    let actual_length = keyset_id_bytes.iter().rposition(|&x| x != 0).map(|i| i + 1).unwrap_or(0);
-    let actual_keyset_bytes = if actual_length > 0 {
-        &keyset_id_bytes[..actual_length]
+    
+    // Check if this looks like a real keyset (has non-zero bytes in first 9 positions) 
+    let has_real_keyset = keyset_id_bytes.iter().take(9).any(|&x| x != 0);
+    
+    let keyset_id = if has_real_keyset {
+        // Find where the actual keyset data ends (CDK format is typically 9 bytes: version + 8 bytes)
+        let actual_length = keyset_id_bytes.iter().rposition(|&x| x != 0).map(|i| i + 1).unwrap_or(9);
+        let actual_length = actual_length.min(9); // CDK format is max 9 bytes for version 0
+        let actual_keyset_bytes = &keyset_id_bytes[..actual_length];
+        
+        tracing::debug!("Parsing keyset ID from {} bytes: {}", actual_length, cdk::util::hex::encode(actual_keyset_bytes));
+        cdk::nuts::nut02::Id::from_bytes(actual_keyset_bytes)
+            .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid keyset ID: {}", e)))?
     } else {
-        // All zeros - this is a placeholder, create a default keyset ID
-        &[0u8, 0, 0, 0, 0, 0, 0, 0, 0] // Version 0 + 8 zero bytes
+        // All zeros - this is a placeholder, create a default keyset ID  
+        tracing::debug!("Using placeholder keyset ID (all zeros detected)");
+        let placeholder_bytes = [0u8, 0, 0, 0, 0, 0, 0, 0, 0]; // Version 0 + 8 zero bytes
+        cdk::nuts::nut02::Id::from_bytes(&placeholder_bytes)
+            .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid placeholder keyset ID: {}", e)))?
     };
-    let keyset_id = cdk::nuts::nut02::Id::from_bytes(actual_keyset_bytes)
-        .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid keyset ID: {}", e)))?;
     
     let quote_request = cdk::nuts::nutXX::MintQuoteMiningShareRequest {
         amount: amount.into(),

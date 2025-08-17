@@ -293,6 +293,10 @@ impl TranslatorSv2 {
 
         let diff_config = Arc::new(Mutex::new(proxy_config.upstream_difficulty_config.clone()));
         let task_collector_upstream = task_collector.clone();
+        
+        // Create broadcast channel for keyset updates
+        let (keyset_sender, keyset_receiver) = broadcast::channel(16);
+        
         // Instantiate a new `Upstream` (SV2 Pool)
         let upstream = match upstream_sv2::Upstream::new(
             upstream_addr,
@@ -307,6 +311,7 @@ impl TranslatorSv2 {
             diff_config.clone(),
             task_collector_upstream,
             wallet.clone(),
+            keyset_sender,
         )
         .await
         {
@@ -380,6 +385,7 @@ impl TranslatorSv2 {
                 wallet,
                 // Safe to unwrap: initialize() ensures locking_pubkey is set
                 proxy_config.wallet.locking_pubkey.as_ref().unwrap().clone(),
+                keyset_receiver,
             );
             proxy::Bridge::start(b.clone());
 
