@@ -2,7 +2,7 @@
 use alloc::vec::Vec;
 #[cfg(not(feature = "with_serde"))]
 use binary_sv2::binary_codec_sv2;
-use binary_sv2::{Deserialize, PubKey, CompressedPubKey, Serialize, Str0255, B032};
+use binary_sv2::{Deserialize, PubKey, CompressedPubKey, Serialize, Str0255, B032, B0255};
 #[cfg(not(feature = "with_serde"))]
 use core::convert::TryInto;
 
@@ -70,7 +70,7 @@ pub struct SubmitSharesExtended<'decoder> {
     // Locking pubkey for mint quote
     pub locking_pubkey: CompressedPubKey<'decoder>,
     // Keyset ID for mint quote
-    pub keyset_id: B032<'decoder>,
+    pub keyset_id: B0255<'decoder>,
 }
 
 /// Message used by upstream to accept [`SubmitSharesStandard`] or [`SubmitSharesExtended`].
