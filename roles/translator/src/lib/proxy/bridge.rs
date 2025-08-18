@@ -72,6 +72,7 @@ pub struct Bridge {
     locking_pubkey: String, // TODO: move this to wallet configuration
     keyset_receiver: broadcast::Receiver<Vec<u8>>,
     current_keyset_id: Option<Vec<u8>>,
+    keyset_buffer: Vec<u8>,
 }
 
 impl Bridge {
@@ -125,6 +126,7 @@ impl Bridge {
             locking_pubkey,
             keyset_receiver,
             current_keyset_id: None,
+            keyset_buffer: vec![0u8; 9], // Initialize with placeholder
         }))
     }
 
@@ -350,24 +352,21 @@ impl Bridge {
         // Check for new keyset updates and store the latest one
         while let Ok(new_keyset) = self.keyset_receiver.try_recv() {
             tracing::info!("Received new keyset ID: {}", hex::encode(&new_keyset));
-            self.current_keyset_id = Some(new_keyset);
+            self.current_keyset_id = Some(new_keyset.clone());
+            // Update the keyset buffer to have the right lifetime
+            self.keyset_buffer = new_keyset;
         }
         
-        // Use the current keyset or placeholder if none available
-        let keyset_id_bytes = match &self.current_keyset_id {
-            Some(keyset_bytes) => {
-                // Pad to 32 bytes for B032 compatibility
-                let mut array = [0u8; 32];
-                let copy_len = keyset_bytes.len().min(32);
-                array[..copy_len].copy_from_slice(&keyset_bytes[..copy_len]);
+        // Update keyset buffer if we have a current keyset but buffer is outdated
+        if let Some(keyset_bytes) = &self.current_keyset_id {
+            if self.keyset_buffer != *keyset_bytes {
                 tracing::debug!("Using stored keyset ID: {}", hex::encode(keyset_bytes));
-                array
-            },
-            None => {
-                tracing::debug!("No keyset available yet, using placeholder");
-                [0u8; 32]
+                self.keyset_buffer = keyset_bytes.clone();
             }
-        };
+        } else {
+            tracing::debug!("No keyset available yet, using placeholder");
+            // Keep the placeholder buffer (already initialized to zeros)
+        }
         
         Ok(SubmitSharesExtended {
             channel_id,
@@ -381,7 +380,10 @@ impl Bridge {
             // initialize to all zeros, will be updated later
             hash: [0u8; 32].into(),
             locking_pubkey,
-            keyset_id: keyset_id_bytes.to_vec().try_into().unwrap(),
+            keyset_id: {
+                let keyset_b0255: binary_sv2::B0255 = (&mut self.keyset_buffer[..]).try_into().unwrap();
+                keyset_b0255.into_static()
+            },
         })
     }
 
