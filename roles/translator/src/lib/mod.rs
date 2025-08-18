@@ -2,6 +2,7 @@ use async_channel::{bounded, unbounded};
 use cdk::wallet::Wallet;
 use cdk::amount::SplitTarget;
 use cdk_sqlite::WalletSqliteDatabase;
+use cdk::hashpool::MintQuoteStateFilter::OnlyPaid;
 use cdk::nuts::CurrencyUnit;
 use cdk::{HttpClient, mint_url::MintUrl};
 use bip39::Mnemonic;
@@ -491,7 +492,7 @@ impl TranslatorSv2 {
         // First, let's debug the lookup step to see if we find any quotes
         tracing::debug!("Looking up quotes for pubkey: {}", locking_pubkey);
         
-        let quote_lookup_items = match wallet.lookup_mint_quotes_by_pubkeys(&[pubkey]).await {
+        let quote_lookup_items = match wallet.lookup_mint_quotes_by_pubkeys(&[pubkey], OnlyPaid).await {
             Ok(items) => {
                 tracing::info!("Found {} quote lookup items for pubkey {}", items.len(), locking_pubkey);
                 for item in &items {
