@@ -505,7 +505,6 @@ impl TranslatorSv2 {
         };
 
         if quote_lookup_items.is_empty() {
-            tracing::warn!("No quotes found for pubkey {} - nothing to mint", locking_pubkey);
             return Ok(0); // This is a legitimate case - no quotes to mint
         }
 
