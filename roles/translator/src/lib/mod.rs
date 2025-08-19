@@ -429,17 +429,25 @@ impl TranslatorSv2 {
         task::spawn(async move {
             loop {
                 // Process quotes using locking key approach
-                Self::process_quotes_by_locking_key_async(&wallet, &mint_client, &locking_pubkey, locking_privkey.as_deref()).await;
-                
-                // the people need ehash, let's give it to them
-                Self::generate_single_ehash_token_async(&wallet).await;
+                match Self::process_quotes_by_locking_key(&wallet, &mint_client, &locking_pubkey, locking_privkey.as_deref()).await {
+                    Ok(minted_amount) => {
+                        // the people need ehash, let's give it to them (only if we minted some tokens)
+                        if minted_amount > 0 {
+                            Self::generate_single_ehash_token(&wallet).await;
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Quote processing failed: {}", e);
+                        // Continue the loop - don't generate tokens on error
+                    }
+                }
 
                 tokio::time::sleep(Duration::from_secs(60)).await;
             }
         });
     }
 
-    async fn generate_single_ehash_token_async(wallet: &Arc<Wallet>) {
+    async fn generate_single_ehash_token(wallet: &Arc<Wallet>) {
         tracing::debug!("Creating single ehash token for distribution");
         
         let options = cdk::wallet::SendOptions {
@@ -471,23 +479,13 @@ impl TranslatorSv2 {
 
 
 
-    async fn process_quotes_by_locking_key_async(wallet: &Arc<Wallet>, _mint_client: &HttpClient, locking_pubkey: &str, locking_privkey: Option<&str>) {
+    async fn process_quotes_by_locking_key(wallet: &Arc<Wallet>, _mint_client: &HttpClient, locking_pubkey: &str, locking_privkey: Option<&str>) -> Result<u64> {
         // Parse the hex locking pubkey into a PublicKey
-        let pubkey_bytes: Vec<u8> = match hex::decode(locking_pubkey) {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                tracing::warn!("Failed to decode locking pubkey {}: {:?}", locking_pubkey, e);
-                return;
-            }
-        };
+        let pubkey_bytes = hex::decode(locking_pubkey)
+            .with_context(|| format!("Failed to decode locking pubkey: {}", locking_pubkey))?;
         
-        let pubkey = match cdk::nuts::PublicKey::from_slice(&pubkey_bytes) {
-            Ok(pk) => pk,
-            Err(e) => {
-                tracing::warn!("Failed to parse locking pubkey: {:?}", e);
-                return;
-            }
-        };
+        let pubkey = cdk::nuts::PublicKey::from_slice(&pubkey_bytes)
+            .context("Failed to parse locking pubkey from decoded bytes")?;
 
         // First, let's debug the lookup step to see if we find any quotes
         tracing::debug!("Looking up quotes for pubkey: {}", locking_pubkey);
@@ -502,14 +500,13 @@ impl TranslatorSv2 {
                 items
             }
             Err(e) => {
-                tracing::error!("Failed to lookup quotes for pubkey {}: {}", locking_pubkey, e);
-                return;
+                return Err(e).with_context(|| format!("Failed to lookup quotes for pubkey: {}", locking_pubkey));
             }
         };
 
         if quote_lookup_items.is_empty() {
             tracing::warn!("No quotes found for pubkey {} - nothing to mint", locking_pubkey);
-            return;
+            return Ok(0); // This is a legitimate case - no quotes to mint
         }
 
         // Parse the secret key if provided
@@ -535,19 +532,14 @@ impl TranslatorSv2 {
         };
 
         // Check if we have any keysets available before attempting to mint
-        match wallet.get_mint_keysets().await {
-            Ok(keysets) => {
-                if keysets.is_empty() {
-                    tracing::warn!("No keysets available in wallet - skipping mint attempt");
-                    return;
-                }
-                tracing::debug!("Wallet has {} keysets available", keysets.len());
-            }
-            Err(e) => {
-                tracing::error!("Failed to get keysets: {}", e);
-                return;
-            }
+        let keysets = wallet.get_mint_keysets().await
+            .context("Failed to get keysets from wallet")?;
+        
+        if keysets.is_empty() {
+            tracing::warn!("No keysets available in wallet - skipping mint attempt");
+            return Ok(0); // This is also a legitimate case
         }
+        tracing::debug!("Wallet has {} keysets available", keysets.len());
 
         // Now use the convenience function that does everything for us:
         // 1. Query mint for quote IDs by pubkey (using our locking key lookup API)  
@@ -574,9 +566,10 @@ impl TranslatorSv2 {
                 if proofs.is_empty() {
                     tracing::warn!("mint_tokens_for_pubkey returned 0 proofs despite {} quotes being found - this suggests the quotes may not be paid or mintable", quote_lookup_items.len());
                 }
+                return Ok(total_amount);
             }
             Err(e) => {
-                tracing::error!("Failed to mint ehash tokens for pubkey {}: {}", locking_pubkey, e);
+                return Err(e).with_context(|| format!("Failed to mint ehash tokens for pubkey: {}", locking_pubkey));
             }
         }
     }
