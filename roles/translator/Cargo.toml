@@ -53,8 +53,8 @@ bip39 = "2.0"
 anyhow = "1.0"
 hex = "0.4"
 
-cdk = { git = "https://github.com/vnprc/cdk.git", package = "cdk", rev = "788c0714" }
-cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", package = "cdk-sqlite", rev = "788c0714" }
+cdk = { git = "https://github.com/vnprc/cdk.git", package = "cdk", rev = "f0c45837" }
+cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", package = "cdk-sqlite", rev = "f0c45837" }
 
 [dev-dependencies]
 sha2 = "0.10.6"
