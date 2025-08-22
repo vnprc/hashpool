@@ -83,6 +83,8 @@ in {
       pkgs.coreutils # Provides stdbuf for disabling output buffering
       pkgs.redis
       pkgs.clightning
+      pkgs.openssl
+      pkgs.pkg-config
     ]
     ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [pkgs.darwin.apple_sdk.frameworks.Security];
 

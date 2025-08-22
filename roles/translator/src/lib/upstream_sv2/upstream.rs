@@ -724,6 +724,15 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
                         info!("Broadcasted keyset {} to Bridge", hex::encode(&keyset_id_bytes));
                     }
                 },
+                Err(cdk::Error::Database(cdk::cdk_database::Error::Duplicate)) => {
+                    info!("Keyset {} already exists in wallet, broadcasting existing keyset", hex::encode(&keyset_id_bytes));
+                    // Broadcast the keyset ID to Bridge even if it already exists
+                    if let Err(e) = keyset_sender_clone.send(keyset_id_bytes.clone()) {
+                        error!("Failed to broadcast keyset update: {:?}", e);
+                    } else {
+                        info!("Broadcasted existing keyset {} to Bridge", hex::encode(&keyset_id_bytes));
+                    }
+                },
                 Err(e) => {
                     error!("Failed to add keyset {} to wallet: {:?}", hex::encode(&keyset_id_bytes), e);
                 }
