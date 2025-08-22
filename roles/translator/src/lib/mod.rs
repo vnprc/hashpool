@@ -78,8 +78,9 @@ pub async fn create_wallet(
     tracing::debug!("Parsing mnemonic...");
     let seed = Mnemonic::from_str(&mnemonic)
         .with_context(|| format!("Invalid mnemonic: '{}'", mnemonic))?
-        .to_seed_normalized("")
-        .to_vec();
+        .to_seed_normalized("");
+    let seed: [u8; 64] = seed.try_into()
+        .map_err(|_| anyhow::anyhow!("Seed must be exactly 64 bytes"))?;
     tracing::debug!("Seed derived.");
 
     let db_path = resolve_and_prepare_db_path(&db_path);
@@ -95,7 +96,7 @@ pub async fn create_wallet(
         &mint_url,
         CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string()),
         Arc::new(localstore),
-        &seed,
+        seed,
         None,
     )
     .context("Failed to create wallet")?;
@@ -462,7 +463,7 @@ impl TranslatorSv2 {
         
         match wallet.prepare_send(cdk::Amount::from(1), options).await {
             Ok(send) => {
-                match wallet.send(send, None).await {
+                match send.confirm(None).await {
                     Ok(token) => {
                         tracing::info!("Generated ehash token: {}", token);
                     },

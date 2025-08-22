@@ -4,9 +4,10 @@ use std::sync::Arc;
 use std::str::FromStr;
 
 use cdk::mint::Mint;
-use cdk::nuts::CurrencyUnit;
+use cdk::nuts::{CurrencyUnit, MintInfo, Nuts, PaymentMethod, MintMethodSettings};
 use cdk::nuts::nutXX::MintQuoteMiningShareRequest;
 use cdk::types::QuoteTTL;
+use cdk::Amount;
 use cdk_axum::cache::HttpCache;
 use cdk_mintd::config::{self, LnBackend};
 use cdk::cdk_payment::MintPayment;
@@ -15,7 +16,6 @@ use cdk_signatory::db_signatory::DbSignatory;
 use cdk::types::PaymentProcessorKey;
 use cdk_sqlite::MintSqliteDatabase;
 use tokio::net::TcpListener;
-use tokio::sync::Notify;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 use bip39::Mnemonic;
@@ -151,20 +151,6 @@ async fn main() -> Result<()> {
 
     let ln: HashMap<PaymentProcessorKey, Arc<dyn MintPayment<Err = cdk_payment::Error> + Send + Sync>> = HashMap::new();
 
-    let mint = Arc::new(Mint::new(
-        signatory,
-        db,
-        ln,
-    )
-    .await.unwrap());
-
-    // mint.check_pending_mint_quotes().await?;
-    // mint.check_pending_melt_quotes().await?;
-    
-    // Set mint info in database
-    use cdk::nuts::{MintInfo, Nuts, PaymentMethod, MintMethodSettings};
-    use cdk::Amount;
-    
     // Configure NUT-04 settings for MiningShare payment method with HASH unit
     let mining_share_method = MintMethodSettings {
         method: PaymentMethod::MiningShare,
@@ -193,14 +179,25 @@ async fn main() -> Result<()> {
         time: None,
         tos_url: None,
     };
-    mint.set_mint_info(mint_info).await?;
+
+    let mint = Arc::new(Mint::new(
+        mint_info,
+        signatory,
+        db,
+        ln,
+    )
+    .await.unwrap());
+
+    // mint.check_pending_mint_quotes().await?;
+    // mint.check_pending_melt_quotes().await?;
+    
     
     mint.set_quote_ttl(QuoteTTL::new(10_000, 10_000)).await?;
 
     let router = cdk_axum::create_mint_router_with_custom_cache(mint.clone(), cache, false).await?;
-    let shutdown = Arc::new(Notify::new());
 
-    tokio::spawn(wait_for_invoices(mint.clone(), shutdown.clone()));
+    // Start background tasks for invoice monitoring
+    mint.start().await?;
 
     let redis_url = global_config.redis.url.clone();
     let active_keyset_prefix = global_config.redis.active_keyset_prefix.clone();
@@ -245,11 +242,6 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn wait_for_invoices(mint: Arc<Mint>, shutdown: Arc<Notify>) {
-    if let Err(e) = mint.wait_for_paid_invoices(shutdown).await {
-        tracing::error!("Error while waiting for paid invoices: {:?}", e);
-    }
-}
 
 async fn handle_quote_payload(
     mint: Arc<Mint>,
