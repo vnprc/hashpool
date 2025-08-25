@@ -258,7 +258,7 @@ impl<'a> TryFrom<Sv2KeySet<'a>> for KeySet {
 
         Ok(KeySet {
             id,
-            unit: CurrencyUnit::Custom("HASH".to_string()),
+            unit: CurrencyUnit::Hash,
             keys: cdk::nuts::Keys::new(keys_map),
             final_expiry: None,
         })
@@ -311,10 +311,7 @@ pub fn format_quote_event_json(req: &MintQuoteMiningShareRequest) -> String {
         None => write!(out, "\"description\":null,").unwrap(),
     }
 
-    match &req.pubkey {
-        Some(pk) => write!(out, "\"pubkey\":\"{}\",", hex::encode(pk.to_bytes())).unwrap(),
-        None => write!(out, "\"pubkey\":null,").unwrap(),
-    }
+    write!(out, "\"pubkey\":\"{}\",", hex::encode(req.pubkey.to_bytes())).unwrap();
 
     write!(out, "\"keyset_id\":\"{}\"", hex::encode(req.keyset_id.to_bytes())).unwrap();
 
@@ -430,7 +427,7 @@ mod tests {
 
         let keyset = KeySet {
             id,
-            unit: CurrencyUnit::Custom("HASH".into()),
+            unit: CurrencyUnit::Hash,
             keys,
             final_expiry: None,
         };
@@ -469,7 +466,7 @@ mod tests {
 
         let req = cdk::nuts::nutXX::MintQuoteMiningShareRequest {
             amount: Amount::from(1000u64),
-            unit: CurrencyUnit::Custom("HASH".into()),
+            unit: CurrencyUnit::Hash,
             header_hash: cdk::secp256k1::hashes::Hash::from_slice(&hash.to_byte_array()).unwrap(),
             description: Some("test quote".into()),
             pubkey: Some(make_pubkey()),

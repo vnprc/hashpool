@@ -94,7 +94,7 @@ pub async fn create_wallet(
     tracing::debug!("Creating wallet...");
     let wallet = Wallet::new(
         &mint_url,
-        CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string()),
+        CurrencyUnit::Hash,
         Arc::new(localstore),
         seed,
         None,

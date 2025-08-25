@@ -51,10 +51,10 @@ fn create_and_enqueue_mining_share_quote(
     
     let quote_request = cdk::nuts::nutXX::MintQuoteMiningShareRequest {
         amount: amount.into(),
-        unit: cdk::nuts::CurrencyUnit::Custom("hash".to_string()),
+        unit: cdk::nuts::CurrencyUnit::Hash,
         header_hash: cdk_header_hash,
         description: None,
-        pubkey: Some(pubkey),
+        pubkey: pubkey,
         keyset_id,
     };
     

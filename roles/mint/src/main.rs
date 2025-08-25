@@ -20,7 +20,6 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 use bip39::Mnemonic;
 use anyhow::{Result, bail};
-use bitcoin::bip32::{ChildNumber, DerivationPath};
 use shared_config::PoolGlobalConfig;
 
 use toml;
@@ -107,25 +106,16 @@ async fn main() -> Result<()> {
     // }
 
     // TODO add to config
-    pub const HASH_CURRENCY_UNIT: &str = "HASH";
-    pub const HASH_DERIVATION_PATH: u32 = 1337;
     const NUM_KEYS: u8 = 64;
 
     let mnemonic = Mnemonic::from_str(&mint_settings.info.mnemonic.unwrap())
         .map_err(|e| anyhow::anyhow!("Invalid mnemonic in mint config: {}", e))?;
     let seed_bytes : &[u8] = &mnemonic.to_seed("");
 
-    let hash_currency_unit = CurrencyUnit::Custom(HASH_CURRENCY_UNIT.to_string());
+    let hash_currency_unit = CurrencyUnit::Hash;
 
     let mut currency_units = HashMap::new();
     currency_units.insert(hash_currency_unit.clone(), (0, NUM_KEYS));
-
-    let mut derivation_paths = HashMap::new();
-    derivation_paths.insert(hash_currency_unit.clone(), DerivationPath::from(vec![
-        ChildNumber::from_hardened_idx(0).expect("Failed to create purpose index 0"),
-        ChildNumber::from_hardened_idx(HASH_DERIVATION_PATH).expect(&format!("Failed to create coin type index {}", HASH_DERIVATION_PATH)),
-        ChildNumber::from_hardened_idx(0).expect("Failed to create account index 0"),
-    ]));
 
     let cache: HttpCache = mint_settings.info.http_cache.into();
 
@@ -145,7 +135,7 @@ async fn main() -> Result<()> {
             db.clone(),
             seed_bytes,
             currency_units,
-            derivation_paths,
+            HashMap::new(),
         ).await.unwrap()
     );
 
