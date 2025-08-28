@@ -3799,6 +3799,7 @@ dependencies = [
  "hex",
  "key-utils",
  "mining_sv2",
+ "mint_pool_messaging",
  "network_helpers_sv2",
  "nohash-hasher",
  "noise_sv2",

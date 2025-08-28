@@ -7,6 +7,14 @@ url = "redis://localhost:6379"
 create_quote_prefix = "mint:quotes:create"
 active_keyset_prefix = "mint:keyset:active"
 
+[sv2_messaging]
+# SV2 messaging configuration for pool-mint communication
+enabled = true
+broadcast_buffer_size = 1000
+mpsc_buffer_size = 100
+max_retries = 3
+timeout_ms = 5000
+
 [mint]
 host = "localhost"
 port = 3338

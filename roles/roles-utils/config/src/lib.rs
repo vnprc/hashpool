@@ -98,11 +98,33 @@ impl MinerGlobalConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+pub struct Sv2MessagingConfig {
+    pub enabled: bool,
+    pub broadcast_buffer_size: usize,
+    pub mpsc_buffer_size: usize,
+    pub max_retries: u32,
+    pub timeout_ms: u64,
+}
+
+impl Default for Sv2MessagingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            broadcast_buffer_size: 1000,
+            mpsc_buffer_size: 100,
+            max_retries: 3,
+            timeout_ms: 5000,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct PoolGlobalConfig {
     pub redis: RedisConfig,
     pub mint: MintConfig,
     pub pool: PoolConfig,
     pub proxy: ProxyConfig,
+    pub sv2_messaging: Option<Sv2MessagingConfig>,
 }
 
 impl PoolGlobalConfig {

@@ -7,6 +7,7 @@ use binary_sv2::U256;
 use codec_sv2::{HandshakeRole, Responder, StandardEitherFrame, StandardSv2Frame};
 use error_handling::handle_result;
 use key_utils::{Secp256k1PublicKey, Secp256k1SecretKey, SignatureService};
+use mint_pool_messaging::MintPoolMessageHub;
 use network_helpers_sv2::noise_connection_tokio::Connection;
 use nohash_hasher::BuildNoHashHasher;
 use roles_logic_sv2::{
@@ -22,7 +23,7 @@ use roles_logic_sv2::{
     utils::{CoinbaseOutput as CoinbaseOutput_, Mutex},
 };
 use serde::Deserialize;
-use shared_config::RedisConfig;
+use shared_config::{RedisConfig, Sv2MessagingConfig};
 use std::{
     collections::HashMap,
     convert::{TryFrom, TryInto},
@@ -195,6 +196,8 @@ pub struct Downstream {
     solution_sender: Sender<SubmitSolution<'static>>,
     channel_factory: Arc<Mutex<PoolChannelFactory>>,
     redis_config: RedisConfig,
+    sv2_hub: Option<Arc<MintPoolMessageHub>>,
+    sv2_config: Option<Sv2MessagingConfig>,
 }
 
 // TODO remove after porting mint to use Sv2 data types
@@ -220,6 +223,8 @@ pub struct Pool {
     last_prev_hash_template_id: u64,
     status_tx: status::Sender,
     redis_config: RedisConfig,
+    sv2_hub: Option<Arc<MintPoolMessageHub>>,
+    sv2_config: Option<Sv2MessagingConfig>,
 }
 
 impl Downstream {
@@ -233,6 +238,8 @@ impl Downstream {
         status_tx: status::Sender,
         address: SocketAddr,
         redis_config: RedisConfig,
+        sv2_hub: Option<Arc<MintPoolMessageHub>>,
+        sv2_config: Option<Sv2MessagingConfig>,
     ) -> PoolResult<Arc<Mutex<Self>>> {
         let setup_connection = Arc::new(Mutex::new(SetupConnectionHandler::new()));
         let downstream_data =
@@ -252,6 +259,8 @@ impl Downstream {
             solution_sender,
             channel_factory,
             redis_config,
+            sv2_hub,
+            sv2_config,
         }));
 
         let cloned = self_.clone();
@@ -501,6 +510,8 @@ impl Pool {
         let solution_sender = self_.safe_lock(|p| p.solution_sender.clone())?;
         let status_tx = self_.safe_lock(|s| s.status_tx.clone())?;
         let channel_factory = self_.safe_lock(|s| s.channel_factory.clone())?;
+        let sv2_hub = self_.safe_lock(|s| s.sv2_hub.clone())?;
+        let sv2_config = self_.safe_lock(|s| s.sv2_config.clone())?;
 
         let downstream = Downstream::new(
             receiver,
@@ -512,6 +523,8 @@ impl Pool {
             status_tx.listener_to_connection(),
             address,
             redis_config,
+            sv2_hub,
+            sv2_config, 
         )
         .await?;
 
@@ -631,6 +644,8 @@ impl Pool {
         sender_message_received_signal: Sender<()>,
         status_tx: status::Sender,
         keyset: Sv2KeySet<'static>,
+        sv2_hub: Option<Arc<MintPoolMessageHub>>,
+        sv2_config: Option<Sv2MessagingConfig>,
     ) -> Arc<Mutex<Self>> {
         let extranonce_len = 32;
         let range_0 = std::ops::Range { start: 0, end: 0 };
@@ -667,6 +682,8 @@ impl Pool {
             last_prev_hash_template_id: 0,
             status_tx: status_tx.clone(),
             redis_config: config.redis.clone().unwrap(),
+            sv2_hub,
+            sv2_config,
         }));
 
         let cloned = pool.clone();
