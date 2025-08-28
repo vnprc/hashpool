@@ -12,6 +12,7 @@ members = [
     "jd-server",
     "tests-integration",
     "mint",
+    "roles-utils/mint-pool-messaging",
 ]
 
 [profile.dev]
