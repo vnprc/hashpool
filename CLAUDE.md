@@ -43,22 +43,34 @@ Develop an Sv2 messaging layer between the mint role and the pool role using MPS
 
 **Build & Test**: ✅ Protocols workspace compiles successfully, mint-quote protocol builds without errors
 
-### **Phase 2: Implement Core Messaging Infrastructure**
+### **Phase 2: Implement Core Messaging Infrastructure** ✅ **COMPLETED**
 **Goal**: Create the foundational messaging layer using MPSC channels
 
-#### 2.1 Create Mint-Pool Message Hub (`roles/mint-pool-messaging/`)  
+#### 2.1 Create Mint-Pool Message Hub (`roles/roles-utils/mint-pool-messaging/`) ✅
 - **MintPoolMessageHub** - Central coordinator for mint-pool communication
 - **MPSC broadcast channels**:
-  - `mint_quote_requests` - Pool → Mint quote requests
-  - `mint_quote_responses` - Mint → Pool quote responses
-- **Channel management**: Handle connection/disconnection, retries, buffering
+  - `quote_request_tx/rx` - Pool → Mint quote requests
+  - `quote_response_tx/rx` - Mint → Pool quote responses  
+  - `quote_error_tx/rx` - Mint → Pool error responses
+- **Channel management**: Connection tracking, role-based registration (Pool/Mint)
+- **Configuration**: Configurable buffer sizes, timeouts, retry policies
 
-#### 2.2 Message Serialization/Deserialization
-- Sv2 framing and encoding using existing `framing-sv2` and `codec-sv2`
-- Message routing based on message type
-- Error handling for malformed messages
+#### 2.2 Supporting Components ✅
+- **ChannelManager** - Handles connection lifecycle and channel management
+- **MessageCodec** - Message type handling and SV2 constants integration  
+- **Role enum** - Pool/Mint role identification
+- **MessagingConfig** - Configurable messaging parameters
+- **Error handling** - Custom error types with proper error propagation
 
-**Build & Test**: Compile roles workspace and fix any issues
+#### 2.3 Key Features Implemented ✅
+- Async/await support with Tokio runtime
+- Broadcast channels for 1-to-many messaging patterns
+- Connection registration/unregistration with activity tracking
+- Timeout handling for message operations
+- Statistics and monitoring capabilities
+- Configurable buffer sizes and retry mechanisms
+
+**Build & Test**: ✅ All components compile successfully, mint-pool messaging crate builds without errors
 
 ### **Phase 3: Integrate with Pool Role**
 **Goal**: Add Sv2 messaging to pool without breaking existing Redis functionality
