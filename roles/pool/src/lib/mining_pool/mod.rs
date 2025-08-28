@@ -7,7 +7,7 @@ use binary_sv2::U256;
 use codec_sv2::{HandshakeRole, Responder, StandardEitherFrame, StandardSv2Frame};
 use error_handling::handle_result;
 use key_utils::{Secp256k1PublicKey, Secp256k1SecretKey, SignatureService};
-use mint_pool_messaging::MintPoolMessageHub;
+use mint_pool_messaging::{MintPoolMessageHub, Role};
 use network_helpers_sv2::noise_connection_tokio::Connection;
 use nohash_hasher::BuildNoHashHasher;
 use roles_logic_sv2::{
@@ -500,6 +500,71 @@ impl Pool {
         Ok(())
     }
 
+    /// Accept incoming mint connections on dedicated mint listener port
+    async fn accept_incoming_mint_connection(
+        self_: Arc<Mutex<Pool>>,
+        mint_listen_address: String,
+    ) -> PoolResult<()> {
+        let status_tx = self_.safe_lock(|s| s.status_tx.clone())?;
+        let listener = TcpListener::bind(&mint_listen_address).await?;
+        info!("Listening for mint connections on: {}", mint_listen_address);
+        
+        while let Ok((stream, _)) = listener.accept().await {
+            let address = stream.peer_addr().unwrap();
+            info!("New mint connection from {:?}", address);
+
+            // For mint connections, we don't use authentication (simplified)
+            // In production, you might want proper SV2 handshake here too
+            let (receiver, sender): (Receiver<EitherFrame>, Sender<EitherFrame>) =
+                network_helpers_sv2::plain_connection_tokio::PlainConnection::new(stream).await;
+
+            // Handle mint connection differently - we need to process mint-specific messages
+            handle_result!(
+                status_tx,
+                Self::handle_mint_connection(self_.clone(), receiver, sender, address).await
+            );
+        }
+        Ok(())
+    }
+
+    /// Handle a connected mint - processes mint quote requests and sends responses
+    async fn handle_mint_connection(
+        pool: Arc<Mutex<Pool>>,
+        mut receiver: Receiver<EitherFrame>,
+        sender: Sender<EitherFrame>,
+        address: SocketAddr,
+    ) -> PoolResult<()> {
+        info!("Mint connected from {}", address);
+        
+        let sv2_hub = pool.safe_lock(|p| p.sv2_hub.clone())?;
+        
+        if let Some(hub) = sv2_hub {
+            // Register this mint connection
+            hub.register_connection(format!("mint-{}", address), Role::Mint).await;
+            
+            // Listen for quote requests from this mint connection
+            // and for quote responses to send back to mint
+            tokio::spawn(async move {
+                loop {
+                    match receiver.recv().await {
+                        Ok(frame) => {
+                            debug!("Received frame from mint: {:?}", frame);
+                            // Here we would process incoming mint messages
+                            // For now, mint->pool messages are mainly responses to quote requests
+                        }
+                        Err(e) => {
+                            error!("Error receiving from mint connection: {:?}", e);
+                            break;
+                        }
+                    }
+                }
+                info!("Mint connection {} closed", address);
+            });
+        }
+        
+        Ok(())
+    }
+
     async fn accept_incoming_connection_(
         self_: Arc<Mutex<Pool>>,
         receiver: Receiver<EitherFrame>,
@@ -683,7 +748,7 @@ impl Pool {
             status_tx: status_tx.clone(),
             redis_config: config.redis.clone().unwrap(),
             sv2_hub,
-            sv2_config,
+            sv2_config: sv2_config.clone(),
         }));
 
         let cloned = pool.clone();
@@ -733,6 +798,33 @@ impl Pool {
                 error!("Downstream shutdown and Status Channel dropped");
             }
         });
+
+        // Start mint listener if SV2 messaging is enabled
+        if let Some(ref sv2_config) = sv2_config {
+            if sv2_config.enabled {
+                let cloned_mint = pool.clone();
+                let mint_address = sv2_config.mint_listen_address.clone();
+                let status_tx_mint = status_tx.clone();
+                
+                info!("Starting mint listener on {}", mint_address);
+                task::spawn(async move {
+                    if let Err(e) = Self::accept_incoming_mint_connection(cloned_mint, mint_address).await {
+                        error!("Mint listener error: {}", e);
+                    }
+                    if status_tx_mint
+                        .send(status::Status {
+                            state: status::State::DownstreamShutdown(PoolError::ComponentShutdown(
+                                "Mint listener no longer accepting connections".to_string(),
+                            )),
+                        })
+                        .await
+                        .is_err()
+                    {
+                        error!("Mint listener shutdown and Status Channel dropped");
+                    }
+                });
+            }
+        }
 
         let cloned = sender_message_received_signal.clone();
         let status_tx_clone = status_tx.clone();
