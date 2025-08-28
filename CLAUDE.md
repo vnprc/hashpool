@@ -72,25 +72,38 @@ Develop an Sv2 messaging layer between the mint role and the pool role using MPS
 
 **Build & Test**: ✅ All components compile successfully, mint-pool messaging crate builds without errors
 
-### **Phase 3: Integrate with Pool Role**
+### **Phase 3: Integrate with Pool Role** ✅ **COMPLETED**
 **Goal**: Add Sv2 messaging to pool without breaking existing Redis functionality
 
-#### 3.1 Pool-Side Integration (`roles/pool/`)
-- **Extend PoolSv2 struct** with mint messaging components
-- **Dual-path implementation**: Keep Redis + add Sv2 messaging in parallel
-- **Message sender**: Convert existing quote creation to also send Sv2 messages
-- **Response handler**: Listen for Sv2 quote responses
+#### 3.1 Pool-Side Integration (`roles/pool/`) ✅
+- **Extended PoolSv2 struct** with SV2 messaging configuration and hub
+- **Dual-path implementation**: Redis + SV2 messaging running concurrently 
+- **Message sender**: `send_sv2_mint_quote()` converts mining shares to SV2 MintQuoteRequest
+- **SV2 Hub Integration**: Pool creates and registers with MintPoolMessageHub on startup
 
-#### 3.2 Pool Message Handler Updates
-- Modify `roles/pool/src/lib/mining_pool/message_handler.rs`
-- Add Sv2 message sending alongside existing Redis `enqueue_quote_event`
-- Handle Sv2 responses and correlate with original requests
+#### 3.2 Pool Message Handler Updates ✅
+- **Modified** `roles/pool/src/lib/mining_pool/message_handler.rs`
+- **Added** `create_and_enqueue_mining_share_quote()` to send via both Redis and SV2
+- **Implemented** proper data conversion: keyset ID padding, locking key handling, SV2 type creation
+- **Fixed** lifetime issues by converting to static references for async tasks
 
-#### 3.3 Configuration Updates
-- Add Sv2 messaging configuration to `config/shared/pool.toml`
-- Include connection parameters, channel buffer sizes
+#### 3.3 Configuration & Infrastructure Updates ✅
+- **Added** Sv2MessagingConfig to `shared_config` with broadcast/MPSC buffer sizes, retries, timeout
+- **Extended** `config/shared/pool.toml` with `[sv2_messaging]` section 
+- **Updated** Pool struct to store sv2_hub and sv2_config, pass to Downstream instances
+- **Enhanced** main.rs to initialize MintPoolMessageHub and register pool connection
 
-**Build & Test**: Compile pool role and fix any issues
+#### 3.4 Key Implementation Details ✅
+- **Data Conversion**: Fixed keyset ID padding (8→32 bytes for U256), proper SV2 type construction
+- **Async Handling**: Spawned background tasks for SV2 message sending without blocking Redis
+- **Error Handling**: SV2 failures don't break Redis functionality, proper error logging
+- **Testing**: Redis can be disabled to test SV2-only operation
+
+**Build & Test**: ✅ Pool compiles successfully, SV2 messages sent successfully to broadcast channels
+
+**Current Status**: Pool successfully sends SV2 mint quote messages, but mint doesn't receive them because:
+- Pool and mint are separate processes with separate MintPoolMessageHub instances
+- Need to implement Phase 4 (Mint integration) or add inter-process communication mechanism
 
 ### **Phase 4: Integrate with Mint Role**  
 **Goal**: Add Sv2 messaging to mint without breaking existing Redis functionality

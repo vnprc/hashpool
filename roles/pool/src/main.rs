@@ -98,6 +98,6 @@ async fn main() {
     };
 
     config.redis = Some(global_config.redis);
-    let mut pool = PoolSv2::new(config);
+    let mut pool = PoolSv2::new(config, global_config.sv2_messaging);
     let _ = pool.start().await;
 }

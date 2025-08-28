@@ -2,6 +2,7 @@ use super::super::mining_pool::Downstream;
 use bitcoin_hashes::sha256::Hash;
 use cdk::secp256k1::hashes::Hash as CdkHashTrait;
 use mining_sv2::cashu::calculate_work;
+use mint_pool_messaging::{MintPoolMessageHub, MintQuoteRequest};
 use roles_logic_sv2::{
     errors::Error,
     handlers::mining::{ParseDownstreamMiningMessages, SendTo, SupportedChannelTypes},
@@ -12,14 +13,16 @@ use roles_logic_sv2::{
     template_distribution_sv2::SubmitSolution,
     utils::Mutex,
 };
-use shared_config::RedisConfig;
+use shared_config::{RedisConfig, Sv2MessagingConfig};
 use std::{convert::TryInto, sync::Arc};
-use tracing::error;
+use tracing::{error, info, debug};
 
-/// Creates a mint quote request and enqueues it for processing
+/// Creates a mint quote request and sends it via both Redis and SV2 messaging
 fn create_and_enqueue_mining_share_quote(
     m: SubmitSharesExtended<'_>,
     redis_config: &RedisConfig,
+    sv2_hub: Option<&Arc<MintPoolMessageHub>>,
+    sv2_config: Option<&Sv2MessagingConfig>,
 ) -> Result<(), roles_logic_sv2::Error> {
     let header_hash = Hash::from_slice(m.hash.inner_as_ref())
         .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid header hash: {e}")))?;
@@ -28,11 +31,11 @@ fn create_and_enqueue_mining_share_quote(
     
     // Convert locking_pubkey from SV2 format to CDK format
     let pubkey_bytes = m.locking_pubkey.inner_as_ref().to_vec();
-    tracing::debug!("Pool received pubkey bytes ({} bytes): {:?}", pubkey_bytes.len(), pubkey_bytes);
-    tracing::debug!("Pool received pubkey hex: {}", cdk::util::hex::encode(&pubkey_bytes));
+    debug!("Pool received pubkey bytes ({} bytes): {:?}", pubkey_bytes.len(), pubkey_bytes);
+    debug!("Pool received pubkey hex: {}", cdk::util::hex::encode(&pubkey_bytes));
     let pubkey = cdk::nuts::PublicKey::from_slice(&pubkey_bytes)
         .map_err(|e| {
-            tracing::error!("CDK PublicKey::from_slice failed with bytes ({} bytes): {:?}, hex: {}, error: {}", 
+            error!("CDK PublicKey::from_slice failed with bytes ({} bytes): {:?}, hex: {}, error: {}", 
                 pubkey_bytes.len(), pubkey_bytes, cdk::util::hex::encode(&pubkey_bytes), e);
             roles_logic_sv2::Error::KeysetError(format!("Invalid locking pubkey: {}", e))
         })?;
@@ -44,11 +47,12 @@ fn create_and_enqueue_mining_share_quote(
     // Convert keyset_id from SV2 format to CDK format using the proper adapter
     let keyset_id_bytes = m.keyset_id.inner_as_ref();
     
-    tracing::debug!("Converting keyset ID from {} bytes: {}", keyset_id_bytes.len(), cdk::util::hex::encode(keyset_id_bytes));
+    debug!("Converting keyset ID from {} bytes: {}", keyset_id_bytes.len(), cdk::util::hex::encode(keyset_id_bytes));
     
     let keyset_id = mining_sv2::cashu::keyset_from_sv2_bytes(keyset_id_bytes)
         .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Failed to convert keyset ID: {}", e)))?;
     
+    // Create CDK quote request for Redis (existing functionality)
     let quote_request = cdk::nuts::nutXX::MintQuoteMiningShareRequest {
         amount: amount.into(),
         unit: cdk::nuts::CurrencyUnit::Hash,
@@ -58,8 +62,71 @@ fn create_and_enqueue_mining_share_quote(
         keyset_id,
     };
     
+    // Send via Redis (existing functionality)
     let json = mining_sv2::cashu::format_quote_event_json(&quote_request);
     tokio::spawn(enqueue_quote_event(redis_config.clone(), json));
+    
+    // Send via SV2 messaging (new functionality) if enabled
+    if let (Some(hub), Some(config)) = (sv2_hub, sv2_config) {
+        if config.enabled {
+            let hub_clone = hub.clone();
+            // Convert to static lifetime for the async task
+            let m_static = m.into_static();
+            tokio::spawn(async move {
+                if let Err(e) = send_sv2_mint_quote(hub_clone, m_static, amount).await {
+                    error!("Failed to send SV2 mint quote: {}", e);
+                } else {
+                    info!("Successfully sent mint quote via SV2 messaging");
+                }
+            });
+        }
+    }
+    
+    Ok(())
+}
+
+/// Send a mint quote request via SV2 messaging
+async fn send_sv2_mint_quote(
+    hub: Arc<MintPoolMessageHub>,
+    m: SubmitSharesExtended<'static>,
+    amount: u64,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use binary_sv2::{Str0255, U256, CompressedPubKey, Sv2Option};
+    use std::convert::TryInto;
+    
+    // Create SV2 mint quote request
+    let unit_str = "HASH".as_bytes().to_vec();
+    let unit: Str0255 = unit_str.try_into()
+        .map_err(|e| format!("Failed to create unit string: {:?}", e))?;
+    
+    let header_hash_bytes = m.hash.inner_as_ref().to_vec();
+    let header_hash: U256 = header_hash_bytes.try_into()
+        .map_err(|e| format!("Failed to create header hash: {:?}", e))?;
+    
+    let locking_key: CompressedPubKey = m.locking_pubkey.clone();
+    
+    // Pad keyset_id to 32 bytes for U256 (keyset IDs are 8 bytes, U256 needs 32 bytes)
+    let keyset_id_bytes = m.keyset_id.inner_as_ref();
+    let mut padded_keyset_id = [0u8; 32];
+    padded_keyset_id[24..].copy_from_slice(keyset_id_bytes); // Right-pad with the 8-byte keyset ID
+    let keyset_id: U256 = padded_keyset_id.to_vec().try_into()
+        .map_err(|e| format!("Failed to create keyset ID: {:?}", e))?;
+    
+    // Create optional description (empty for now)
+    let description: Sv2Option<Str0255> = Sv2Option::new(None);
+    
+    let request = MintQuoteRequest {
+        amount,
+        unit,
+        header_hash,
+        description,
+        locking_key,
+        keyset_id,
+    };
+    
+    debug!("Sending SV2 mint quote request: amount={}", amount);
+    hub.send_quote_request(request).await
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
     
     Ok(())
 }
@@ -232,7 +299,12 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         while self.solution_sender.try_send(solution.clone()).is_err() {};
                     }
 
-                    create_and_enqueue_mining_share_quote(m.clone(), &self.redis_config)?;
+                    create_and_enqueue_mining_share_quote(
+                        m.clone(), 
+                        &self.redis_config,
+                        self.sv2_hub.as_ref(),
+                        self.sv2_config.as_ref()
+                    )?;
 
                     let success = SubmitSharesSuccess {
                         channel_id: m.channel_id,
@@ -247,7 +319,12 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
 
                 },
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetDownstreamTarget => {
-                    create_and_enqueue_mining_share_quote(m.clone(), &self.redis_config)?;
+                    create_and_enqueue_mining_share_quote(
+                        m.clone(), 
+                        &self.redis_config,
+                        self.sv2_hub.as_ref(),
+                        self.sv2_config.as_ref()
+                    )?;
 
                     let success = SubmitSharesSuccess {
                         channel_id: m.channel_id,

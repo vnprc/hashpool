@@ -43,6 +43,7 @@ cdk = { git = "https://github.com/vnprc/cdk", rev = "7f603b5e" }
 bitcoin_hashes = { version = "0.16", features = ["serde"] }
 redis = { version = "0.25", features = ["tokio-comp"] }
 shared_config = { path = "../roles-utils/config" }
+mint_pool_messaging = { path = "../roles-utils/mint-pool-messaging" }
 
 
 [dev-dependencies]
