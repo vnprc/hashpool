@@ -10,6 +10,8 @@ active_keyset_prefix = "mint:keyset:active"
 [sv2_messaging]
 # SV2 messaging configuration for pool-mint communication
 enabled = true
+# TCP listener for mint connections (separate from mining device listener)
+mint_listen_address = "127.0.0.1:34260" 
 broadcast_buffer_size = 1000
 mpsc_buffer_size = 100
 max_retries = 3

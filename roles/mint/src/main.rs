@@ -20,10 +20,44 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 use bip39::Mnemonic;
 use anyhow::{Result, bail};
-use shared_config::PoolGlobalConfig;
+use shared_config::{PoolGlobalConfig, Sv2MessagingConfig};
+use mint_pool_messaging::{MintQuoteRequest, MintQuoteResponse, MintQuoteError};
+use tokio::net::TcpStream;
 
 use toml;
 use std::{env, fs};
+
+/// Connect to pool via SV2 TCP connection and listen for quote requests
+async fn connect_to_pool_sv2(
+    _mint: Arc<Mint>,
+    sv2_config: Sv2MessagingConfig,
+) {
+    info!("Connecting to pool SV2 endpoint: {}", sv2_config.mint_listen_address);
+    
+    loop {
+        match TcpStream::connect(&sv2_config.mint_listen_address).await {
+            Ok(_stream) => {
+                info!("✅ Successfully connected to pool SV2 endpoint");
+                
+                // For now, just maintain the connection
+                // TODO: Implement proper SV2 message handling:
+                // 1. Create SV2 Connection with proper handshake
+                // 2. Listen for MintQuoteRequest messages
+                // 3. Process with mint and send MintQuoteResponse back
+                
+                // Keep connection alive
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                    info!("SV2 connection to pool still active");
+                }
+            },
+            Err(e) => {
+                tracing::warn!("❌ Failed to connect to pool SV2 endpoint: {:?}", e);
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            }
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -222,6 +256,16 @@ async fn main() -> Result<()> {
         redis_url.clone(),
         create_quote_prefix.clone(),
     ));
+
+    // Start SV2 connection to pool if enabled
+    if let Some(ref sv2_config) = global_config.sv2_messaging {
+        if sv2_config.enabled {
+            tokio::spawn(connect_to_pool_sv2(
+                mint.clone(),
+                sv2_config.clone(),
+            ));
+        }
+    }
 
     info!("Mint listening on {}:{}", mint_settings.info.listen_host, mint_settings.info.listen_port);
     let addr = format!("{}:{}", mint_settings.info.listen_host, mint_settings.info.listen_port);

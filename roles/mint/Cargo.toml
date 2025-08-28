@@ -29,3 +29,4 @@ cdk-signatory = { git = "https://github.com/vnprc/cdk.git", package = "cdk-signa
 toml = "0.8.22"
 
 shared_config = { path = "../roles-utils/config" }
+mint_pool_messaging = { path = "../roles-utils/mint-pool-messaging" }

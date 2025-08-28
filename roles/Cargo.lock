@@ -3278,6 +3278,7 @@ dependencies = [
  "cdk-sqlite",
  "home",
  "hyper",
+ "mint_pool_messaging",
  "redis 0.23.3",
  "serde",
  "serde_json",
