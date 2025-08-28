@@ -1,0 +1,12 @@
+[package]
+name = "mint_quote_sv2"
+version = "1.0.0"
+authors = ["The Stratum V2 Developers"]
+edition = "2018"
+description = "SV2 mint quote protocol types"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+binary_sv2 = { version = "^1.0.0", path = "../../binary-sv2/binary-sv2" }
+const_sv2 = { version = "^3.0.0", path = "../../const-sv2" }
+derive_codec_sv2 = { version = "^1.0.0", path = "../../binary-sv2/no-serde-sv2/derive_codec" }
