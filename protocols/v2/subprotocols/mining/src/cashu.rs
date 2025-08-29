@@ -283,43 +283,6 @@ pub fn calculate_work(hash: [u8; 32]) -> u64 {
     work
 }
 
-// SRI encodings are totally fucked. Just do it manually.
-// TODO delete this function. Probably use serde after upgrading to SRI 1.3
-use cdk::nuts::nutXX::MintQuoteMiningShareRequest;
-
-pub fn format_quote_event_json(req: &MintQuoteMiningShareRequest) -> String {
-    use std::fmt::Write;
-    use cdk::nuts::CurrencyUnit;
-    use cdk::util::hex;
-
-    let mut out = String::new();
-    out.push('{');
-
-    match &req.unit {
-        CurrencyUnit::Custom(s) => write!(out, "\"unit\":\"{}\",", s).unwrap(),
-        currency_unit => write!(out, "\"unit\":\"{}\",", currency_unit).unwrap(),
-    }
-
-    write!(
-        out,
-        "\"amount\":{},\"header_hash\":\"{}\",",
-        req.amount.to_string(),
-        req.header_hash
-    ).unwrap();
-
-    match &req.description {
-        Some(d) => write!(out, "\"description\":\"{}\",", d).unwrap(),
-        None => write!(out, "\"description\":null,").unwrap(),
-    }
-
-    write!(out, "\"pubkey\":\"{}\",", hex::encode(req.pubkey.to_bytes())).unwrap();
-
-    write!(out, "\"keyset_id\":\"{}\"", hex::encode(req.keyset_id.to_bytes())).unwrap();
-
-    out.push('}');
-    out
-}
-
 fn sv2_signing_keys_to_keys(keys: &[Sv2SigningKey]) -> Result<Keys, String> {
     let mut map = BTreeMap::new();
     for (i, k) in keys.iter().enumerate() {
