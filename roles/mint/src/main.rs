@@ -9,6 +9,22 @@ use tracing_subscriber::EnvFilter;
 use shared_config::PoolGlobalConfig;
 use std::{fs, sync::Arc};
 use redis::AsyncCommands;
+use serde::{Deserialize, Serialize};
+
+/// Extended config for mint database path
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MintConfig {
+    #[serde(flatten)]
+    cdk_settings: config::Settings,
+    database: MintDatabaseConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MintDatabaseConfig {
+    #[serde(flatten)]
+    base: config::Database,
+    db_path: String,
+}
 
 use lib::{connect_to_pool_sv2, setup_mint};
 
@@ -36,14 +52,23 @@ async fn main() -> Result<()> {
         }
     };
 
-    let mint_settings = config::Settings::new(Some(mint_config_path)).from_env()?;
+    // Parse mint config to get database path
+    let mint_config_str = fs::read_to_string(&mint_config_path)?;
+    let mut mint_config: MintConfig = toml::from_str(&mint_config_str)?;
+    
+    // override config file with env var for improved devex configurability
+    if let Ok(db_path_override) = std::env::var("CDK_MINT_DB_PATH") {
+        tracing::info!("Overriding mint database path with env var CDK_MINT_DB_PATH={}", db_path_override);
+        mint_config.database.db_path = db_path_override;
+    }
+    
     let global_config: PoolGlobalConfig = toml::from_str(&fs::read_to_string(global_config_path)?)?;
 
     // Setup mint with all required components
-    let mint = setup_mint(mint_settings.clone()).await?;
+    let mint = setup_mint(mint_config.cdk_settings.clone(), mint_config.database.db_path).await?;
 
     // Setup HTTP cache and router
-    let cache: HttpCache = mint_settings.info.http_cache.into();
+    let cache: HttpCache = mint_config.cdk_settings.info.http_cache.into();
     let router = cdk_axum::create_mint_router_with_custom_cache(mint.clone(), cache, false).await?;
 
     // Publish keyset to Redis for pool coordination
@@ -60,7 +85,7 @@ async fn main() -> Result<()> {
     }
 
     // Start HTTP server
-    let addr = format!("{}:{}", mint_settings.info.listen_host, mint_settings.info.listen_port);
+    let addr = format!("{}:{}", mint_config.cdk_settings.info.listen_host, mint_config.cdk_settings.info.listen_port);
     info!("Mint listening on {}", addr);
     let listener = TcpListener::bind(&addr).await?;
 

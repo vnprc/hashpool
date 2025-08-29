@@ -16,8 +16,8 @@ use cdk_sqlite::MintSqliteDatabase;
 use bip39::Mnemonic;
 use anyhow::{Result, bail};
 
-/// Setup and initialize the mint with all required components
-pub async fn setup_mint(mint_settings: config::Settings) -> Result<Arc<Mint>> {
+/// Setup and initialize the mint with all required components  
+pub async fn setup_mint(mint_settings: config::Settings, db_path: String) -> Result<Arc<Mint>> {
     // TODO add to config
     const NUM_KEYS: u8 = 64;
 
@@ -30,13 +30,8 @@ pub async fn setup_mint(mint_settings: config::Settings) -> Result<Arc<Mint>> {
     let mut currency_units = HashMap::new();
     currency_units.insert(hash_currency_unit.clone(), (0, NUM_KEYS));
 
-    // Database setup with env var override support
-    let mut mint_db_path = resolve_and_prepare_db_path(".devenv/state/mint/mint.sqlite");
-    
-    if let Ok(db_path_override) = std::env::var("CDK_MINT_DB_PATH") {
-        tracing::info!("Overriding mint.dbPath with env var CDK_MINT_DB_PATH={}", db_path_override);
-        mint_db_path = resolve_and_prepare_db_path(&db_path_override);
-    }
+    // Database setup
+    let mint_db_path = resolve_and_prepare_db_path(&db_path);
 
     let db = Arc::new(MintSqliteDatabase::new(mint_db_path).await?);
 
@@ -118,3 +113,4 @@ pub fn resolve_and_prepare_db_path(config_path: &str) -> PathBuf {
 
     full_path
 }
+
