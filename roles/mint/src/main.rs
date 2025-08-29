@@ -309,49 +309,6 @@ async fn main() -> Result<()> {
 
     std::fs::create_dir_all(&work_dir)?;
 
-    // TODO go back to the builder pattern and config file
-    // figure out how to specify num keys
-
-    // let db: Arc<dyn MintDatabase<Err = cdk_database::Error> + Send + Sync> = match settings.database.engine {
-    //     DatabaseEngine::Sqlite => {
-    //         let path = work_dir.join("cdk-mintd.sqlite");
-    //         let sqlite = MintSqliteDatabase::new(&path).await?;
-    //         sqlite.migrate().await;
-    //         Arc::new(sqlite)
-    //     }
-    //     DatabaseEngine::Redb => {
-    //         let path = work_dir.join("cdk-mintd.redb");
-    //         Arc::new(MintRedbDatabase::new(&path)?)
-    //     }
-    // };
-
-    // let mint_info = settings.mint_info.clone();
-    // let info = settings.info.clone();
-    // let mut mint_builder = MintBuilder::new()
-    //     .with_localstore(db)
-    //     .with_name(mint_info.name)
-    //     .with_description(mint_info.description)
-    //     .with_seed(Mnemonic::from_str(&info.mnemonic)?.to_seed_normalized("").to_vec());
-
-    // let melt_limits = MintMeltLimits {
-    //     mint_min: settings.ln.min_mint,
-    //     mint_max: settings.ln.max_mint,
-    //     melt_min: settings.ln.min_melt,
-    //     melt_max: settings.ln.max_melt,
-    // };
-
-    // if settings.ln.ln_backend == LnBackend::FakeWallet {
-    //     let fake_cfg = settings.clone().fake_wallet.expect("FakeWallet config required");
-    //     for unit in &fake_cfg.supported_units {
-    //         let ln = fake_cfg.setup(&mut vec![], &settings, unit.clone()).await?;
-    //         mint_builder = mint_builder
-    //             .add_ln_backend(unit.clone(), PaymentMethod::Bolt11, melt_limits, Arc::new(ln))
-    //             .add_supported_websockets(SupportedMethods::new(PaymentMethod::Bolt11, unit.clone()));
-    //     }
-    // } else {
-    //     bail!("Only fakewallet backend supported in this minimal launcher");
-    // }
-
     // TODO add to config
     const NUM_KEYS: u8 = 64;
 
@@ -424,10 +381,6 @@ async fn main() -> Result<()> {
         ln,
     )
     .await.unwrap());
-
-    // mint.check_pending_mint_quotes().await?;
-    // mint.check_pending_melt_quotes().await?;
-    
     
     mint.set_quote_ttl(QuoteTTL::new(10_000, 10_000)).await?;
 
@@ -438,7 +391,6 @@ async fn main() -> Result<()> {
 
     let redis_url = global_config.redis.url.clone();
     let active_keyset_prefix = global_config.redis.active_keyset_prefix.clone();
-    let create_quote_prefix = global_config.redis.create_quote_prefix.clone();
     
     use redis::AsyncCommands;
     use serde_json;
@@ -464,12 +416,6 @@ async fn main() -> Result<()> {
         redis_key,
     );
 
-    // tokio::spawn(poll_for_quotes(
-    //     mint.clone(),
-    //     redis_url.clone(),
-    //     create_quote_prefix.clone(),
-    // ));
-
     // Start SV2 connection to pool if enabled
     if let Some(ref sv2_config) = global_config.sv2_messaging {
         if sv2_config.enabled {
@@ -487,60 +433,6 @@ async fn main() -> Result<()> {
     axum::serve(listener, router).await?;
 
     Ok(())
-}
-
-
-async fn handle_quote_payload(
-    mint: Arc<Mint>,
-    payload: &str,
-) {
-    let quote_request: MintQuoteMiningShareRequest = match serde_json::from_str(payload) {
-        Ok(q) => q,
-        Err(e) => {
-            tracing::warn!("Failed to parse quote request: {}", e);
-            return;
-        }
-    };
-
-    match mint.create_mint_mining_share_quote(quote_request).await {
-        Ok(resp) => tracing::info!("Quote created: {:?}", resp),
-        Err(err) => tracing::error!("Quote creation failed: {}", err),
-    }
-}
-
-async fn poll_for_quotes(
-    mint: Arc<Mint>,
-    redis_url: String,
-    create_quote_key: String,
-) {
-    loop {
-        let client_result = redis::Client::open(redis_url.clone());
-        let mut conn = match client_result {
-            Ok(client) => match client.get_async_connection().await {
-                Ok(conn) => conn,
-                Err(e) => {
-                    tracing::warn!("Failed to get redis connection: {:?}", e);
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                    continue;
-                }
-            },
-            Err(e) => {
-                tracing::warn!("Redis client open failed: {:?}", e);
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                continue;
-            }
-        };
-
-        let res: redis::RedisResult<Option<(String, String)>> = redis::cmd("BRPOP")
-            .arg(&create_quote_key)
-            .arg("0")
-            .query_async(&mut conn)
-            .await;
-
-        if let Ok(Some((_, payload))) = res {
-            handle_quote_payload(mint.clone(), &payload).await;
-        }
-    }
 }
 
 fn resolve_and_prepare_db_path(config_path: &str) -> PathBuf {

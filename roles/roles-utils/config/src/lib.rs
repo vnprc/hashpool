@@ -5,7 +5,6 @@ use config::{Config, ConfigError, File, FileFormat};
 pub struct RedisConfig {
     pub url: String,
     pub active_keyset_prefix: String,
-    pub create_quote_prefix: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]

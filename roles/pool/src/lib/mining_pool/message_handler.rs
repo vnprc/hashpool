@@ -1,6 +1,5 @@
 use super::super::mining_pool::Downstream;
 use bitcoin_hashes::sha256::Hash;
-use cdk::secp256k1::hashes::Hash as CdkHashTrait;
 use mining_sv2::cashu::calculate_work;
 use mint_pool_messaging::{MintPoolMessageHub, MintQuoteRequest};
 use roles_logic_sv2::{
@@ -13,14 +12,13 @@ use roles_logic_sv2::{
     template_distribution_sv2::SubmitSolution,
     utils::Mutex,
 };
-use shared_config::{RedisConfig, Sv2MessagingConfig};
+use shared_config::Sv2MessagingConfig;
 use std::{convert::TryInto, sync::Arc};
 use tracing::{error, info, debug};
 
-/// Creates a mint quote request and sends it via both Redis and SV2 messaging
-fn create_and_enqueue_mining_share_quote(
+/// Creates a mint quote request and sends it to the mint role
+fn submit_quote(
     m: SubmitSharesExtended<'_>,
-    redis_config: &RedisConfig,
     sv2_hub: Option<&Arc<MintPoolMessageHub>>,
     sv2_config: Option<&Sv2MessagingConfig>,
     pool: Arc<Mutex<super::Pool>>,
@@ -30,53 +28,23 @@ fn create_and_enqueue_mining_share_quote(
     
     let amount = calculate_work(header_hash.to_byte_array());
     
-    // Convert locking_pubkey from SV2 format to CDK format
-    let pubkey_bytes = m.locking_pubkey.inner_as_ref().to_vec();
-    debug!("Pool received pubkey bytes ({} bytes): {:?}", pubkey_bytes.len(), pubkey_bytes);
-    debug!("Pool received pubkey hex: {}", cdk::util::hex::encode(&pubkey_bytes));
-    let pubkey = cdk::nuts::PublicKey::from_slice(&pubkey_bytes)
-        .map_err(|e| {
-            error!("CDK PublicKey::from_slice failed with bytes ({} bytes): {:?}, hex: {}, error: {}", 
-                pubkey_bytes.len(), pubkey_bytes, cdk::util::hex::encode(&pubkey_bytes), e);
-            roles_logic_sv2::Error::KeysetError(format!("Invalid locking pubkey: {}", e))
-        })?;
-    
-    // Convert header_hash to CDK Hash type
-    let cdk_header_hash = CdkHashTrait::from_slice(&header_hash.to_byte_array())
-        .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Failed to convert header hash: {}", e)))?;
-    
-    // Convert keyset_id from SV2 format to CDK format using the proper adapter
-    let keyset_id_bytes = m.keyset_id.inner_as_ref();
-    
-    debug!("Converting keyset ID from {} bytes: {}", keyset_id_bytes.len(), cdk::util::hex::encode(keyset_id_bytes));
-    
-    let keyset_id = mining_sv2::cashu::keyset_from_sv2_bytes(keyset_id_bytes)
-        .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Failed to convert keyset ID: {}", e)))?;
-    
-    // Create CDK quote request for Redis (existing functionality)
-    let quote_request = cdk::nuts::nutXX::MintQuoteMiningShareRequest {
-        amount: amount.into(),
-        unit: cdk::nuts::CurrencyUnit::Hash,
-        header_hash: cdk_header_hash,
-        description: None,
-        pubkey: pubkey,
-        keyset_id,
-    };
-    
-    // Send via Redis (existing functionality)
-    let json = mining_sv2::cashu::format_quote_event_json(&quote_request);
-    tokio::spawn(enqueue_quote_event(redis_config.clone(), json));
-    
-    // Send via SV2 messaging (new functionality) if enabled
+    // Send via SV2 messaging
     if let (Some(_hub), Some(config)) = (sv2_hub, sv2_config) {
         if config.enabled {
             // Convert to static lifetime for the async task
             let m_static = m.into_static();
             tokio::spawn(async move {
-                if let Err(e) = send_sv2_mint_quote_tcp(pool, m_static, amount).await {
-                    error!("Failed to send SV2 mint quote via TCP: {}", e);
-                } else {
-                    info!("Successfully sent mint quote via SV2 TCP");
+                match create_mint_quote_request(&m_static, amount) {
+                    Ok(quote_request) => {
+                        if let Err(e) = send_sv2_quote_request(pool, quote_request).await {
+                            error!("Failed to send SV2 mint quote via TCP: {}", e);
+                        } else {
+                            info!("Successfully sent mint quote via SV2 TCP");
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to create mint quote request: {}", e);
+                    }
                 }
             });
         }
@@ -86,25 +54,13 @@ fn create_and_enqueue_mining_share_quote(
 }
 
 /// Send a mint quote request via SV2 TCP connection
-async fn send_sv2_mint_quote_tcp(
-    pool: Arc<Mutex<super::Pool>>,
-    m: SubmitSharesExtended<'static>,
+/// Create a mint quote request from a submitted share
+fn create_mint_quote_request(
+    m: &SubmitSharesExtended<'static>,
     amount: u64,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<MintQuoteRequest<'static>, Box<dyn std::error::Error + Send + Sync>> {
     use binary_sv2::{Str0255, U256, CompressedPubKey, Sv2Option};
     use std::convert::TryInto;
-    
-    // Get mint connection sender
-    let mint_sender = {
-        let mint_connection = pool.safe_lock(|p| p.get_mint_connection())
-            .map_err(|e| format!("Failed to lock pool: {}", e))?;
-        match mint_connection {
-            Some(sender) => sender,
-            None => {
-                return Err("No active mint connection available".into());
-            }
-        }
-    };
     
     // Create SV2 mint quote request
     let unit_str = "HASH".as_bytes().to_vec();
@@ -136,12 +92,32 @@ async fn send_sv2_mint_quote_tcp(
         keyset_id,
     };
     
+    Ok(request.into_static())
+}
+
+/// Send a mint quote request to the mint via SV2 TCP connection
+async fn send_sv2_quote_request(
+    pool: Arc<Mutex<super::Pool>>,
+    request: MintQuoteRequest<'static>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Get mint connection sender
+    let mint_sender = {
+        let mint_connection = pool.safe_lock(|p| p.get_mint_connection())
+            .map_err(|e| format!("Failed to lock pool: {}", e))?;
+        match mint_connection {
+            Some(sender) => sender,
+            None => {
+                return Err("No active mint connection available".into());
+            }
+        }
+    };
+    
     // Send over TCP connection using the standard SV2 message pattern
-    debug!("Sending SV2 mint quote request over TCP: amount={}", amount);
+    debug!("Sending SV2 mint quote request over TCP: amount={}", request.amount);
     
     // Create PoolMessages::MintQuote and convert to frame
     let pool_message = roles_logic_sv2::parsers::PoolMessages::MintQuote(
-        roles_logic_sv2::parsers::MintQuote::MintQuoteRequest(request.into_static())
+        roles_logic_sv2::parsers::MintQuote::MintQuoteRequest(request)
     );
     let sv2_frame: super::StdFrame = pool_message.try_into()
         .map_err(|e| format!("Failed to convert to SV2 frame: {:?}", e))?;
@@ -322,9 +298,8 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         while self.solution_sender.try_send(solution.clone()).is_err() {};
                     }
 
-                    create_and_enqueue_mining_share_quote(
+                    submit_quote(
                         m.clone(), 
-                        &self.redis_config,
                         self.sv2_hub.as_ref(),
                         self.sv2_config.as_ref(),
                         self.pool.clone()
@@ -343,9 +318,8 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
 
                 },
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetDownstreamTarget => {
-                    create_and_enqueue_mining_share_quote(
+                    submit_quote(
                         m.clone(), 
-                        &self.redis_config,
                         self.sv2_hub.as_ref(),
                         self.sv2_config.as_ref(),
                         self.pool.clone()
@@ -380,19 +354,4 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
         };
         Ok(SendTo::Respond(Mining::SetCustomMiningJobSuccess(m)))
     }
-}
-
-async fn enqueue_quote_event(redis_config: RedisConfig, payload: String) {
-    let client = redis::Client::open(redis_config.url).expect("Invalid Redis URL");
-    let mut conn = client
-        .get_multiplexed_async_connection()
-        .await
-        .expect("Failed to connect to Redis");
-
-    let _: () = redis::cmd("RPUSH")
-        .arg(redis_config.create_quote_prefix)
-        .arg(payload)
-        .query_async(&mut conn)
-        .await
-        .expect("Failed to push to Redis");
 }

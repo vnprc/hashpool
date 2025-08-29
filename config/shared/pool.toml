@@ -4,7 +4,6 @@ port = 6379
 url = "redis://localhost:6379"
 
 # redis keys
-create_quote_prefix = "mint:quotes:create"
 active_keyset_prefix = "mint:keyset:active"
 
 [sv2_messaging]
