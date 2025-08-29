@@ -36,6 +36,7 @@ use const_sv2::{
     CHANNEL_BIT_SUBMIT_SHARES_EXTENDED, CHANNEL_BIT_SUBMIT_SHARES_STANDARD,
     CHANNEL_BIT_SUBMIT_SHARES_SUCCESS, CHANNEL_BIT_SUBMIT_SOLUTION, CHANNEL_BIT_SUBMIT_SOLUTION_JD,
     CHANNEL_BIT_UPDATE_CHANNEL, CHANNEL_BIT_UPDATE_CHANNEL_ERROR,
+    CHANNEL_BIT_MINT_QUOTE_REQUEST, CHANNEL_BIT_MINT_QUOTE_RESPONSE, CHANNEL_BIT_MINT_QUOTE_ERROR,
     MESSAGE_TYPE_ALLOCATE_MINING_JOB_TOKEN, MESSAGE_TYPE_ALLOCATE_MINING_JOB_TOKEN_SUCCESS,
     MESSAGE_TYPE_CHANNEL_ENDPOINT_CHANGED, MESSAGE_TYPE_CLOSE_CHANNEL,
     MESSAGE_TYPE_COINBASE_OUTPUT_DATA_SIZE, MESSAGE_TYPE_DECLARE_MINING_JOB,
@@ -56,7 +57,8 @@ use const_sv2::{
     MESSAGE_TYPE_SUBMIT_SHARES_ERROR, MESSAGE_TYPE_SUBMIT_SHARES_EXTENDED,
     MESSAGE_TYPE_SUBMIT_SHARES_STANDARD, MESSAGE_TYPE_SUBMIT_SHARES_SUCCESS,
     MESSAGE_TYPE_SUBMIT_SOLUTION, MESSAGE_TYPE_SUBMIT_SOLUTION_JD, MESSAGE_TYPE_UPDATE_CHANNEL,
-    MESSAGE_TYPE_UPDATE_CHANNEL_ERROR,
+    MESSAGE_TYPE_UPDATE_CHANNEL_ERROR, MESSAGE_TYPE_MINT_QUOTE_REQUEST,
+    MESSAGE_TYPE_MINT_QUOTE_RESPONSE, MESSAGE_TYPE_MINT_QUOTE_ERROR,
 };
 
 use common_messages_sv2::{
@@ -73,6 +75,8 @@ use job_declaration_sv2::{
     DeclareMiningJobSuccess, IdentifyTransactions, IdentifyTransactionsSuccess,
     ProvideMissingTransactions, ProvideMissingTransactionsSuccess, SubmitSolutionJd,
 };
+
+use mint_quote_sv2::{MintQuoteRequest, MintQuoteResponse, MintQuoteError};
 
 use mining_sv2::{
     CloseChannel, NewExtendedMiningJob, NewMiningJob, OpenExtendedMiningChannel,
@@ -978,6 +982,56 @@ impl<'a> TryFrom<(u8, &'a mut [u8])> for Mining<'a> {
 
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "with_serde", derive(Serialize, Deserialize))]
+pub enum MintQuote<'a> {
+    #[cfg_attr(feature = "with_serde", serde(borrow))]
+    MintQuoteRequest(MintQuoteRequest<'a>),
+    #[cfg_attr(feature = "with_serde", serde(borrow))]
+    MintQuoteResponse(MintQuoteResponse<'a>),
+    #[cfg_attr(feature = "with_serde", serde(borrow))]
+    MintQuoteError(MintQuoteError<'a>),
+}
+
+impl GetSize for MintQuote<'_> {
+    fn get_size(&self) -> usize {
+        match self {
+            MintQuote::MintQuoteRequest(a) => a.get_size(),
+            MintQuote::MintQuoteResponse(a) => a.get_size(),
+            MintQuote::MintQuoteError(a) => a.get_size(),
+        }
+    }
+}
+
+impl<'a> IsSv2Message for MintQuote<'a> {
+    fn message_type(&self) -> u8 {
+        match self {
+            MintQuote::MintQuoteRequest(_) => MESSAGE_TYPE_MINT_QUOTE_REQUEST,
+            MintQuote::MintQuoteResponse(_) => MESSAGE_TYPE_MINT_QUOTE_RESPONSE,
+            MintQuote::MintQuoteError(_) => MESSAGE_TYPE_MINT_QUOTE_ERROR,
+        }
+    }
+
+    fn channel_bit(&self) -> bool {
+        match self {
+            MintQuote::MintQuoteRequest(_) => CHANNEL_BIT_MINT_QUOTE_REQUEST,
+            MintQuote::MintQuoteResponse(_) => CHANNEL_BIT_MINT_QUOTE_RESPONSE,
+            MintQuote::MintQuoteError(_) => CHANNEL_BIT_MINT_QUOTE_ERROR,
+        }
+    }
+}
+
+#[cfg(not(feature = "with_serde"))]
+impl<'decoder> From<MintQuote<'decoder>> for EncodableField<'decoder> {
+    fn from(m: MintQuote<'decoder>) -> Self {
+        match m {
+            MintQuote::MintQuoteRequest(a) => a.into(),
+            MintQuote::MintQuoteResponse(a) => a.into(),
+            MintQuote::MintQuoteError(a) => a.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "with_serde", derive(Serialize, Deserialize))]
 pub enum MiningDeviceMessages<'a> {
     #[cfg_attr(feature = "with_serde", serde(borrow))]
     Common(CommonMessages<'a>),
@@ -1028,6 +1082,8 @@ pub enum PoolMessages<'a> {
     JobDeclaration(JobDeclaration<'a>),
     #[cfg_attr(feature = "with_serde", serde(borrow))]
     TemplateDistribution(TemplateDistribution<'a>),
+    #[cfg_attr(feature = "with_serde", serde(borrow))]
+    MintQuote(MintQuote<'a>),
 }
 
 impl<'a> TryFrom<MiningDeviceMessages<'a>> for PoolMessages<'a> {
@@ -1049,6 +1105,7 @@ impl<'decoder> From<PoolMessages<'decoder>> for EncodableField<'decoder> {
             PoolMessages::Mining(a) => a.into(),
             PoolMessages::JobDeclaration(a) => a.into(),
             PoolMessages::TemplateDistribution(a) => a.into(),
+            PoolMessages::MintQuote(a) => a.into(),
         }
     }
 }
@@ -1059,6 +1116,7 @@ impl GetSize for PoolMessages<'_> {
             PoolMessages::Mining(a) => a.get_size(),
             PoolMessages::JobDeclaration(a) => a.get_size(),
             PoolMessages::TemplateDistribution(a) => a.get_size(),
+            PoolMessages::MintQuote(a) => a.get_size(),
         }
     }
 }
@@ -1070,6 +1128,7 @@ impl<'a> IsSv2Message for PoolMessages<'a> {
             PoolMessages::Mining(a) => a.message_type(),
             PoolMessages::JobDeclaration(a) => a.message_type(),
             PoolMessages::TemplateDistribution(a) => a.message_type(),
+            PoolMessages::MintQuote(a) => a.message_type(),
         }
     }
 
@@ -1079,6 +1138,7 @@ impl<'a> IsSv2Message for PoolMessages<'a> {
             PoolMessages::Mining(a) => a.channel_bit(),
             PoolMessages::JobDeclaration(a) => a.channel_bit(),
             PoolMessages::TemplateDistribution(a) => a.channel_bit(),
+            PoolMessages::MintQuote(a) => a.channel_bit(),
         }
     }
 }
@@ -1221,6 +1281,7 @@ impl<'a> TryFrom<PoolMessages<'a>> for MiningDeviceMessages<'a> {
             PoolMessages::Mining(message) => Ok(Self::Mining(message)),
             PoolMessages::JobDeclaration(_) => Err(Error::UnexpectedPoolMessage),
             PoolMessages::TemplateDistribution(_) => Err(Error::UnexpectedPoolMessage),
+            PoolMessages::MintQuote(_) => Err(Error::UnexpectedPoolMessage),
         }
     }
 }

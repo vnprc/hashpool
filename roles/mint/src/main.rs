@@ -21,34 +21,34 @@ use tracing_subscriber::EnvFilter;
 use bip39::Mnemonic;
 use anyhow::{Result, bail};
 use shared_config::{PoolGlobalConfig, Sv2MessagingConfig};
-use mint_pool_messaging::{MintQuoteRequest, MintQuoteResponse, MintQuoteError};
 use tokio::net::TcpStream;
+use network_helpers_sv2::plain_connection_tokio::PlainConnection;
+use roles_logic_sv2::parsers::{PoolMessages, MintQuote};
+use mint_quote_sv2::MintQuoteResponse;
+use codec_sv2::StandardSv2Frame;
+use const_sv2::{MESSAGE_TYPE_MINT_QUOTE_REQUEST, MESSAGE_TYPE_MINT_QUOTE_RESPONSE, MESSAGE_TYPE_MINT_QUOTE_ERROR};
+use binary_sv2::{self, Str0255, Sv2Option};
 
 use toml;
 use std::{env, fs};
 
 /// Connect to pool via SV2 TCP connection and listen for quote requests
 async fn connect_to_pool_sv2(
-    _mint: Arc<Mint>,
+    mint: Arc<Mint>,
     sv2_config: Sv2MessagingConfig,
 ) {
     info!("Connecting to pool SV2 endpoint: {}", sv2_config.mint_listen_address);
     
     loop {
         match TcpStream::connect(&sv2_config.mint_listen_address).await {
-            Ok(_stream) => {
+            Ok(stream) => {
                 info!("✅ Successfully connected to pool SV2 endpoint");
                 
-                // For now, just maintain the connection
-                // TODO: Implement proper SV2 message handling:
-                // 1. Create SV2 Connection with proper handshake
-                // 2. Listen for MintQuoteRequest messages
-                // 3. Process with mint and send MintQuoteResponse back
+                // Create SV2 connection with plain connection helper
+                let (receiver, sender) = PlainConnection::new(stream).await;
                 
-                // Keep connection alive
-                loop {
-                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-                    info!("SV2 connection to pool still active");
+                if let Err(e) = handle_sv2_connection(mint.clone(), receiver, sender).await {
+                    tracing::error!("SV2 connection error: {}", e);
                 }
             },
             Err(e) => {
@@ -57,6 +57,219 @@ async fn connect_to_pool_sv2(
             }
         }
     }
+}
+
+/// Handle SV2 connection frames and process mint quote requests
+async fn handle_sv2_connection(
+    mint: Arc<Mint>,
+    receiver: async_channel::Receiver<codec_sv2::StandardEitherFrame<roles_logic_sv2::parsers::PoolMessages<'static>>>,
+    sender: async_channel::Sender<codec_sv2::StandardEitherFrame<roles_logic_sv2::parsers::PoolMessages<'static>>>,
+) -> Result<()> {
+    info!("Starting SV2 message handling loop");
+    
+    while let Ok(either_frame) = receiver.recv().await {
+        if let Err(e) = process_sv2_frame(&mint, either_frame, &sender).await {
+            tracing::error!("Error processing SV2 frame: {}", e);
+            // Continue processing other frames
+        }
+    }
+    
+    Ok(())
+}
+
+/// Process a single SV2 frame
+async fn process_sv2_frame(
+    mint: &Arc<Mint>,
+    either_frame: codec_sv2::StandardEitherFrame<roles_logic_sv2::parsers::PoolMessages<'static>>,
+    sender: &async_channel::Sender<codec_sv2::StandardEitherFrame<roles_logic_sv2::parsers::PoolMessages<'static>>>,
+) -> Result<()> {
+    tracing::debug!("Received SV2 either frame");
+    
+    match either_frame {
+        codec_sv2::StandardEitherFrame::Sv2(incoming) => {
+            process_sv2_message(mint, incoming, sender).await
+        }
+        codec_sv2::StandardEitherFrame::HandShake(_) => {
+            tracing::debug!("Received handshake frame - ignoring");
+            Ok(())
+        }
+    }
+}
+
+/// Process an SV2 message frame
+async fn process_sv2_message(
+    mint: &Arc<Mint>,
+    mut incoming: codec_sv2::StandardSv2Frame<roles_logic_sv2::parsers::PoolMessages<'static>>,
+    sender: &async_channel::Sender<codec_sv2::StandardEitherFrame<roles_logic_sv2::parsers::PoolMessages<'static>>>,
+) -> Result<()> {
+    tracing::debug!("Received SV2 frame");
+    
+    let message_type = incoming
+        .get_header()
+        .ok_or_else(|| anyhow::anyhow!("No header set"))?
+        .msg_type();
+    let payload = incoming.payload();
+    
+    tracing::debug!("Received message type: 0x{:02x}, payload length: {} bytes", message_type, payload.len());
+    
+    if is_mint_quote_message(message_type) {
+        process_mint_quote_message(mint.clone(), message_type, payload, sender).await
+    } else {
+        tracing::warn!("Received non-mint-quote message type: 0x{:02x}", message_type);
+        Ok(())
+    }
+}
+
+/// Check if message type is a mint quote message
+fn is_mint_quote_message(message_type: u8) -> bool {
+    matches!(message_type, MESSAGE_TYPE_MINT_QUOTE_REQUEST | MESSAGE_TYPE_MINT_QUOTE_RESPONSE | MESSAGE_TYPE_MINT_QUOTE_ERROR)
+}
+
+/// Process mint quote messages
+async fn process_mint_quote_message(
+    mint: Arc<Mint>,
+    message_type: u8,
+    payload: &[u8],
+    _sender: &async_channel::Sender<codec_sv2::StandardEitherFrame<roles_logic_sv2::parsers::PoolMessages<'static>>>,
+) -> Result<()> {
+    info!("Received mint quote message - processing with mint");
+    
+    match message_type {
+        MESSAGE_TYPE_MINT_QUOTE_REQUEST => {
+            // Parse the payload into a MintQuoteRequest 
+            let mut payload_copy = payload.to_vec();
+            let parsed_request: mint_pool_messaging::MintQuoteRequest = binary_sv2::from_bytes(&mut payload_copy)
+                .map_err(|e| anyhow::anyhow!("Failed to parse MintQuoteRequest: {:?}", e))?;
+            
+            // Create a static lifetime version for the conversion function
+            let request_static = create_static_mint_quote_request(parsed_request)?;
+            
+            // Convert SV2 MintQuoteRequest to CDK MintQuoteMiningShareRequest
+            let cdk_request = convert_sv2_to_cdk_quote_request(request_static)?;
+            
+            // Process with CDK mint
+            match mint.create_mint_mining_share_quote(cdk_request).await {
+                Ok(quote_response) => {
+                    info!("Successfully created mint quote: {:?}", quote_response);
+                    // TODO: Send response back to pool
+                    Ok(())
+                }
+                Err(e) => {
+                    tracing::error!("Failed to create mint quote: {}", e);
+                    // TODO: Send error response back to pool
+                    Err(anyhow::anyhow!("Mint quote creation failed: {}", e))
+                }
+            }
+        },
+        _ => {
+            tracing::warn!("Received unsupported mint quote message type: 0x{:02x}", message_type);
+            Ok(())
+        }
+    }
+}
+
+/// Send quote response back to pool
+async fn send_quote_response(
+    response: MintQuoteResponse<'static>,
+    sender: &async_channel::Sender<codec_sv2::StandardEitherFrame<roles_logic_sv2::parsers::PoolMessages<'static>>>,
+) -> Result<()> {
+    let pool_response = PoolMessages::MintQuote(
+        MintQuote::MintQuoteResponse(response)
+    );
+    
+    let sv2_frame: StandardSv2Frame<PoolMessages> = pool_response.try_into()
+        .map_err(|e| anyhow::anyhow!("Failed to create SV2 frame: {:?}", e))?;
+    let either_frame = sv2_frame.into();
+    
+    sender.send(either_frame).await
+        .map_err(|e| anyhow::anyhow!("Failed to send response: {}", e))?;
+        
+    Ok(())
+}
+
+/// Create a static lifetime version of MintQuoteRequest from a borrowed one
+fn create_static_mint_quote_request(
+    parsed_request: mint_pool_messaging::MintQuoteRequest
+) -> Result<mint_pool_messaging::MintQuoteRequest<'static>> {
+    use binary_sv2::{U256, CompressedPubKey};
+    
+    // Convert the borrowed data to owned data with static lifetime
+    let unit_str = String::from_utf8_lossy(parsed_request.unit.inner_as_ref()).to_string();
+    let unit_static = Str0255::try_from(unit_str)
+        .map_err(|e| anyhow::anyhow!("Invalid unit string: {:?}", e))?;
+    
+    let description_static = if let Some(desc) = parsed_request.description.into_inner() {
+        let desc_str = String::from_utf8_lossy(desc.inner_as_ref()).to_string();
+        let desc_static = Str0255::try_from(desc_str)
+            .map_err(|e| anyhow::anyhow!("Invalid description string: {:?}", e))?;
+        Sv2Option::new(Some(desc_static))
+    } else {
+        Sv2Option::new(None)
+    };
+    
+    // Create owned versions of the other fields
+    let header_hash_bytes = parsed_request.header_hash.inner_as_ref().to_vec();
+    let header_hash_static = U256::try_from(header_hash_bytes)
+        .map_err(|e| anyhow::anyhow!("Invalid header hash: {:?}", e))?;
+    
+    let locking_key_bytes = parsed_request.locking_key.inner_as_ref().to_vec();  
+    let locking_key_static = CompressedPubKey::try_from(locking_key_bytes)
+        .map_err(|e| anyhow::anyhow!("Invalid locking key: {:?}", e))?;
+    
+    let keyset_id_bytes = parsed_request.keyset_id.inner_as_ref().to_vec();
+    let keyset_id_static = U256::try_from(keyset_id_bytes)
+        .map_err(|e| anyhow::anyhow!("Invalid keyset ID: {:?}", e))?;
+    
+    Ok(mint_pool_messaging::MintQuoteRequest {
+        amount: parsed_request.amount,
+        unit: unit_static,
+        header_hash: header_hash_static,
+        description: description_static,
+        locking_key: locking_key_static,
+        keyset_id: keyset_id_static,
+    })
+}
+
+/// Convert SV2 MintQuoteRequest to CDK MintQuoteMiningShareRequest  
+fn convert_sv2_to_cdk_quote_request(
+    sv2_request: mint_pool_messaging::MintQuoteRequest<'static>,
+) -> Result<cdk::nuts::nutXX::MintQuoteMiningShareRequest> {
+    use cdk::secp256k1::hashes::Hash as CdkHashTrait;
+    
+    // Convert amount (already u64)
+    let amount = cdk::Amount::from(sv2_request.amount);
+    
+    // Convert unit (should be "HASH")  
+    let unit = cdk::nuts::CurrencyUnit::Hash;
+    
+    // Convert header hash from SV2 U256 to CDK Hash
+    let header_hash_bytes = sv2_request.header_hash.inner_as_ref();
+    let header_hash = CdkHashTrait::from_slice(header_hash_bytes)
+        .map_err(|e| anyhow::anyhow!("Invalid header hash: {}", e))?;
+    
+    // Convert description (optional)  
+    let description = sv2_request.description.into_inner().map(|s| {
+        String::from_utf8_lossy(s.inner_as_ref()).to_string()
+    });
+    
+    // Convert locking key (compressed public key)
+    let pubkey_bytes = sv2_request.locking_key.inner_as_ref();
+    let pubkey = cdk::nuts::PublicKey::from_slice(pubkey_bytes)
+        .map_err(|e| anyhow::anyhow!("Invalid locking pubkey: {}", e))?;
+    
+    // Convert keyset ID from SV2 U256 to CDK format
+    let keyset_id_bytes = sv2_request.keyset_id.inner_as_ref();
+    let keyset_id = mining_sv2::cashu::keyset_from_sv2_bytes(keyset_id_bytes)
+        .map_err(|e| anyhow::anyhow!("Failed to convert keyset ID: {}", e))?;
+    
+    Ok(cdk::nuts::nutXX::MintQuoteMiningShareRequest {
+        amount,
+        unit,
+        header_hash,
+        description,
+        pubkey,
+        keyset_id,
+    })
 }
 
 #[tokio::main]
@@ -251,11 +464,11 @@ async fn main() -> Result<()> {
         redis_key,
     );
 
-    tokio::spawn(poll_for_quotes(
-        mint.clone(),
-        redis_url.clone(),
-        create_quote_prefix.clone(),
-    ));
+    // tokio::spawn(poll_for_quotes(
+    //     mint.clone(),
+    //     redis_url.clone(),
+    //     create_quote_prefix.clone(),
+    // ));
 
     // Start SV2 connection to pool if enabled
     if let Some(ref sv2_config) = global_config.sv2_messaging {

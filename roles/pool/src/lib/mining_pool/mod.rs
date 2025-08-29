@@ -195,6 +195,7 @@ pub struct Downstream {
     downstream_data: CommonDownstreamData,
     solution_sender: Sender<SubmitSolution<'static>>,
     channel_factory: Arc<Mutex<PoolChannelFactory>>,
+    pool: Arc<Mutex<Pool>>,
     redis_config: RedisConfig,
     sv2_hub: Option<Arc<MintPoolMessageHub>>,
     sv2_config: Option<Sv2MessagingConfig>,
@@ -209,6 +210,7 @@ impl std::fmt::Debug for Downstream {
             .field("sender", &self.sender)
             .field("downstream_data", &self.downstream_data)
             .field("channel_factory", &self.channel_factory)
+            .field("pool", &"debug not implemented")
             .field("mint", &"debug not implemented")
             .finish()
     }
@@ -225,6 +227,7 @@ pub struct Pool {
     redis_config: RedisConfig,
     sv2_hub: Option<Arc<MintPoolMessageHub>>,
     sv2_config: Option<Sv2MessagingConfig>,
+    mint_connections: HashMap<SocketAddr, Sender<EitherFrame>>,
 }
 
 impl Downstream {
@@ -258,6 +261,7 @@ impl Downstream {
             downstream_data,
             solution_sender,
             channel_factory,
+            pool: pool.clone(),
             redis_config,
             sv2_hub,
             sv2_config,
@@ -536,33 +540,51 @@ impl Pool {
     ) -> PoolResult<()> {
         info!("Mint connected from {}", address);
         
+        // Store the mint connection sender for message routing
+        pool.safe_lock(|p| {
+            p.mint_connections.insert(address, sender.clone());
+            info!("Stored mint connection sender for {}", address);
+        }).map_err(|e| format!("Failed to lock pool: {}", e))?;
+        
         let sv2_hub = pool.safe_lock(|p| p.sv2_hub.clone())?;
         
         if let Some(hub) = sv2_hub {
             // Register this mint connection
             hub.register_connection(format!("mint-{}", address), Role::Mint).await;
             
-            // Listen for quote requests from this mint connection
-            // and for quote responses to send back to mint
+            // Listen for incoming messages from mint (responses, etc.)
+            let pool_clone = pool.clone();
             tokio::spawn(async move {
                 loop {
                     match receiver.recv().await {
                         Ok(frame) => {
-                            debug!("Received frame from mint: {:?}", frame);
-                            // Here we would process incoming mint messages
-                            // For now, mint->pool messages are mainly responses to quote requests
+                            debug!("Received frame from mint {}: {:?}", address, frame);
+                            // Here we could process mint responses (MintQuoteResponse, etc.)
+                            // For now, mint mainly sends responses back to pool
                         }
                         Err(e) => {
-                            error!("Error receiving from mint connection: {:?}", e);
+                            error!("Error receiving from mint connection {}: {:?}", address, e);
                             break;
                         }
                     }
                 }
-                info!("Mint connection {} closed", address);
+                
+                // Clean up connection when closed
+                if pool_clone.safe_lock(|p| {
+                    p.mint_connections.remove(&address);
+                    info!("Removed mint connection {}", address);
+                }).is_ok() {}
             });
         }
         
         Ok(())
+    }
+
+    /// Get an active mint connection sender for sending messages
+    pub fn get_mint_connection(&self) -> Option<Sender<EitherFrame>> {
+        // For now, just return the first available mint connection
+        // In production, you might want load balancing or specific routing
+        self.mint_connections.values().next().cloned()
     }
 
     async fn accept_incoming_connection_(
@@ -749,6 +771,7 @@ impl Pool {
             redis_config: config.redis.clone().unwrap(),
             sv2_hub,
             sv2_config: sv2_config.clone(),
+            mint_connections: HashMap::new(),
         }));
 
         let cloned = pool.clone();

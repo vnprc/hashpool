@@ -19,6 +19,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 bitcoin = { version= "0.32.2" }
 uuid = { version = "1.7", features = ["v4"] }
+hex = "0.4"
 
 cdk = { git = "https://github.com/vnprc/cdk.git", package = "cdk", rev = "7f603b5e" }
 cdk-axum = { git = "https://github.com/vnprc/cdk.git", package = "cdk-axum", rev = "7f603b5e", features = ["redis"]}
@@ -30,3 +31,11 @@ toml = "0.8.22"
 
 shared_config = { path = "../roles-utils/config" }
 mint_pool_messaging = { path = "../roles-utils/mint-pool-messaging" }
+network_helpers_sv2 = { path = "../roles-utils/network-helpers", features = ["with_tokio"] }
+roles_logic_sv2 = { path = "../../protocols/v2/roles-logic-sv2" }
+codec_sv2 = { path = "../../protocols/v2/codec-sv2" }
+mining_sv2 = { path = "../../protocols/v2/subprotocols/mining" }
+binary_sv2 = { path = "../../protocols/v2/binary-sv2/binary-sv2" }
+mint_quote_sv2 = { path = "../../protocols/v2/subprotocols/mint-quote" }
+const_sv2 = { path = "../../protocols/v2/const-sv2" }
+async-channel = "1.8.0"

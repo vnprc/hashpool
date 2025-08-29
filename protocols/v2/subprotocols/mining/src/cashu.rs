@@ -63,9 +63,10 @@ pub fn keyset_from_sv2_bytes(keyset_bytes: &[u8]) -> Result<cdk::nuts::nut02::Id
             cdk::nuts::nut02::Id::from_bytes(keyset_bytes)
         }
         len if len >= 8 => {
-            // Take first 8 bytes and try as Version00
+            // Take last 8 bytes and try as Version00 (keyset is right-padded)
             let mut bytes = [0u8; 8];
-            bytes.copy_from_slice(&keyset_bytes[..8]);
+            let start = len - 8;
+            bytes.copy_from_slice(&keyset_bytes[start..]);
             tracing::debug!("Truncating {}-byte keyset to 8 bytes for Version00: {}", len, cdk::util::hex::encode(&bytes));
             cdk::nuts::nut02::Id::from_bytes(&bytes)
         }
