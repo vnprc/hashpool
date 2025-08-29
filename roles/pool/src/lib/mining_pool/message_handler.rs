@@ -23,6 +23,7 @@ fn create_and_enqueue_mining_share_quote(
     redis_config: &RedisConfig,
     sv2_hub: Option<&Arc<MintPoolMessageHub>>,
     sv2_config: Option<&Sv2MessagingConfig>,
+    pool: Arc<Mutex<super::Pool>>,
 ) -> Result<(), roles_logic_sv2::Error> {
     let header_hash = Hash::from_slice(m.hash.inner_as_ref())
         .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid header hash: {e}")))?;
@@ -67,16 +68,15 @@ fn create_and_enqueue_mining_share_quote(
     tokio::spawn(enqueue_quote_event(redis_config.clone(), json));
     
     // Send via SV2 messaging (new functionality) if enabled
-    if let (Some(hub), Some(config)) = (sv2_hub, sv2_config) {
+    if let (Some(_hub), Some(config)) = (sv2_hub, sv2_config) {
         if config.enabled {
-            let hub_clone = hub.clone();
             // Convert to static lifetime for the async task
             let m_static = m.into_static();
             tokio::spawn(async move {
-                if let Err(e) = send_sv2_mint_quote(hub_clone, m_static, amount).await {
-                    error!("Failed to send SV2 mint quote: {}", e);
+                if let Err(e) = send_sv2_mint_quote_tcp(pool, m_static, amount).await {
+                    error!("Failed to send SV2 mint quote via TCP: {}", e);
                 } else {
-                    info!("Successfully sent mint quote via SV2 messaging");
+                    info!("Successfully sent mint quote via SV2 TCP");
                 }
             });
         }
@@ -85,14 +85,26 @@ fn create_and_enqueue_mining_share_quote(
     Ok(())
 }
 
-/// Send a mint quote request via SV2 messaging
-async fn send_sv2_mint_quote(
-    hub: Arc<MintPoolMessageHub>,
+/// Send a mint quote request via SV2 TCP connection
+async fn send_sv2_mint_quote_tcp(
+    pool: Arc<Mutex<super::Pool>>,
     m: SubmitSharesExtended<'static>,
     amount: u64,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     use binary_sv2::{Str0255, U256, CompressedPubKey, Sv2Option};
     use std::convert::TryInto;
+    
+    // Get mint connection sender
+    let mint_sender = {
+        let mint_connection = pool.safe_lock(|p| p.get_mint_connection())
+            .map_err(|e| format!("Failed to lock pool: {}", e))?;
+        match mint_connection {
+            Some(sender) => sender,
+            None => {
+                return Err("No active mint connection available".into());
+            }
+        }
+    };
     
     // Create SV2 mint quote request
     let unit_str = "HASH".as_bytes().to_vec();
@@ -124,10 +136,21 @@ async fn send_sv2_mint_quote(
         keyset_id,
     };
     
-    debug!("Sending SV2 mint quote request: amount={}", amount);
-    hub.send_quote_request(request).await
-        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+    // Send over TCP connection using the standard SV2 message pattern
+    debug!("Sending SV2 mint quote request over TCP: amount={}", amount);
     
+    // Create PoolMessages::MintQuote and convert to frame
+    let pool_message = roles_logic_sv2::parsers::PoolMessages::MintQuote(
+        roles_logic_sv2::parsers::MintQuote::MintQuoteRequest(request.into_static())
+    );
+    let sv2_frame: super::StdFrame = pool_message.try_into()
+        .map_err(|e| format!("Failed to convert to SV2 frame: {:?}", e))?;
+    let either_frame = sv2_frame.into();
+    
+    mint_sender.send(either_frame).await
+        .map_err(|e| format!("Failed to send SV2 frame: {:?}", e))?;
+    
+    info!("Successfully sent SV2 mint quote request via TCP");
     Ok(())
 }
 
@@ -303,7 +326,8 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         m.clone(), 
                         &self.redis_config,
                         self.sv2_hub.as_ref(),
-                        self.sv2_config.as_ref()
+                        self.sv2_config.as_ref(),
+                        self.pool.clone()
                     )?;
 
                     let success = SubmitSharesSuccess {
@@ -323,7 +347,8 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         m.clone(), 
                         &self.redis_config,
                         self.sv2_hub.as_ref(),
-                        self.sv2_config.as_ref()
+                        self.sv2_config.as_ref(),
+                        self.pool.clone()
                     )?;
 
                     let success = SubmitSharesSuccess {

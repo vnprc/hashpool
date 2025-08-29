@@ -21,6 +21,7 @@ common_messages_sv2 = { path = "../../../protocols/v2/subprotocols/common-messag
 mining_sv2 = { path = "../../../protocols/v2/subprotocols/mining", version = "^1.0.0" }
 template_distribution_sv2 = { path = "../../../protocols/v2/subprotocols/template-distribution", version = "^1.0.1" }
 job_declaration_sv2 = { path = "../../../protocols/v2/subprotocols/job-declaration", version = "^1.0.0" }
+mint_quote_sv2 = { path = "../../../protocols/v2/subprotocols/mint-quote", version = "^1.0.0" }
 const_sv2 = { version = "^3.0.0", path = "../../../protocols/v2/const-sv2"}
 framing_sv2 = { version = "^3.0.0", path = "../../../protocols/v2/framing-sv2" }
 tracing = { version = "0.1"}

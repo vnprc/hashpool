@@ -1,5 +1,5 @@
 use super::*;
-use const_sv2::*;
+use const_sv2::{MESSAGE_TYPE_MINT_QUOTE_REQUEST, MESSAGE_TYPE_MINT_QUOTE_RESPONSE, MESSAGE_TYPE_MINT_QUOTE_ERROR};
 
 /// Message types for the mint-quote protocol
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
