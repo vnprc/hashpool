@@ -11,19 +11,17 @@ use std::{fs, sync::Arc};
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 
-/// Extended config for mint database path
+/// Extended config for hashpool-specific mint settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct MintConfig {
     #[serde(flatten)]
     cdk_settings: config::Settings,
-    database: MintDatabaseConfig,
+    hashpool_mint: Option<HashpoolMintConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct MintDatabaseConfig {
-    #[serde(flatten)]
-    base: config::Database,
-    db_path: String,
+struct HashpoolMintConfig {
+    db_path: Option<String>,
 }
 
 use lib::{connect_to_pool_sv2, setup_mint};
@@ -52,20 +50,28 @@ async fn main() -> Result<()> {
         }
     };
 
-    // Parse mint config to get database path
+    // Parse mint config 
     let mint_config_str = fs::read_to_string(&mint_config_path)?;
-    let mut mint_config: MintConfig = toml::from_str(&mint_config_str)?;
-    
-    // override config file with env var for improved devex configurability
-    if let Ok(db_path_override) = std::env::var("CDK_MINT_DB_PATH") {
-        tracing::info!("Overriding mint database path with env var CDK_MINT_DB_PATH={}", db_path_override);
-        mint_config.database.db_path = db_path_override;
-    }
+    let mint_config: MintConfig = toml::from_str(&mint_config_str)?;
     
     let global_config: PoolGlobalConfig = toml::from_str(&fs::read_to_string(global_config_path)?)?;
 
-    // Setup mint with all required components
-    let mint = setup_mint(mint_config.cdk_settings.clone(), mint_config.database.db_path).await?;
+    // Setup mint with all required components - determine database path
+    // Priority: env var > config file (no hardcoded fallback)
+    let db_path = std::env::var("CDK_MINT_DB_PATH")
+        .ok()
+        .or_else(|| {
+            mint_config.hashpool_mint
+                .as_ref()
+                .and_then(|hm| hm.db_path.as_ref())
+                .map(|p| p.clone())
+        })
+        .ok_or_else(|| anyhow::anyhow!(
+            "Database path must be specified either via CDK_MINT_DB_PATH environment variable or [hashpool_mint] db_path config"
+        ))?;
+    
+    tracing::info!("Using database path: {}", db_path);
+    let mint = setup_mint(mint_config.cdk_settings.clone(), db_path).await?;
 
     // Setup HTTP cache and router
     let cache: HttpCache = mint_config.cdk_settings.info.http_cache.into();
