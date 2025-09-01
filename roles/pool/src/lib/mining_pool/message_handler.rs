@@ -73,13 +73,6 @@ fn create_mint_quote_request(
     
     let locking_key: CompressedPubKey = m.locking_pubkey.clone();
     
-    // Pad keyset_id to 32 bytes for U256 (keyset IDs are 8 bytes, U256 needs 32 bytes)
-    let keyset_id_bytes = m.keyset_id.inner_as_ref();
-    let mut padded_keyset_id = [0u8; 32];
-    padded_keyset_id[24..].copy_from_slice(keyset_id_bytes); // Right-pad with the 8-byte keyset ID
-    let keyset_id: U256 = padded_keyset_id.to_vec().try_into()
-        .map_err(|e| format!("Failed to create keyset ID: {:?}", e))?;
-    
     // Create optional description (empty for now)
     let description: Sv2Option<Str0255> = Sv2Option::new(None);
     
@@ -89,7 +82,6 @@ fn create_mint_quote_request(
         header_hash,
         description,
         locking_key,
-        keyset_id,
     };
     
     Ok(request.into_static())
@@ -115,9 +107,9 @@ async fn send_sv2_quote_request(
     // Send over TCP connection using the standard SV2 message pattern
     debug!("Sending SV2 mint quote request over TCP: amount={}", request.amount);
     
-    // Create PoolMessages::MintQuote and convert to frame
-    let pool_message = roles_logic_sv2::parsers::PoolMessages::MintQuote(
-        roles_logic_sv2::parsers::MintQuote::MintQuoteRequest(request)
+    // Create PoolMessages::Minting and convert to frame
+    let pool_message = roles_logic_sv2::parsers::PoolMessages::Minting(
+        roles_logic_sv2::parsers::Minting::MintQuoteRequest(request)
     );
     let sv2_frame: super::StdFrame = pool_message.try_into()
         .map_err(|e| format!("Failed to convert to SV2 frame: {:?}", e))?;

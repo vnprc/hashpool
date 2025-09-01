@@ -192,7 +192,7 @@ pub const MESSAGE_TYPE_REQUEST_TRANSACTION_DATA_SUCCESS: u8 = 0x74;
 pub const MESSAGE_TYPE_REQUEST_TRANSACTION_DATA_ERROR: u8 = 0x75;
 pub const MESSAGE_TYPE_SUBMIT_SOLUTION: u8 = 0x76;
 
-// Mint Quote Protocol message types.
+// Minting Protocol message types.
 pub const MESSAGE_TYPE_MINT_QUOTE_REQUEST: u8 = 0x80;
 pub const MESSAGE_TYPE_MINT_QUOTE_RESPONSE: u8 = 0x81;
 pub const MESSAGE_TYPE_MINT_QUOTE_ERROR: u8 = 0x82;
@@ -255,7 +255,7 @@ pub const CHANNEL_BIT_SUBMIT_SHARES_SUCCESS: bool = true;
 pub const CHANNEL_BIT_UPDATE_CHANNEL: bool = true;
 pub const CHANNEL_BIT_UPDATE_CHANNEL_ERROR: bool = true;
 
-// For the Mint Quote protocol, the channel bit is set for inter-role communication.
+// For the Minting protocol, the channel bit is set for inter-role communication.
 pub const CHANNEL_BIT_MINT_QUOTE_REQUEST: bool = true;
 pub const CHANNEL_BIT_MINT_QUOTE_RESPONSE: bool = true;
 pub const CHANNEL_BIT_MINT_QUOTE_ERROR: bool = true;

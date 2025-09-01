@@ -4,7 +4,6 @@ use super::{
     upstream_sv2::Upstream as UpstreamMiningNode,
 };
 use async_channel::{Receiver, SendError, Sender};
-use cashu::Sv2KeySet;
 use roles_logic_sv2::{
     channel_logic::channel_factory::{OnNewShare, PoolChannelFactory, Share},
     common_messages_sv2::{SetupConnection, SetupConnectionSuccess},
@@ -494,8 +493,6 @@ impl
                 kind,
                 coinbase_outputs,
                 "SOLO".to_string(),
-                // not used, fake it
-        Arc::new(Mutex::new(Sv2KeySet::default())), 
             );
             self.status.set_channel(channel_factory);
 

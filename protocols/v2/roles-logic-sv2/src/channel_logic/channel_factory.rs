@@ -8,7 +8,7 @@ use crate::{
 };
 
 use mining_sv2::{
-    cashu::Sv2KeySet, ExtendedExtranonce, NewExtendedMiningJob, NewMiningJob, OpenExtendedMiningChannelSuccess, OpenMiningChannelError, OpenStandardMiningChannelSuccess, SetCustomMiningJob, SetCustomMiningJobSuccess, SetNewPrevHash, SubmitSharesError, SubmitSharesExtended, SubmitSharesStandard, Target
+    ExtendedExtranonce, NewExtendedMiningJob, NewMiningJob, OpenExtendedMiningChannelSuccess, OpenMiningChannelError, OpenStandardMiningChannelSuccess, SetCustomMiningJob, SetCustomMiningJobSuccess, SetNewPrevHash, SubmitSharesError, SubmitSharesExtended, SubmitSharesStandard, Target
 };
 
 use nohash_hasher::BuildNoHashHasher;
@@ -89,7 +89,6 @@ impl OnNewShare {
                         // initialize to all zeros, will be updated later
                         hash: [0u8; 32].into(),
                         locking_pubkey: [0u8; 33].into(), // Placeholder, will be updated later
-                        keyset_id: vec![0u8; 32].try_into().unwrap(), // Placeholder, will be updated later
                     };
                     *self = Self::SendSubmitShareUpstream((Share::Extended(share), *template_id));
                 }
@@ -109,7 +108,6 @@ impl OnNewShare {
                         // initialize to all zeros, will be updated later
                         hash: [0u8; 32].into(),
                         locking_pubkey: [0u8; 33].into(), // Placeholder, will be updated later
-                        keyset_id: vec![0u8; 32].try_into().unwrap(), // Placeholder, will be updated later
                     };
                     *self = Self::ShareMeetBitcoinTarget((
                         Share::Extended(share),
@@ -220,7 +218,6 @@ struct ChannelFactory {
     job_ids: Id,
     channel_to_group_id: HashMap<u32, u32, BuildNoHashHasher<u32>>,
     future_templates: HashMap<u32, NewTemplate<'static>, BuildNoHashHasher<u32>>,
-    keyset: Arc<Mutex<Sv2KeySet<'static>>>,
 }
 
 impl ChannelFactory {
@@ -286,17 +283,12 @@ impl ChannelFactory {
                 .into_prefix(self.extranonces.get_prefix_len())
                 .unwrap();
 
-            let keyset = self.keyset.safe_lock(|keyset| {
-                keyset.clone()
-            }).map_err(|e| Error::PoisonLock(e.to_string()))?;
-
             let success = OpenExtendedMiningChannelSuccess {
                 request_id,
                 channel_id,
                 target,
                 extranonce_size: max_extranonce_size,
                 extranonce_prefix,
-                keyset: keyset.into(),
             };
             self.extended_channels.insert(channel_id, success.clone());
             let mut result = vec![Mining::OpenExtendedMiningChannelSuccess(success)];
@@ -342,8 +334,6 @@ impl ChannelFactory {
             target,
             extranonce_size,
             extranonce_prefix,
-            // only called from the jd client, use a fake keyset
-            keyset: Sv2KeySet::default().into(),
         };
         self.extended_channels.insert(channel_id, success.clone());
         Some(())
@@ -1009,7 +999,6 @@ impl PoolChannelFactory {
         kind: ExtendedChannelKind,
         pool_coinbase_outputs: Vec<TxOut>,
         pool_signature: String,
-        keyset: Arc<Mutex<Sv2KeySet<'static>>>,
     ) -> Self {
         let inner = ChannelFactory {
             ids,
@@ -1030,7 +1019,6 @@ impl PoolChannelFactory {
             job_ids: Id::new(),
             channel_to_group_id: HashMap::with_hasher(BuildNoHashHasher::default()),
             future_templates: HashMap::with_hasher(BuildNoHashHasher::default()),
-            keyset: keyset.clone(),
         };
 
         Self {
@@ -1333,7 +1321,6 @@ impl ProxyExtendedChannelFactory {
         pool_coinbase_outputs: Option<Vec<TxOut>>,
         pool_signature: String,
         extended_channel_id: u32,
-        keyset: Arc<Mutex<Sv2KeySet<'static>>>,
     ) -> Self {
         match &kind {
             ExtendedChannelKind::Proxy { .. } => {
@@ -1367,7 +1354,6 @@ impl ProxyExtendedChannelFactory {
             job_ids: Id::new(),
             channel_to_group_id: HashMap::with_hasher(BuildNoHashHasher::default()),
             future_templates: HashMap::with_hasher(BuildNoHashHasher::default()),
-            keyset: keyset.clone(),
         };
         ProxyExtendedChannelFactory {
             inner,
@@ -1898,8 +1884,6 @@ mod test {
         inner[6] = 0;
         let extranonces = ExtendedExtranonce::new_with_inner_only_test(0..0, 0..0, 0..7, inner);
         // ? i dunno
-        let keyset_id = 0u64;
-
         let ids = Arc::new(Mutex::new(GroupId::new()));
         let channel_kind = ExtendedChannelKind::Pool;
         let mut channel = PoolChannelFactory::new(
@@ -1910,7 +1894,6 @@ mod test {
             channel_kind,
             vec![out],
             pool_signature,
-            Arc::new(Mutex::new(Some(keyset_id))),
         );
 
         // Build a NewTemplate

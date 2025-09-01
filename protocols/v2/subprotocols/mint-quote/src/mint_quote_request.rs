@@ -13,6 +13,4 @@ pub struct MintQuoteRequest<'decoder> {
     pub description: Sv2Option<'decoder, Str0255<'decoder>>,
     /// NUT-20 locking key - compressed public key (33 bytes) for the quote
     pub locking_key: CompressedPubKey<'decoder>,
-    /// Keyset ID for the mint
-    pub keyset_id: U256<'decoder>,
 }

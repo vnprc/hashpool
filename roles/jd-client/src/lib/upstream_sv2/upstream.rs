@@ -15,7 +15,6 @@ use codec_sv2::{HandshakeRole, Initiator};
 use error_handling::handle_result;
 use key_utils::Secp256k1PublicKey;
 use network_helpers_sv2::noise_connection_tokio::Connection;
-use roles_logic_sv2::mining_sv2::cashu::Sv2KeySet;
 use roles_logic_sv2::{
     channel_logic::channel_factory::PoolChannelFactory,
     common_messages_sv2::{Protocol, SetupConnection},
@@ -588,8 +587,6 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
             channel_kind,
             vec![],
             pool_signature,
-            // jd doesn't care about ecash, use a dummy value
-            Arc::new(Mutex::new(Sv2KeySet::default())),
         );
         let extranonce: Extranonce = m
             .extranonce_prefix
