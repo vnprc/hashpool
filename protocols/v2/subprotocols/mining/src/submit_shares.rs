@@ -69,8 +69,6 @@ pub struct SubmitSharesExtended<'decoder> {
     pub hash: PubKey<'decoder>,
     // Locking pubkey for mint quote
     pub locking_pubkey: CompressedPubKey<'decoder>,
-    // Keyset ID for mint quote
-    pub keyset_id: B0255<'decoder>,
 }
 
 /// Message used by upstream to accept [`SubmitSharesStandard`] or [`SubmitSharesExtended`].
@@ -157,7 +155,6 @@ impl<'d> GetSize for SubmitSharesExtended<'d> {
             + self.extranonce.get_size()
             + self.hash.get_size()
             + self.locking_pubkey.get_size()
-            + self.keyset_id.get_size()
     }
 }
 #[cfg(feature = "with_serde")]
@@ -167,6 +164,7 @@ impl GetSize for SubmitSharesSuccess {
             + self.last_sequence_number.get_size()
             + self.new_submits_accepted_count.get_size()
             + self.new_shares_sum.get_size()
+            + self.hash.get_size()
     }
 }
 #[cfg(feature = "with_serde")]

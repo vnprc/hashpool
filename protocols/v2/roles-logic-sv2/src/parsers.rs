@@ -982,7 +982,7 @@ impl<'a> TryFrom<(u8, &'a mut [u8])> for Mining<'a> {
 
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "with_serde", derive(Serialize, Deserialize))]
-pub enum MintQuote<'a> {
+pub enum Minting<'a> {
     #[cfg_attr(feature = "with_serde", serde(borrow))]
     MintQuoteRequest(MintQuoteRequest<'a>),
     #[cfg_attr(feature = "with_serde", serde(borrow))]
@@ -991,41 +991,41 @@ pub enum MintQuote<'a> {
     MintQuoteError(MintQuoteError<'a>),
 }
 
-impl GetSize for MintQuote<'_> {
+impl GetSize for Minting<'_> {
     fn get_size(&self) -> usize {
         match self {
-            MintQuote::MintQuoteRequest(a) => a.get_size(),
-            MintQuote::MintQuoteResponse(a) => a.get_size(),
-            MintQuote::MintQuoteError(a) => a.get_size(),
+            Minting::MintQuoteRequest(a) => a.get_size(),
+            Minting::MintQuoteResponse(a) => a.get_size(),
+            Minting::MintQuoteError(a) => a.get_size(),
         }
     }
 }
 
-impl<'a> IsSv2Message for MintQuote<'a> {
+impl<'a> IsSv2Message for Minting<'a> {
     fn message_type(&self) -> u8 {
         match self {
-            MintQuote::MintQuoteRequest(_) => MESSAGE_TYPE_MINT_QUOTE_REQUEST,
-            MintQuote::MintQuoteResponse(_) => MESSAGE_TYPE_MINT_QUOTE_RESPONSE,
-            MintQuote::MintQuoteError(_) => MESSAGE_TYPE_MINT_QUOTE_ERROR,
+            Minting::MintQuoteRequest(_) => MESSAGE_TYPE_MINT_QUOTE_REQUEST,
+            Minting::MintQuoteResponse(_) => MESSAGE_TYPE_MINT_QUOTE_RESPONSE,
+            Minting::MintQuoteError(_) => MESSAGE_TYPE_MINT_QUOTE_ERROR,
         }
     }
 
     fn channel_bit(&self) -> bool {
         match self {
-            MintQuote::MintQuoteRequest(_) => CHANNEL_BIT_MINT_QUOTE_REQUEST,
-            MintQuote::MintQuoteResponse(_) => CHANNEL_BIT_MINT_QUOTE_RESPONSE,
-            MintQuote::MintQuoteError(_) => CHANNEL_BIT_MINT_QUOTE_ERROR,
+            Minting::MintQuoteRequest(_) => CHANNEL_BIT_MINT_QUOTE_REQUEST,
+            Minting::MintQuoteResponse(_) => CHANNEL_BIT_MINT_QUOTE_RESPONSE,
+            Minting::MintQuoteError(_) => CHANNEL_BIT_MINT_QUOTE_ERROR,
         }
     }
 }
 
 #[cfg(not(feature = "with_serde"))]
-impl<'decoder> From<MintQuote<'decoder>> for EncodableField<'decoder> {
-    fn from(m: MintQuote<'decoder>) -> Self {
+impl<'decoder> From<Minting<'decoder>> for EncodableField<'decoder> {
+    fn from(m: Minting<'decoder>) -> Self {
         match m {
-            MintQuote::MintQuoteRequest(a) => a.into(),
-            MintQuote::MintQuoteResponse(a) => a.into(),
-            MintQuote::MintQuoteError(a) => a.into(),
+            Minting::MintQuoteRequest(a) => a.into(),
+            Minting::MintQuoteResponse(a) => a.into(),
+            Minting::MintQuoteError(a) => a.into(),
         }
     }
 }
@@ -1083,7 +1083,7 @@ pub enum PoolMessages<'a> {
     #[cfg_attr(feature = "with_serde", serde(borrow))]
     TemplateDistribution(TemplateDistribution<'a>),
     #[cfg_attr(feature = "with_serde", serde(borrow))]
-    MintQuote(MintQuote<'a>),
+    Minting(Minting<'a>),
 }
 
 impl<'a> TryFrom<MiningDeviceMessages<'a>> for PoolMessages<'a> {
@@ -1105,7 +1105,7 @@ impl<'decoder> From<PoolMessages<'decoder>> for EncodableField<'decoder> {
             PoolMessages::Mining(a) => a.into(),
             PoolMessages::JobDeclaration(a) => a.into(),
             PoolMessages::TemplateDistribution(a) => a.into(),
-            PoolMessages::MintQuote(a) => a.into(),
+            PoolMessages::Minting(a) => a.into(),
         }
     }
 }
@@ -1116,7 +1116,7 @@ impl GetSize for PoolMessages<'_> {
             PoolMessages::Mining(a) => a.get_size(),
             PoolMessages::JobDeclaration(a) => a.get_size(),
             PoolMessages::TemplateDistribution(a) => a.get_size(),
-            PoolMessages::MintQuote(a) => a.get_size(),
+            PoolMessages::Minting(a) => a.get_size(),
         }
     }
 }
@@ -1128,7 +1128,7 @@ impl<'a> IsSv2Message for PoolMessages<'a> {
             PoolMessages::Mining(a) => a.message_type(),
             PoolMessages::JobDeclaration(a) => a.message_type(),
             PoolMessages::TemplateDistribution(a) => a.message_type(),
-            PoolMessages::MintQuote(a) => a.message_type(),
+            PoolMessages::Minting(a) => a.message_type(),
         }
     }
 
@@ -1138,7 +1138,7 @@ impl<'a> IsSv2Message for PoolMessages<'a> {
             PoolMessages::Mining(a) => a.channel_bit(),
             PoolMessages::JobDeclaration(a) => a.channel_bit(),
             PoolMessages::TemplateDistribution(a) => a.channel_bit(),
-            PoolMessages::MintQuote(a) => a.channel_bit(),
+            PoolMessages::Minting(a) => a.channel_bit(),
         }
     }
 }
@@ -1281,7 +1281,7 @@ impl<'a> TryFrom<PoolMessages<'a>> for MiningDeviceMessages<'a> {
             PoolMessages::Mining(message) => Ok(Self::Mining(message)),
             PoolMessages::JobDeclaration(_) => Err(Error::UnexpectedPoolMessage),
             PoolMessages::TemplateDistribution(_) => Err(Error::UnexpectedPoolMessage),
-            PoolMessages::MintQuote(_) => Err(Error::UnexpectedPoolMessage),
+            PoolMessages::Minting(_) => Err(Error::UnexpectedPoolMessage),
         }
     }
 }

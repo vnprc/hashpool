@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use cdk::mint::Mint;
-use roles_logic_sv2::parsers::{PoolMessages, MintQuote};
+use roles_logic_sv2::parsers::{PoolMessages, Minting};
 use mint_quote_sv2::MintQuoteResponse;
 use codec_sv2::{StandardEitherFrame, StandardSv2Frame};
 use const_sv2::MESSAGE_TYPE_MINT_QUOTE_REQUEST;
@@ -57,8 +57,8 @@ async fn send_quote_response(
     response: MintQuoteResponse<'static>,
     sender: &async_channel::Sender<StandardEitherFrame<PoolMessages<'static>>>,
 ) -> Result<()> {
-    let pool_response = PoolMessages::MintQuote(
-        MintQuote::MintQuoteResponse(response)
+    let pool_response = PoolMessages::Minting(
+        Minting::MintQuoteResponse(response)
     );
     
     let sv2_frame: StandardSv2Frame<PoolMessages> = pool_response.try_into()
@@ -98,17 +98,12 @@ fn create_static_mint_quote_request(
     let locking_key_static = CompressedPubKey::try_from(locking_key_bytes)
         .map_err(|e| anyhow::anyhow!("Invalid locking key: {:?}", e))?;
     
-    let keyset_id_bytes = parsed_request.keyset_id.inner_as_ref().to_vec();
-    let keyset_id_static = U256::try_from(keyset_id_bytes)
-        .map_err(|e| anyhow::anyhow!("Invalid keyset ID: {:?}", e))?;
-    
     Ok(mint_pool_messaging::MintQuoteRequest {
         amount: parsed_request.amount,
         unit: unit_static,
         header_hash: header_hash_static,
         description: description_static,
         locking_key: locking_key_static,
-        keyset_id: keyset_id_static,
     })
 }
 
@@ -139,17 +134,11 @@ fn convert_sv2_to_cdk_quote_request(
     let pubkey = cdk::nuts::PublicKey::from_slice(pubkey_bytes)
         .map_err(|e| anyhow::anyhow!("Invalid locking pubkey: {}", e))?;
     
-    // Convert keyset ID from SV2 U256 to CDK format
-    let keyset_id_bytes = sv2_request.keyset_id.inner_as_ref();
-    let keyset_id = mining_sv2::cashu::keyset_from_sv2_bytes(keyset_id_bytes)
-        .map_err(|e| anyhow::anyhow!("Failed to convert keyset ID: {}", e))?;
-    
     Ok(cdk::nuts::nutXX::MintQuoteMiningShareRequest {
         amount,
         unit,
         header_hash,
         description,
         pubkey,
-        keyset_id,
     })
 }

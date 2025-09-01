@@ -782,6 +782,7 @@ impl UpstreamMiningNode {
                             last_sequence_number: share_.sequence_number,
                             new_submits_accepted_count: 1,
                             new_shares_sum: 1,
+                            hash: [0u8; 32].into(),
                         };
                         let message = Mining::SubmitSharesSuccess(success);
                         Ok(message)
@@ -819,6 +820,7 @@ impl UpstreamMiningNode {
                                 last_sequence_number: share_.sequence_number,
                                 new_submits_accepted_count: 1,
                                 new_shares_sum: 1,
+                                hash: [0u8; 32].into(),
                             };
                             let message = Mining::SubmitSharesSuccess(success);
                             Ok(message)
@@ -842,6 +844,7 @@ impl UpstreamMiningNode {
                         last_sequence_number: share_.sequence_number,
                         new_submits_accepted_count: 1,
                         new_shares_sum: 1,
+                        hash: [0u8; 32].into(),
                     };
                     let message = Mining::SubmitSharesSuccess(success);
                     Ok(message)

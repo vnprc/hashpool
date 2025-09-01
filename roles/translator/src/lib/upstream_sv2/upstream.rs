@@ -16,7 +16,7 @@ use cdk::{nuts::KeySet, wallet::Wallet};
 use codec_sv2::{HandshakeRole, Initiator};
 use error_handling::handle_result;
 use key_utils::Secp256k1PublicKey;
-use mining_sv2::cashu::{calculate_work, Sv2KeySet};
+use mining_sv2::cashu::calculate_work;
 use hex;
 use network_helpers_sv2::Connection;
 use roles_logic_sv2::{
@@ -701,57 +701,7 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
         self.channel_id = Some(m.channel_id);
         self.extranonce_prefix = Some(m.extranonce_prefix.to_vec());
 
-        let m_static = m.into_static();
-        let wallet_clone = self.wallet.clone();
-        
-        info!("Converting SV2 keyset to wallet keyset for channel {}", m_static.channel_id);
-        let sv2_keyset = Sv2KeySet::try_from(m_static.keyset.clone())
-            .map_err(|e| RolesLogicError::KeysetError(format!("{:?}", e)))?;
-        let keyset = KeySet::try_from(sv2_keyset)
-            .map_err(|e| RolesLogicError::KeysetError(e.to_string()))?;
-        
-        let keyset_id_bytes = keyset.id.to_bytes();
-        let keyset_sender_clone = self.keyset_sender.clone();
-        tokio::spawn(async move {
-            // Check if keyset already exists before attempting to add
-            match wallet_clone.get_mint_keysets().await {
-                Ok(existing_keysets) => {
-                    let keyset_exists = existing_keysets.iter().any(|ks| ks.id == keyset.id);
-                    
-                    if keyset_exists {
-                        info!("Keyset {} already exists in wallet, broadcasting existing keyset", hex::encode(&keyset_id_bytes));
-                        // Broadcast the keyset ID to Bridge even if it already exists
-                        if let Err(e) = keyset_sender_clone.send(keyset_id_bytes.clone()) {
-                            error!("Failed to broadcast keyset update: {:?}", e);
-                        } else {
-                            info!("Broadcasted existing keyset {} to Bridge", hex::encode(&keyset_id_bytes));
-                        }
-                        return;
-                    }
-                    
-                    info!("Adding keyset with ID {} to wallet", hex::encode(&keyset_id_bytes));
-                    match wallet_clone.add_keyset(keyset.clone(), true, 0).await {
-                        Ok(_) => {
-                            info!("Successfully added keyset {} to wallet", hex::encode(&keyset_id_bytes));
-                            // Broadcast the keyset ID to Bridge for share submission
-                            if let Err(e) = keyset_sender_clone.send(keyset_id_bytes.clone()) {
-                                error!("Failed to broadcast keyset update: {:?}", e);
-                            } else {
-                                info!("Broadcasted keyset {} to Bridge", hex::encode(&keyset_id_bytes));
-                            }
-                        },
-                        Err(e) => {
-                            error!("Failed to add keyset {} to wallet: {:?}", hex::encode(&keyset_id_bytes), e);
-                        }
-                    }
-                },
-                Err(e) => {
-                    error!("Failed to get existing keysets from wallet: {:?}", e);
-                }
-            }
-        });
-
-        let m = Mining::OpenExtendedMiningChannelSuccess(m_static);
+        let m = Mining::OpenExtendedMiningChannelSuccess(m.into_static());
         Ok(SendTo::None(Some(m)))
     }
 

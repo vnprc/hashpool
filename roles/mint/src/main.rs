@@ -77,9 +77,6 @@ async fn main() -> Result<()> {
     let cache: HttpCache = mint_config.cdk_settings.info.http_cache.into();
     let router = cdk_axum::create_mint_router_with_custom_cache(mint.clone(), cache, false).await?;
 
-    // Publish keyset to Redis for pool coordination
-    publish_keyset_to_redis(&mint, &global_config).await?;
-
     // Start SV2 connection to pool if enabled
     if let Some(ref sv2_config) = global_config.sv2_messaging {
         if sv2_config.enabled {
@@ -100,34 +97,3 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Publish active keyset to Redis for pool coordination
-async fn publish_keyset_to_redis(
-    mint: &Arc<cdk::mint::Mint>,
-    global_config: &PoolGlobalConfig,
-) -> Result<()> {
-    let redis_url = global_config.redis.url.clone();
-    let active_keyset_prefix = global_config.redis.active_keyset_prefix.clone();
-    
-    let keysets = mint.keysets();
-    let keyset_id = keysets.keysets.first().unwrap().id;
-    let keyset = mint.keyset(&keyset_id).unwrap();
-
-    // Create Redis connection
-    let client = redis::Client::open(redis_url)?;
-    let mut redis_conn = client.get_multiplexed_tokio_connection().await?;
-
-    // Serialize keyset for Redis
-    let keyset_json = serde_json::to_string(&keyset)?;
-    let redis_key = active_keyset_prefix;
-
-    // Publish to Redis
-    redis_conn.set(redis_key.clone(), &keyset_json).await?;
-
-    info!(
-        "Published keyset {} to Redis key '{}'",
-        keyset_id,
-        redis_key,
-    );
-
-    Ok(())
-}

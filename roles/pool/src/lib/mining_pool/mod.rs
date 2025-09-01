@@ -41,7 +41,6 @@ pub mod setup_connection;
 use setup_connection::SetupConnectionHandler;
 
 pub mod message_handler;
-use mining_sv2::cashu::Sv2KeySet;
 
 pub type Message = PoolMessages<'static>;
 pub type StdFrame = StandardSv2Frame<Message>;
@@ -114,9 +113,6 @@ impl Configuration {
         self.redis.as_ref().map(|r| r.url.as_str())
     }
 
-    pub fn redis_keyset_prefix(&self) -> Option<&str> {
-        self.redis.as_ref().map(|r| r.active_keyset_prefix.as_str())
-    }
 }
 
 pub struct TemplateProviderConfig {
@@ -196,7 +192,6 @@ pub struct Downstream {
     solution_sender: Sender<SubmitSolution<'static>>,
     channel_factory: Arc<Mutex<PoolChannelFactory>>,
     pool: Arc<Mutex<Pool>>,
-    redis_config: RedisConfig,
     sv2_hub: Option<Arc<MintPoolMessageHub>>,
     sv2_config: Option<Sv2MessagingConfig>,
 }
@@ -224,7 +219,6 @@ pub struct Pool {
     channel_factory: Arc<Mutex<PoolChannelFactory>>,
     last_prev_hash_template_id: u64,
     status_tx: status::Sender,
-    redis_config: RedisConfig,
     sv2_hub: Option<Arc<MintPoolMessageHub>>,
     sv2_config: Option<Sv2MessagingConfig>,
     mint_connections: HashMap<SocketAddr, Sender<EitherFrame>>,
@@ -240,7 +234,6 @@ impl Downstream {
         channel_factory: Arc<Mutex<PoolChannelFactory>>,
         status_tx: status::Sender,
         address: SocketAddr,
-        redis_config: RedisConfig,
         sv2_hub: Option<Arc<MintPoolMessageHub>>,
         sv2_config: Option<Sv2MessagingConfig>,
     ) -> PoolResult<Arc<Mutex<Self>>> {
@@ -262,7 +255,6 @@ impl Downstream {
             solution_sender,
             channel_factory,
             pool: pool.clone(),
-            redis_config,
             sv2_hub,
             sv2_config,
         }));
@@ -490,7 +482,6 @@ impl Pool {
                                 receiver,
                                 sender,
                                 address,
-                                config.redis.clone().unwrap(),
                             )
                             .await
                         );
@@ -534,7 +525,7 @@ impl Pool {
     /// Handle a connected mint - processes mint quote requests and sends responses
     async fn handle_mint_connection(
         pool: Arc<Mutex<Pool>>,
-        mut receiver: Receiver<EitherFrame>,
+        receiver: Receiver<EitherFrame>,
         sender: Sender<EitherFrame>,
         address: SocketAddr,
     ) -> PoolResult<()> {
@@ -552,15 +543,16 @@ impl Pool {
             // Register this mint connection
             hub.register_connection(format!("mint-{}", address), Role::Mint).await;
             
-            // Listen for incoming messages from mint (responses, etc.)
+            // Listen for incoming messages from mint and process keyset messages
             let pool_clone = pool.clone();
             tokio::spawn(async move {
                 loop {
                     match receiver.recv().await {
                         Ok(frame) => {
                             debug!("Received frame from mint {}: {:?}", address, frame);
-                            // Here we could process mint responses (MintQuoteResponse, etc.)
-                            // For now, mint mainly sends responses back to pool
+                            
+                            // Process messages from the mint
+                            debug!("Processed frame from mint {}", address);
                         }
                         Err(e) => {
                             error!("Error receiving from mint connection {}: {:?}", address, e);
@@ -592,7 +584,6 @@ impl Pool {
         receiver: Receiver<EitherFrame>,
         sender: Sender<EitherFrame>,
         address: SocketAddr,
-        redis_config: RedisConfig,
     ) -> PoolResult<()> {
         let solution_sender = self_.safe_lock(|p| p.solution_sender.clone())?;
         let status_tx = self_.safe_lock(|s| s.status_tx.clone())?;
@@ -609,7 +600,6 @@ impl Pool {
             // convert Listener variant to Downstream variant
             status_tx.listener_to_connection(),
             address,
-            redis_config,
             sv2_hub,
             sv2_config, 
         )
@@ -730,7 +720,6 @@ impl Pool {
         solution_sender: Sender<SubmitSolution<'static>>,
         sender_message_received_signal: Sender<()>,
         status_tx: status::Sender,
-        keyset: Sv2KeySet<'static>,
         sv2_hub: Option<Arc<MintPoolMessageHub>>,
         sv2_config: Option<Sv2MessagingConfig>,
     ) -> Arc<Mutex<Self>> {
@@ -749,8 +738,6 @@ impl Pool {
         let share_per_min = 1.0;
         let kind = roles_logic_sv2::channel_logic::channel_factory::ExtendedChannelKind::Pool;
 
-        let keyset = Arc::new(Mutex::new(keyset.clone()));
-
         let channel_factory = Arc::new(Mutex::new(PoolChannelFactory::new(
             ids,
             extranonces,
@@ -759,8 +746,8 @@ impl Pool {
             kind,
             pool_coinbase_outputs.expect("Invalid coinbase output in config"),
             config.pool_signature.clone(),
-            keyset.clone(),
         )));
+        
         let pool = Arc::new(Mutex::new(Pool {
             downstreams: HashMap::with_hasher(BuildNoHashHasher::default()),
             solution_sender,
@@ -768,7 +755,6 @@ impl Pool {
             channel_factory,
             last_prev_hash_template_id: 0,
             status_tx: status_tx.clone(),
-            redis_config: config.redis.clone().unwrap(),
             sv2_hub,
             sv2_config: sv2_config.clone(),
             mint_connections: HashMap::new(),
@@ -891,6 +877,7 @@ impl Pool {
         });
         cloned3
     }
+
 
     /// This removes the downstream from the list of downstreams
     /// due to a race condition it's possible for downstreams to have been cloned right before

@@ -24,7 +24,6 @@ use super::super::{
 use error_handling::handle_result;
 use roles_logic_sv2::{channel_logic::channel_factory::OnNewShare, Error as RolesLogicError};
 use tracing::{debug, error, info, warn};
-use mining_sv2::cashu::Sv2KeySet;
 use mining_sv2::{Deserialize, CompressedPubKey};
 
 /// Bridge between the SV2 `Upstream` and SV1 `Downstream` responsible for the following messaging
@@ -115,7 +114,6 @@ impl Bridge {
                 None,
                 String::from(""),
                 up_id,
-                Arc::new(Mutex::new(Sv2KeySet::default())),
             ),
             future_jobs: vec![],
             last_p_hash: None,
@@ -380,10 +378,6 @@ impl Bridge {
             // initialize to all zeros, will be updated later
             hash: [0u8; 32].into(),
             locking_pubkey,
-            keyset_id: {
-                let keyset_b0255: binary_sv2::B0255 = (&mut self.keyset_buffer[..]).try_into().unwrap();
-                keyset_b0255.into_static()
-            },
         })
     }
 
