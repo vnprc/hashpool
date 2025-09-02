@@ -1,7 +1,7 @@
 use super::super::mining_pool::Downstream;
 use bitcoin_hashes::sha256::Hash;
 use mining_sv2::cashu::calculate_work;
-use mint_pool_messaging::{MintPoolMessageHub, MintQuoteRequest};
+use mint_pool_messaging::{MintPoolMessageHub, MintQuoteRequest, MintQuoteResponse};
 use roles_logic_sv2::{
     errors::Error,
     handlers::mining::{ParseDownstreamMiningMessages, SendTo, SupportedChannelTypes},
@@ -16,10 +16,9 @@ use shared_config::Sv2MessagingConfig;
 use std::{convert::TryInto, sync::Arc};
 use tracing::{error, info, debug};
 
-/// Creates a mint quote request and sends it to the mint role
+/// Creates a mint quote request and sends it via TCP and Redis
 fn submit_quote(
     m: SubmitSharesExtended<'_>,
-    sv2_hub: Option<&Arc<MintPoolMessageHub>>,
     sv2_config: Option<&Sv2MessagingConfig>,
     pool: Arc<Mutex<super::Pool>>,
 ) -> Result<(), roles_logic_sv2::Error> {
@@ -28,22 +27,20 @@ fn submit_quote(
     
     let amount = calculate_work(header_hash.to_byte_array());
     
-    // Send via SV2 messaging
-    if let (Some(_hub), Some(config)) = (sv2_hub, sv2_config) {
+    // Send via TCP if SV2 messaging is enabled
+    if let Some(config) = sv2_config {
         if config.enabled {
             // Convert to static lifetime for the async task
             let m_static = m.into_static();
+            let pool_clone = pool.clone();
+            
             tokio::spawn(async move {
-                match create_mint_quote_request(&m_static, amount) {
-                    Ok(quote_request) => {
-                        if let Err(e) = send_sv2_quote_request(pool, quote_request).await {
-                            error!("Failed to send SV2 mint quote via TCP: {}", e);
-                        } else {
-                            info!("Successfully sent mint quote via SV2 TCP");
-                        }
+                match send_sv2_mint_quote_tcp(pool_clone, m_static, amount).await {
+                    Ok(_) => {
+                        info!("Successfully sent mint quote via SV2 TCP");
                     }
                     Err(e) => {
-                        error!("Failed to create mint quote request: {}", e);
+                        error!("Failed to send mint quote via SV2 TCP: {}", e);
                     }
                 }
             });
@@ -51,6 +48,19 @@ fn submit_quote(
     }
     
     Ok(())
+}
+
+/// Handle mint quote response received from mint
+/// This function logs the quote response details
+pub fn handle_mint_quote_response(response: MintQuoteResponse<'static>) {
+    // Extract quote_id as string for logging
+    let quote_id_str = std::str::from_utf8(response.quote_id.inner_as_ref())
+        .unwrap_or("invalid_utf8");
+    
+    info!("✅ Received mint quote response: quote_id={}", quote_id_str);
+    
+    // TODO: Store quote_id for correlation with shares and eventual SubmitSharesSuccess
+    debug!("TODO: Correlate quote_id {} with pending share submission", quote_id_str);
 }
 
 /// Send a mint quote request via SV2 TCP connection
@@ -87,11 +97,15 @@ fn create_mint_quote_request(
     Ok(request.into_static())
 }
 
-/// Send a mint quote request to the mint via SV2 TCP connection
-async fn send_sv2_quote_request(
+/// Send mint quote request via TCP connection to mint
+async fn send_sv2_mint_quote_tcp(
     pool: Arc<Mutex<super::Pool>>,
-    request: MintQuoteRequest<'static>,
+    m: SubmitSharesExtended<'static>,
+    amount: u64,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use binary_sv2::{Str0255, U256, CompressedPubKey, Sv2Option};
+    use std::convert::TryInto;
+    
     // Get mint connection sender
     let mint_sender = {
         let mint_connection = pool.safe_lock(|p| p.get_mint_connection())
@@ -104,12 +118,34 @@ async fn send_sv2_quote_request(
         }
     };
     
-    // Send over TCP connection using the standard SV2 message pattern
-    debug!("Sending SV2 mint quote request over TCP: amount={}", request.amount);
+    // Create SV2 mint quote request
+    let unit_str = "HASH".as_bytes().to_vec();
+    let unit: Str0255 = unit_str.try_into()
+        .map_err(|e| format!("Failed to create unit string: {:?}", e))?;
     
-    // Create PoolMessages::Minting and convert to frame
+    let header_hash_bytes = m.hash.inner_as_ref().to_vec();
+    let header_hash: U256 = header_hash_bytes.try_into()
+        .map_err(|e| format!("Failed to create header hash: {:?}", e))?;
+    
+    let locking_key: CompressedPubKey = m.locking_pubkey.clone();
+    
+    // Create optional description (empty for now)
+    let description: Sv2Option<Str0255> = Sv2Option::new(None);
+    
+    let request = MintQuoteRequest {
+        amount,
+        unit,
+        header_hash,
+        description,
+        locking_key,
+    };
+    
+    // Send over TCP connection using the standard SV2 message pattern
+    debug!("Sending SV2 mint quote request over TCP: amount={}", amount);
+    
+    // Create PoolMessages::MintQuote and convert to frame
     let pool_message = roles_logic_sv2::parsers::PoolMessages::Minting(
-        roles_logic_sv2::parsers::Minting::MintQuoteRequest(request)
+        roles_logic_sv2::parsers::Minting::MintQuoteRequest(request.into_static())
     );
     let sv2_frame: super::StdFrame = pool_message.try_into()
         .map_err(|e| format!("Failed to convert to SV2 frame: {:?}", e))?;
@@ -118,7 +154,7 @@ async fn send_sv2_quote_request(
     mint_sender.send(either_frame).await
         .map_err(|e| format!("Failed to send SV2 frame: {:?}", e))?;
     
-    info!("Successfully sent SV2 mint quote request via TCP");
+    info!("📤 Successfully sent SV2 mint quote request via TCP");
     Ok(())
 }
 
@@ -292,7 +328,6 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
 
                     submit_quote(
                         m.clone(), 
-                        self.sv2_hub.as_ref(),
                         self.sv2_config.as_ref(),
                         self.pool.clone()
                     )?;
@@ -312,7 +347,6 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetDownstreamTarget => {
                     submit_quote(
                         m.clone(), 
-                        self.sv2_hub.as_ref(),
                         self.sv2_config.as_ref(),
                         self.pool.clone()
                     )?;
