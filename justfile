@@ -73,15 +73,14 @@ db TYPE="":
 # delete persistent storage; options: cashu, regtest, testnet4
 clean TYPE="":
     @if [ "{{TYPE}}" = "cashu" ]; then \
-        echo "deleting all sqlite and redis data..."; \
+        echo "deleting all sqlite data..."; \
         rm -f .devenv/state/translator/wallet.sqlite \
               .devenv/state/translator/wallet.sqlite-shm \
               .devenv/state/translator/wallet.sqlite-wal \
               .devenv/state/mint/mint.sqlite \
               .devenv/state/mint/mint.sqlite-shm \
-              .devenv/state/mint/mint.sqlite-wal \
-              .devenv/state/redis/dump.rdb; \
-        echo "all sqlite and redis data deleted"; \
+              .devenv/state/mint/mint.sqlite-wal; \
+        echo "all sqlite data deleted"; \
     elif [ "{{TYPE}}" = "regtest" ]; then \
         echo "deleting regtest data..."; \
         rm -rf .devenv/state/bitcoind/regtest .devenv/state/cln/regtest; \

@@ -405,6 +405,7 @@ impl Sniffer {
                     TemplateDistribution::SubmitSolution(m.into_static()),
                 ),
             },
+            AnyMessage::Minting(m) => AnyMessage::Minting(m.into_static()),
         }
     }
 

@@ -1030,6 +1030,16 @@ impl<'decoder> From<Minting<'decoder>> for EncodableField<'decoder> {
     }
 }
 
+impl<'a> Minting<'a> {
+    pub fn into_static(self) -> Minting<'static> {
+        match self {
+            Minting::MintQuoteRequest(m) => Minting::MintQuoteRequest(m.into_static()),
+            Minting::MintQuoteResponse(m) => Minting::MintQuoteResponse(m.into_static()),
+            Minting::MintQuoteError(m) => Minting::MintQuoteError(m.into_static()),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "with_serde", derive(Serialize, Deserialize))]
 pub enum MiningDeviceMessages<'a> {

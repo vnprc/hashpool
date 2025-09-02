@@ -263,7 +263,7 @@ impl TestPoolSv2 {
             authority_config,
             coinbase_outputs,
         );
-        let pool = PoolSv2::new(config);
+        let pool = PoolSv2::new(config, None);
 
         Self { pool }
     }
@@ -275,7 +275,7 @@ pub async fn start_pool(
 ) -> PoolSv2 {
     let test_pool = TestPoolSv2::new(listening_address, template_provider_address);
     let pool = test_pool.pool.clone();
-    let pool_clone = pool.clone();
+    let mut pool_clone = pool.clone();
     tokio::task::spawn(async move {
         assert!(pool_clone.start().await.is_ok());
     });
@@ -427,8 +427,14 @@ pub async fn start_sv2_translator(upstream: SocketAddr) -> SocketAddr {
         downstream_difficulty_config,
     );
 
+    let wallet_config = shared_config::WalletConfig {
+        mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".to_string(),
+        db_path: "/tmp/test_wallet.db".to_string(),
+        locking_pubkey: Some("02f6e1e07ed1e7b3f7c2e5d2b1b2e3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2".to_string()),
+        locking_privkey: None,
+    };
     let config =
-        translator_sv2::proxy_config::ProxyConfig::new(upstream_conf, downstream_conf, 2, 2, 8);
+        translator_sv2::proxy_config::ProxyConfig::new(upstream_conf, downstream_conf, wallet_config, 2, 2, 8);
     let translator_v2 = translator_sv2::TranslatorSv2::new(config);
     tokio::spawn(async move {
         translator_v2.start().await;

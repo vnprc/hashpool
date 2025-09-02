@@ -97,10 +97,6 @@ async fn main() {
         }
     };
 
-    // Redis configuration disabled - using SV2 messaging instead  
-    // config.redis = Some(global_config.redis);
-    config.redis = None;
-    println!("Redis configuration disabled");
     
     let mut pool = PoolSv2::new(config, global_config.sv2_messaging);
     let _ = pool.start().await;

@@ -1,11 +1,6 @@
 use serde::Deserialize;
 use config::{Config, ConfigError, File, FileFormat};
 
-#[derive(Debug, Deserialize, Clone)]
-pub struct RedisConfig {
-    pub url: String,
-    pub active_keyset_prefix: String,
-}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct MintConfig {
@@ -121,7 +116,6 @@ impl Default for Sv2MessagingConfig {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct PoolGlobalConfig {
-    pub redis: RedisConfig,
     pub mint: MintConfig,
     pub pool: PoolConfig,
     pub proxy: ProxyConfig,

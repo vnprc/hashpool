@@ -81,7 +81,6 @@ in {
       bitcoind
       pkgs.just
       pkgs.coreutils # Provides stdbuf for disabling output buffering
-      pkgs.redis
       pkgs.clightning
       pkgs.openssl
       pkgs.pkg-config
@@ -96,12 +95,6 @@ in {
 
   # https://devenv.sh/processes/
   processes = {
-    redis = {
-      exec = withLogging ''
-        mkdir -p ${config.devenv.root}/.devenv/state/redis
-        redis-server --dir ${config.devenv.root}/.devenv/state/redis --port ${toString poolConfig.redis.port}
-      '' "redis.log";
-    };
 
     pool = {
       exec = withLogging ''
@@ -172,7 +165,6 @@ in {
     mint = {
       exec = withLogging ''
         export CDK_MINT_DB_PATH=${config.env.MINT_DB}
-        ${waitForPort poolConfig.redis.port "Redis"}
         cargo -C roles/mint -Z unstable-options run -- \
           -c ${config.devenv.root}/config/mint.config.toml \
           -g ${config.devenv.root}/config/shared/pool.toml

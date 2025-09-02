@@ -8,7 +8,6 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 use shared_config::PoolGlobalConfig;
 use std::{fs, sync::Arc};
-use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 
 /// Extended config for hashpool-specific mint settings
