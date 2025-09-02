@@ -13,7 +13,6 @@ tower = "0.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 bip39 = "2.0"
-redis = { version = "0.23", features = ["tokio-comp"] }
 tokio-stream = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -22,7 +21,7 @@ uuid = { version = "1.7", features = ["v4"] }
 hex = "0.4"
 
 cdk = { git = "https://github.com/vnprc/cdk.git", package = "cdk", rev = "13801859" }
-cdk-axum = { git = "https://github.com/vnprc/cdk.git", package = "cdk-axum", rev = "13801859", features = ["redis"]}
+cdk-axum = { git = "https://github.com/vnprc/cdk.git", package = "cdk-axum", rev = "13801859"}
 cdk-mintd = { git = "https://github.com/vnprc/cdk.git", package = "cdk-mintd", rev = "13801859" }
 cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", package = "cdk-sqlite", rev = "13801859" }
 cdk-redb = { git = "https://github.com/vnprc/cdk.git", package = "cdk-redb", rev = "13801859" }

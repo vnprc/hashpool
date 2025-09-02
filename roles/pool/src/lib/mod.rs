@@ -16,7 +16,6 @@ use template_receiver::TemplateRx;
 use tracing::{error, info, warn};
 
 use tokio::select;
-use redis::Commands;
 use std::{thread, time::Duration};
 
 #[derive(Clone)]
@@ -96,7 +95,7 @@ impl PoolSv2 {
                 None
             }
         } else {
-            info!("No SV2 messaging configuration found, using Redis only");
+            info!("No SV2 messaging configuration found");
             None
         };
 

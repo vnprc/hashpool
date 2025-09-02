@@ -23,7 +23,7 @@ use roles_logic_sv2::{
     utils::{CoinbaseOutput as CoinbaseOutput_, Mutex},
 };
 use serde::Deserialize;
-use shared_config::{RedisConfig, Sv2MessagingConfig};
+use shared_config::Sv2MessagingConfig;
 use std::{
     collections::HashMap,
     convert::{TryFrom, TryInto},
@@ -103,15 +103,11 @@ pub struct Configuration {
     pub cert_validity_sec: u64,
     pub coinbase_outputs: Vec<CoinbaseOutput>,
     pub pool_signature: String,
-    pub redis: Option<RedisConfig>,
     #[cfg(feature = "test_only_allow_unencrypted")]
     pub test_only_listen_adress_plain: String,
 }
 
 impl Configuration {
-    pub fn redis_url(&self) -> Option<&str> {
-        self.redis.as_ref().map(|r| r.url.as_str())
-    }
 
 }
 
@@ -176,7 +172,6 @@ impl Configuration {
             cert_validity_sec: pool_connection.cert_validity_sec,
             coinbase_outputs,
             pool_signature: pool_connection.signature,
-            redis: None,
             #[cfg(feature = "test_only_allow_unencrypted")]
             test_only_listen_adress_plain,
         }
