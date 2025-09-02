@@ -70,6 +70,7 @@ async fn process_sv2_message(
 }
 
 /// Check if a message type is a mint quote message
+// TODO remove duplicate function, also defined in /home/evan/work/hashpool/roles/pool/src/lib/mining_pool/mod.rs
 fn is_mint_quote_message(message_type: u8) -> bool {
     matches!(message_type, MESSAGE_TYPE_MINT_QUOTE_REQUEST | MESSAGE_TYPE_MINT_QUOTE_RESPONSE | MESSAGE_TYPE_MINT_QUOTE_ERROR)
 }

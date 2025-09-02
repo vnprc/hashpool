@@ -187,7 +187,6 @@ pub struct Downstream {
     solution_sender: Sender<SubmitSolution<'static>>,
     channel_factory: Arc<Mutex<PoolChannelFactory>>,
     pool: Arc<Mutex<Pool>>,
-    sv2_hub: Option<Arc<MintPoolMessageHub>>,
     sv2_config: Option<Sv2MessagingConfig>,
 }
 
@@ -214,7 +213,6 @@ pub struct Pool {
     channel_factory: Arc<Mutex<PoolChannelFactory>>,
     last_prev_hash_template_id: u64,
     status_tx: status::Sender,
-    sv2_hub: Option<Arc<MintPoolMessageHub>>,
     sv2_config: Option<Sv2MessagingConfig>,
     mint_connections: HashMap<SocketAddr, Sender<EitherFrame>>,
 }
@@ -229,7 +227,6 @@ impl Downstream {
         channel_factory: Arc<Mutex<PoolChannelFactory>>,
         status_tx: status::Sender,
         address: SocketAddr,
-        sv2_hub: Option<Arc<MintPoolMessageHub>>,
         sv2_config: Option<Sv2MessagingConfig>,
     ) -> PoolResult<Arc<Mutex<Self>>> {
         let setup_connection = Arc::new(Mutex::new(SetupConnectionHandler::new()));
@@ -250,7 +247,6 @@ impl Downstream {
             solution_sender,
             channel_factory,
             pool: pool.clone(),
-            sv2_hub,
             sv2_config,
         }));
 
@@ -532,39 +528,109 @@ impl Pool {
             info!("Stored mint connection sender for {}", address);
         }).map_err(|e| format!("Failed to lock pool: {}", e))?;
         
-        let sv2_hub = pool.safe_lock(|p| p.sv2_hub.clone())?;
-        
-        if let Some(hub) = sv2_hub {
-            // Register this mint connection
-            hub.register_connection(format!("mint-{}", address), Role::Mint).await;
-            
-            // Listen for incoming messages from mint and process keyset messages
-            let pool_clone = pool.clone();
-            tokio::spawn(async move {
-                loop {
-                    match receiver.recv().await {
-                        Ok(frame) => {
-                            debug!("Received frame from mint {}: {:?}", address, frame);
-                            
-                            // Process messages from the mint
-                            debug!("Processed frame from mint {}", address);
-                        }
-                        Err(e) => {
-                            error!("Error receiving from mint connection {}: {:?}", address, e);
-                            break;
+        // Listen for incoming messages from mint (responses to quote requests)
+        let pool_clone = pool.clone();
+        tokio::spawn(async move {
+            loop {
+                match receiver.recv().await {
+                    Ok(frame) => {
+                        debug!("Received frame from mint {}: {:?}", address, frame);
+                        
+                        // Process SV2 frame from mint (responses/errors)
+                        if let Err(e) = Self::process_mint_frame(&pool_clone, frame).await {
+                            error!("Error processing mint frame from {}: {}", address, e);
                         }
                     }
+                    Err(e) => {
+                        error!("Error receiving from mint connection {}: {:?}", address, e);
+                        break;
+                    }
                 }
-                
-                // Clean up connection when closed
-                if pool_clone.safe_lock(|p| {
-                    p.mint_connections.remove(&address);
-                    info!("Removed mint connection {}", address);
-                }).is_ok() {}
-            });
-        }
+            }
+            
+            // Clean up connection when closed
+            if pool_clone.safe_lock(|p| {
+                p.mint_connections.remove(&address);
+                info!("Removed mint connection {}", address);
+            }).is_ok() {}
+        });
         
         Ok(())
+    }
+
+    /// Process incoming SV2 frame from mint (quote responses/errors)
+    async fn process_mint_frame(
+        pool: &Arc<Mutex<Pool>>,
+        either_frame: EitherFrame,
+    ) -> PoolResult<()> {
+        match either_frame {
+            StandardEitherFrame::Sv2(mut sv2_frame) => {
+                let message_type = sv2_frame
+                    .get_header()
+                    .ok_or_else(|| PoolError::Custom("No header in SV2 frame".to_string()))?
+                    .msg_type();
+                let payload = sv2_frame.payload();
+                
+                debug!("Received mint message type: 0x{:02x}, payload length: {}", message_type, payload.len());
+                
+                // Check if this is a mint quote message
+                if Self::is_mint_quote_message(message_type) {
+                    Self::process_mint_quote_frame(pool, message_type, payload).await?;
+                } else {
+                    debug!("Received non-mint-quote message from mint: 0x{:02x}", message_type);
+                }
+            }
+            StandardEitherFrame::HandShake(_) => {
+                debug!("Received handshake frame from mint - ignoring");
+            }
+        }
+        Ok(())
+    }
+
+    /// Process mint quote message frame
+    async fn process_mint_quote_frame(
+        _pool: &Arc<Mutex<Pool>>,
+        message_type: u8,
+        payload: &[u8],
+    ) -> PoolResult<()> {
+        use const_sv2::{MESSAGE_TYPE_MINT_QUOTE_RESPONSE, MESSAGE_TYPE_MINT_QUOTE_ERROR};
+        
+        match message_type {
+            MESSAGE_TYPE_MINT_QUOTE_RESPONSE => {
+                // Parse the response
+                let mut payload_copy = payload.to_vec();
+                let response: mint_pool_messaging::MintQuoteResponse = binary_sv2::from_bytes(&mut payload_copy)
+                    .map_err(|e| PoolError::Custom(format!("Failed to parse MintQuoteResponse: {:?}", e)))?;
+                
+                // Handle the response
+                message_handler::handle_mint_quote_response(response.into_static());
+                
+                Ok(())
+            }
+            MESSAGE_TYPE_MINT_QUOTE_ERROR => {
+                // Parse the error
+                let mut payload_copy = payload.to_vec();
+                let error: mint_pool_messaging::MintQuoteError = binary_sv2::from_bytes(&mut payload_copy)
+                    .map_err(|e| PoolError::Custom(format!("Failed to parse MintQuoteError: {:?}", e)))?;
+                
+                let error_msg = std::str::from_utf8(error.error_message.inner_as_ref())
+                    .unwrap_or("invalid_utf8");
+                error!("Received mint quote error: code={}, message={}", error.error_code, error_msg);
+                
+                Ok(())
+            }
+            _ => {
+                warn!("Received unknown mint quote message type: 0x{:02x}", message_type);
+                Ok(())
+            }
+        }
+    }
+
+    /// Check if a message type is a mint quote message
+    // TODO remove duplicate function, also defined in roles/mint/src/lib/sv2_connection/message_handler.rs
+    fn is_mint_quote_message(message_type: u8) -> bool {
+        use const_sv2::{MESSAGE_TYPE_MINT_QUOTE_REQUEST, MESSAGE_TYPE_MINT_QUOTE_RESPONSE, MESSAGE_TYPE_MINT_QUOTE_ERROR};
+        matches!(message_type, MESSAGE_TYPE_MINT_QUOTE_REQUEST | MESSAGE_TYPE_MINT_QUOTE_RESPONSE | MESSAGE_TYPE_MINT_QUOTE_ERROR)
     }
 
     /// Get an active mint connection sender for sending messages
@@ -583,7 +649,6 @@ impl Pool {
         let solution_sender = self_.safe_lock(|p| p.solution_sender.clone())?;
         let status_tx = self_.safe_lock(|s| s.status_tx.clone())?;
         let channel_factory = self_.safe_lock(|s| s.channel_factory.clone())?;
-        let sv2_hub = self_.safe_lock(|s| s.sv2_hub.clone())?;
         let sv2_config = self_.safe_lock(|s| s.sv2_config.clone())?;
 
         let downstream = Downstream::new(
@@ -595,7 +660,6 @@ impl Pool {
             // convert Listener variant to Downstream variant
             status_tx.listener_to_connection(),
             address,
-            sv2_hub,
             sv2_config, 
         )
         .await?;
@@ -715,7 +779,6 @@ impl Pool {
         solution_sender: Sender<SubmitSolution<'static>>,
         sender_message_received_signal: Sender<()>,
         status_tx: status::Sender,
-        sv2_hub: Option<Arc<MintPoolMessageHub>>,
         sv2_config: Option<Sv2MessagingConfig>,
     ) -> Arc<Mutex<Self>> {
         let extranonce_len = 32;
@@ -750,7 +813,6 @@ impl Pool {
             channel_factory,
             last_prev_hash_template_id: 0,
             status_tx: status_tx.clone(),
-            sv2_hub,
             sv2_config: sv2_config.clone(),
             mint_connections: HashMap::new(),
         }));
@@ -870,6 +932,7 @@ impl Pool {
                 error!("Downstream shutdown and Status Channel dropped");
             }
         });
+
         cloned3
     }
 

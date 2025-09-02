@@ -9,7 +9,7 @@ use async_channel::{bounded, unbounded};
 
 use error::PoolError;
 use mining_pool::{get_coinbase_output, Configuration, Pool};
-use mint_pool_messaging::{MessagingConfig, MintPoolMessageHub, Role};
+use mint_pool_messaging::{MintQuoteRequest, MintQuoteResponse, Role};
 use roles_logic_sv2::utils::Mutex;
 use shared_config::Sv2MessagingConfig;
 use template_receiver::TemplateRx;
@@ -75,30 +75,6 @@ impl PoolSv2 {
             return Err(e);
         }
 
-        // Initialize SV2 messaging hub if enabled
-        let sv2_hub = if let Some(ref sv2_config) = self.sv2_messaging_config {
-            if sv2_config.enabled {
-                let messaging_config = MessagingConfig {
-                    broadcast_buffer_size: sv2_config.broadcast_buffer_size,
-                    mpsc_buffer_size: sv2_config.mpsc_buffer_size,
-                    max_retries: sv2_config.max_retries,
-                    timeout_ms: sv2_config.timeout_ms,
-                };
-                
-                let hub = MintPoolMessageHub::new(messaging_config);
-                // Register this pool as a pool connection
-                hub.register_connection("pool-main".to_string(), Role::Pool).await;
-                info!("SV2 messaging hub initialized and pool registered");
-                Some(hub)
-            } else {
-                info!("SV2 messaging is disabled in configuration");
-                None
-            }
-        } else {
-            info!("No SV2 messaging configuration found");
-            None
-        };
-
         let pool = Pool::start(
             config.clone(),
             r_new_t,
@@ -106,7 +82,6 @@ impl PoolSv2 {
             s_solution,
             s_message_recv_signal,
             status::Sender::DownstreamListener(status_tx),
-            sv2_hub,
             self.sv2_messaging_config.clone(),
         );
 
