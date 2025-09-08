@@ -41,6 +41,7 @@ pub mod setup_connection;
 use setup_connection::SetupConnectionHandler;
 
 pub mod message_handler;
+pub mod pending_shares;
 
 pub type Message = PoolMessages<'static>;
 pub type StdFrame = StandardSv2Frame<Message>;
@@ -215,6 +216,7 @@ pub struct Pool {
     status_tx: status::Sender,
     sv2_config: Option<Sv2MessagingConfig>,
     mint_connections: HashMap<SocketAddr, Sender<EitherFrame>>,
+    pending_share_manager: pending_shares::PendingShareManager,
 }
 
 impl Downstream {
@@ -815,6 +817,7 @@ impl Pool {
             status_tx: status_tx.clone(),
             sv2_config: sv2_config.clone(),
             mint_connections: HashMap::new(),
+            pending_share_manager: pending_shares::PendingShareManager::new(),
         }));
 
         let cloned = pool.clone();
