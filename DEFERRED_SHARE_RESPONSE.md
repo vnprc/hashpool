@@ -20,7 +20,7 @@ The SV2 specification explicitly supports:
 
 ## Implementation Plan
 
-### **Phase 1: Deferred Response Architecture** ✅ **COMPLETED**
+### **Phase 1: Deferred Response Architecture**
 
 #### **1.1 Create PendingShare Tracking System**
 
@@ -80,15 +80,21 @@ impl PendingShareManager {
 }
 ```
 
-#### **1.2 Extend Pool Structure** ✅ **COMPLETED**
+#### **1.2 Extend Pool Structure**
 
 **File**: `roles/pool/src/lib/mining_pool/mod.rs`
 ```rust
-// ✅ IMPLEMENTED: PendingShareManager added to Pool structure
+use crate::pending_shares::PendingShareManager;
+
+// Simplified connection sender for Phase 2 broadcast approach
+pub type DownstreamConnectionSender = async_channel::Sender<Mining<'static>>;
+
 pub struct Pool {
-    // ... existing fields  
-    pending_share_manager: PendingShareManager, // ✅ Added and initialized
-    // Note: Phase 1 uses direct SendTo::None, broadcast system for Phase 2+
+    // ... existing fields
+    pending_share_manager: PendingShareManager,
+    // PHASE 1/2: Simple connection tracking for broadcast
+    downstream_connections: Arc<Mutex<Vec<DownstreamConnectionSender>>>,
+    delayed_response_sender: Option<async_channel::Sender<Mining<'static>>>,
 }
 
 impl Pool {
@@ -131,7 +137,7 @@ impl Pool {
 }
 ```
 
-#### **1.3 Modify Share Handler** ✅ **COMPLETED**
+#### **1.3 Modify Share Handler**
 
 **File**: `roles/pool/src/lib/mining_pool/message_handler.rs`
 ```rust
@@ -190,21 +196,6 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
     }
 }
 ```
-
-#### **Phase 1 Status: ✅ COMPLETED**
-
-**Implemented Components:**
-- ✅ **PendingShareManager**: Full implementation with async methods, stale cleanup, unit tests
-- ✅ **Pool Integration**: Added pending_share_manager field to Pool struct  
-- ✅ **Deferred Responses**: Modified share handlers to return `SendTo::None(None)`
-- ✅ **Share Tracking**: All valid shares added to pending manager before deferring
-- ✅ **Background Processing**: Mint quote requests still sent asynchronously
-- ✅ **Unit Tests**: 3/3 tests passing for PendingShareManager
-- ✅ **Compilation**: Pool and mint both build successfully
-
-**Result**: Pool now defers share responses and tracks pending shares. Ready for Phase 2 integration.
-
----
 
 ### **Phase 2: Mint Quote Integration with Proper Error Handling**
 

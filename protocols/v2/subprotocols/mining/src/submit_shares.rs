@@ -2,7 +2,7 @@
 use alloc::vec::Vec;
 #[cfg(not(feature = "with_serde"))]
 use binary_sv2::binary_codec_sv2;
-use binary_sv2::{Deserialize, PubKey, CompressedPubKey, Serialize, Str0255, B032, U256};
+use binary_sv2::{Deserialize, PubKey, CompressedPubKey, Serialize, Str0255, B032, B0255};
 #[cfg(not(feature = "with_serde"))]
 use core::convert::TryInto;
 
@@ -76,9 +76,9 @@ pub struct SubmitSharesExtended<'decoder> {
 /// Because it is a common case that shares submission is successful, this response can be provided
 /// for multiple [`SubmitShare`] messages aggregated together.
 ///
-/// The upstream doesn't have to double check that the sequence numbers sent by a downstream are
+/// The upstream doesn’t have to double check that the sequence numbers sent by a downstream are
 /// actually increasing. It can use the last one received when sending a response. It is the
-/// downstream's responsibility to keep the sequence numbers correct/useful.
+/// downstream’s responsibility to keep the sequence numbers correct/useful.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SubmitSharesSuccess<'decoder> {
     /// Channel identifier.
@@ -91,10 +91,6 @@ pub struct SubmitSharesSuccess<'decoder> {
     pub new_shares_sum: u64,
     // block template header hash, used to index the blinded secret
     pub hash: PubKey<'decoder>,
-    /// Quote ID for minting ecash tokens
-    pub quote_id: Str0255<'decoder>,
-    /// Keyset ID for minting ecash tokens
-    pub keyset_id: U256<'decoder>,
 }
 
 /// Message used by upstream to reject [`SubmitSharesStandard`] or [`SubmitSharesExtended`].
