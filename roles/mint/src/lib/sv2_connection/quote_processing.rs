@@ -36,7 +36,7 @@ pub async fn process_mint_quote_message(
                     info!("Successfully created mint quote: quote_id={}", quote_response.id);
                     
                     // Convert CDK response to SV2 MintQuoteResponse
-                    let sv2_response = convert_cdk_to_sv2_quote_response(quote_response)?;
+                    let sv2_response = convert_cdk_to_sv2_quote_response(quote_response, &mint).await?;
                     
                     // Send response back to pool
                     send_quote_response_to_pool(sv2_response, sender).await?;
@@ -134,16 +134,41 @@ fn convert_sv2_to_cdk_quote_request(
 }
 
 /// Convert CDK MintQuote to SV2 MintQuoteResponse
-fn convert_cdk_to_sv2_quote_response(
-    cdk_quote: cdk::mint::MintQuote
+async fn convert_cdk_to_sv2_quote_response(
+    cdk_quote: cdk::mint::MintQuote,
+    mint: &Arc<Mint>,
 ) -> Result<MintQuoteResponse<'static>> {
     // Convert quote ID (UUID) to string and then to Str0255
     let quote_id_str = cdk_quote.id.to_string();
     let quote_id = Str0255::try_from(quote_id_str)
         .map_err(|e| anyhow::anyhow!("Invalid quote ID string: {:?}", e))?;
     
+    // Get active keyset from mint - using available keysets method
+    let keysets_response = mint.keysets();
+    
+    // Find active keyset for the unit (assuming Hash unit, could be made configurable)
+    let active_keyset_id = keysets_response.keysets
+        .iter()
+        .find(|keyset| keyset.unit == cdk::nuts::CurrencyUnit::Hash && keyset.active)
+        .ok_or_else(|| anyhow::anyhow!("No active keyset found for Hash unit"))?
+        .id.clone();
+    
+    // Convert keyset ID to U256
+    let keyset_id_str = active_keyset_id.to_string();
+    let keyset_id_bytes = hex::decode(&keyset_id_str)
+        .map_err(|e| anyhow::anyhow!("Invalid keyset ID hex: {}", e))?;
+    
+    // Pad to 32 bytes if needed
+    let mut padded_bytes = [0u8; 32];
+    let copy_len = std::cmp::min(keyset_id_bytes.len(), 32);
+    padded_bytes[..copy_len].copy_from_slice(&keyset_id_bytes[..copy_len]);
+    
+    let keyset_id = U256::try_from(padded_bytes.to_vec())
+        .map_err(|e| anyhow::anyhow!("Invalid keyset ID format: {:?}", e))?;
+    
     Ok(MintQuoteResponse {
         quote_id,
+        keyset_id,
     })
 }
 

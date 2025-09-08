@@ -13,42 +13,45 @@ use roles_logic_sv2::{
     utils::Mutex,
 };
 use shared_config::Sv2MessagingConfig;
-use std::{convert::TryInto, sync::Arc};
+use std::{convert::{TryInto, TryFrom}, sync::Arc};
 use tracing::{error, info, debug};
 
-/// Creates a mint quote request and sends it via TCP and Redis
-fn submit_quote(
-    m: SubmitSharesExtended<'_>,
-    sv2_config: Option<&Sv2MessagingConfig>,
-    pool: Arc<Mutex<super::Pool>>,
-) -> Result<(), roles_logic_sv2::Error> {
-    let header_hash = Hash::from_slice(m.hash.inner_as_ref())
-        .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid header hash: {e}")))?;
-    
-    let amount = calculate_work(header_hash.to_byte_array());
-    
-    // Send via TCP if SV2 messaging is enabled
-    if let Some(config) = sv2_config {
-        if config.enabled {
-            // Convert to static lifetime for the async task
-            let m_static = m.into_static();
-            let pool_clone = pool.clone();
-            
-            tokio::spawn(async move {
-                match send_sv2_mint_quote_tcp(pool_clone, m_static, amount).await {
-                    Ok(_) => {
-                        info!("Successfully sent mint quote via SV2 TCP");
-                    }
-                    Err(e) => {
-                        error!("Failed to send mint quote via SV2 TCP: {}", e);
-                    }
-                }
+/// Adds a pending share to the PendingShareManager (Phase 1)
+fn add_pending_share_sync(
+    pool: Arc<Mutex<super::Pool>>, 
+    m: &SubmitSharesExtended<'_>
+) -> Result<(), Error> {
+    use super::pending_shares::PendingShare;
+    use tokio::time::Instant;
+
+    let share_hash = m.hash.inner_as_ref().to_vec();
+    let pending_share = PendingShare {
+        channel_id: m.channel_id,
+        sequence_number: m.sequence_number, 
+        share_hash: share_hash.clone(),
+        share_data: m.clone().into_static(),
+        created_at: Instant::now(),
+    };
+
+    // Spawn a task to add the pending share asynchronously
+    let pool_clone = pool.clone();
+    tokio::spawn(async move {
+        let result = pool_clone.safe_lock(|p| {
+            // Create a future and block on it
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(p.pending_share_manager.add_pending_share(pending_share))
             });
+            Ok::<(), String>(())
+        });
+        
+        if let Err(e) = result {
+            error!("Failed to add pending share: {}", e);
         }
-    }
-    
+    });
+
     Ok(())
 }
+
 
 /// Handle mint quote response received from mint
 /// This function logs the quote response details
@@ -64,41 +67,9 @@ pub fn handle_mint_quote_response(response: MintQuoteResponse<'static>) {
 }
 
 /// Send a mint quote request via SV2 TCP connection
-/// Create a mint quote request from a submitted share
-fn create_mint_quote_request(
-    m: &SubmitSharesExtended<'static>,
-    amount: u64,
-) -> Result<MintQuoteRequest<'static>, Box<dyn std::error::Error + Send + Sync>> {
-    use binary_sv2::{Str0255, U256, CompressedPubKey, Sv2Option};
-    use std::convert::TryInto;
-    
-    // Create SV2 mint quote request
-    let unit_str = "HASH".as_bytes().to_vec();
-    let unit: Str0255 = unit_str.try_into()
-        .map_err(|e| format!("Failed to create unit string: {:?}", e))?;
-    
-    let header_hash_bytes = m.hash.inner_as_ref().to_vec();
-    let header_hash: U256 = header_hash_bytes.try_into()
-        .map_err(|e| format!("Failed to create header hash: {:?}", e))?;
-    
-    let locking_key: CompressedPubKey = m.locking_pubkey.clone();
-    
-    // Create optional description (empty for now)
-    let description: Sv2Option<Str0255> = Sv2Option::new(None);
-    
-    let request = MintQuoteRequest {
-        amount,
-        unit,
-        header_hash,
-        description,
-        locking_key,
-    };
-    
-    Ok(request.into_static())
-}
 
-/// Send mint quote request via TCP connection to mint
-async fn send_sv2_mint_quote_tcp(
+/// Send mint quote request via TCP connection to mint (fire and forget for now)
+async fn send_sv2_mint_quote_tcp_async(
     pool: Arc<Mutex<super::Pool>>,
     m: SubmitSharesExtended<'static>,
     amount: u64,
@@ -277,6 +248,8 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         new_shares_sum: 0,
                         // initialize to all zeros, will be updated later
                         hash: [0u8; 32].into(),
+                        quote_id: binary_sv2::Str0255::try_from(String::from("")).expect("Invalid string"),
+                        keyset_id: [0u8; 32].into(),
                     };
 
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
@@ -288,8 +261,9 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         last_sequence_number: m.sequence_number,
                         new_submits_accepted_count: 1,
                         new_shares_sum: 0,
-                        // initialize to all zeros, will be updated later
                         hash: [0u8; 32].into(),
+                        quote_id: binary_sv2::Str0255::try_from(String::from("")).expect("Invalid string"),
+                        keyset_id: [0u8; 32].into(),
                     };
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
                 },
@@ -326,40 +300,55 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         while self.solution_sender.try_send(solution.clone()).is_err() {};
                     }
 
-                    submit_quote(
-                        m.clone(), 
-                        self.sv2_config.as_ref(),
-                        self.pool.clone()
-                    )?;
+                    // Send mint quote in background (temporarily simplified)
+                    if let Some(config) = self.sv2_config.as_ref() {
+                        if config.enabled {
+                            let m_static = m.clone().into_static();
+                            let pool_clone = self.pool.clone();
+                            tokio::spawn(async move {
+                                let header_hash = bitcoin_hashes::sha256::Hash::from_slice(m_static.hash.inner_as_ref())
+                                    .expect("Invalid header hash");
+                                let amount = calculate_work(header_hash.to_byte_array());
+                                
+                                if let Err(e) = send_sv2_mint_quote_tcp_async(pool_clone, m_static, amount).await {
+                                    error!("Failed to send mint quote: {}", e);
+                                }
+                            });
+                        }
+                    }
 
-                    let success = SubmitSharesSuccess {
-                        channel_id: m.channel_id,
-                        last_sequence_number: m.sequence_number,
-                        new_submits_accepted_count: 1,
-                        new_shares_sum: 0,
-                        // TODO is this ownership hack fixable?
-                        hash: m.hash.inner_as_ref().to_owned().try_into()?,
-                    };
-
-                    Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
+                    // Phase 1: Add to pending shares and return None (deferred response)
+                    if let Err(e) = add_pending_share_sync(self.pool.clone(), &m) {
+                        error!("Failed to add pending share: {}", e);
+                    }
+                    
+                    Ok(SendTo::None(None))
 
                 },
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetDownstreamTarget => {
-                    submit_quote(
-                        m.clone(), 
-                        self.sv2_config.as_ref(),
-                        self.pool.clone()
-                    )?;
+                    // Send quote request in background (fire and forget for now)
+                    if let Some(config) = self.sv2_config.as_ref() {
+                        if config.enabled {
+                            let m_static = m.clone().into_static();
+                            let pool_clone = self.pool.clone();
+                            tokio::spawn(async move {
+                                let header_hash = bitcoin_hashes::sha256::Hash::from_slice(m_static.hash.inner_as_ref())
+                                    .expect("Invalid header hash");
+                                let amount = calculate_work(header_hash.to_byte_array());
+                                
+                                if let Err(e) = send_sv2_mint_quote_tcp_async(pool_clone, m_static, amount).await {
+                                    error!("Background mint quote failed: {}", e);
+                                }
+                            });
+                        }
+                    }
 
-                    let success = SubmitSharesSuccess {
-                        channel_id: m.channel_id,
-                        last_sequence_number: m.sequence_number,
-                        new_submits_accepted_count: 1,
-                        new_shares_sum: 0,
-                        // TODO is this ownership hack fixable?
-                        hash: m.hash.inner_as_ref().to_owned().try_into()?,
-                    };
-                    Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
+                    // Phase 1: Add to pending shares and return None (deferred response) 
+                    if let Err(e) = add_pending_share_sync(self.pool.clone(), &m) {
+                        error!("Failed to add pending share: {}", e);
+                    }
+                    
+                    Ok(SendTo::None(None))
                 },
             },
             Err(e) => {

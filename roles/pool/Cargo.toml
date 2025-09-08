@@ -44,6 +44,7 @@ cdk = { git = "https://github.com/vnprc/cdk", rev = "13801859" }
 bitcoin_hashes = { version = "0.16", features = ["serde"] }
 shared_config = { path = "../roles-utils/config" }
 mint_pool_messaging = { path = "../roles-utils/mint-pool-messaging" }
+hex = "0.4.3"
 
 
 [dev-dependencies]
