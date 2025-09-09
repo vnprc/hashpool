@@ -7,7 +7,7 @@ use binary_sv2::U256;
 use codec_sv2::{HandshakeRole, Responder, StandardEitherFrame, StandardSv2Frame};
 use error_handling::handle_result;
 use key_utils::{Secp256k1PublicKey, Secp256k1SecretKey, SignatureService};
-use mint_pool_messaging::{MintPoolMessageHub, Role};
+// mint_pool_messaging imports removed - not used in this phase
 use network_helpers_sv2::noise_connection_tokio::Connection;
 use nohash_hasher::BuildNoHashHasher;
 use roles_logic_sv2::{
@@ -41,6 +41,7 @@ pub mod setup_connection;
 use setup_connection::SetupConnectionHandler;
 
 pub mod message_handler;
+pub mod pending_shares;
 
 pub type Message = PoolMessages<'static>;
 pub type StdFrame = StandardSv2Frame<Message>;
@@ -215,6 +216,7 @@ pub struct Pool {
     status_tx: status::Sender,
     sv2_config: Option<Sv2MessagingConfig>,
     mint_connections: HashMap<SocketAddr, Sender<EitherFrame>>,
+    pending_share_manager: Arc<pending_shares::PendingShareManager>,
 }
 
 impl Downstream {
@@ -589,7 +591,7 @@ impl Pool {
 
     /// Process mint quote message frame
     async fn process_mint_quote_frame(
-        _pool: &Arc<Mutex<Pool>>,
+        pool: &Arc<Mutex<Pool>>,
         message_type: u8,
         payload: &[u8],
     ) -> PoolResult<()> {
@@ -602,8 +604,8 @@ impl Pool {
                 let response: mint_pool_messaging::MintQuoteResponse = binary_sv2::from_bytes(&mut payload_copy)
                     .map_err(|e| PoolError::Custom(format!("Failed to parse MintQuoteResponse: {:?}", e)))?;
                 
-                // Handle the response
-                message_handler::handle_mint_quote_response(response.into_static());
+                // Handle the response asynchronously
+                message_handler::handle_mint_quote_response(pool.clone(), response.into_static()).await;
                 
                 Ok(())
             }
@@ -815,6 +817,7 @@ impl Pool {
             status_tx: status_tx.clone(),
             sv2_config: sv2_config.clone(),
             mint_connections: HashMap::new(),
+            pending_share_manager: Arc::new(pending_shares::PendingShareManager::new()),
         }));
 
         let cloned = pool.clone();

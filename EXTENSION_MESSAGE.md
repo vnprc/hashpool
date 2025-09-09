@@ -359,6 +359,7 @@ impl QuoteTracker {
         let mut quotes = self.quotes.lock().await;
         quotes.insert(share_hash, quote_id);
         
+        // TODO this is toxic for low hashrate pools, think of something better or just remove it
         // Clean old entries if map gets too large
         if quotes.len() > 10000 {
             // Keep only recent 5000 entries (simple FIFO)

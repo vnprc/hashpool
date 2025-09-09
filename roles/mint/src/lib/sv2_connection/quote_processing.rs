@@ -27,6 +27,9 @@ pub async fn process_mint_quote_message(
             // Create a static lifetime version for the conversion function
             let request_static = create_static_mint_quote_request(parsed_request)?;
             
+            // Save header_hash before moving request_static
+            let header_hash = request_static.header_hash.clone();
+            
             // Convert SV2 MintQuoteRequest to CDK MintQuoteMiningShareRequest
             let cdk_request = convert_sv2_to_cdk_quote_request(request_static)?;
             
@@ -36,7 +39,7 @@ pub async fn process_mint_quote_message(
                     info!("Successfully created mint quote: quote_id={}", quote_response.id);
                     
                     // Convert CDK response to SV2 MintQuoteResponse
-                    let sv2_response = convert_cdk_to_sv2_quote_response(quote_response)?;
+                    let sv2_response = convert_cdk_to_sv2_quote_response(quote_response, header_hash)?;
                     
                     // Send response back to pool
                     send_quote_response_to_pool(sv2_response, sender).await?;
@@ -135,7 +138,8 @@ fn convert_sv2_to_cdk_quote_request(
 
 /// Convert CDK MintQuote to SV2 MintQuoteResponse
 fn convert_cdk_to_sv2_quote_response(
-    cdk_quote: cdk::mint::MintQuote
+    cdk_quote: cdk::mint::MintQuote,
+    header_hash: U256<'static>
 ) -> Result<MintQuoteResponse<'static>> {
     // Convert quote ID (UUID) to string and then to Str0255
     let quote_id_str = cdk_quote.id.to_string();
@@ -144,6 +148,7 @@ fn convert_cdk_to_sv2_quote_response(
     
     Ok(MintQuoteResponse {
         quote_id,
+        header_hash,
     })
 }
 
