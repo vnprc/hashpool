@@ -108,6 +108,7 @@ pub struct Upstream {
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
     wallet: Arc<Wallet>,
     keyset_sender: broadcast::Sender<Vec<u8>>,
+    quote_tracker: Arc<super::quote_tracker::QuoteTracker>,
 }
 
 impl PartialEq for Upstream {
@@ -188,6 +189,7 @@ impl Upstream {
             task_collector,
             wallet,
             keyset_sender,
+            quote_tracker: Arc::new(super::quote_tracker::QuoteTracker::new()),
         })))
     }
 
@@ -334,6 +336,25 @@ impl Upstream {
                 let message_type = handle_result!(tx_status, message_type).msg_type();
 
                 let payload = incoming.payload();
+                
+                // Check if this is an extension message (0xC0-0xFF range)
+                if message_type >= 0xC0 && message_type <= 0xFF {
+                    // Handle extension message
+                    let quote_tracker = self_.safe_lock(|s| s.quote_tracker.clone())
+                        .unwrap_or_else(|e| {
+                            error!("Failed to get quote tracker: {}", e);
+                            Arc::new(super::quote_tracker::QuoteTracker::new())
+                        });
+                    
+                    if let Err(e) = super::extension_handler::handle_extension_message(
+                        message_type,
+                        payload,
+                        quote_tracker,
+                    ).await {
+                        error!("Failed to handle extension message: {}", e);
+                    }
+                    continue;
+                }
 
                 // Since this is not communicating with an SV2 proxy, but instead a custom SV1
                 // proxy where the routing logic is handled via the `Upstream`'s communication

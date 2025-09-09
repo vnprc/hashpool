@@ -197,6 +197,10 @@ pub const MESSAGE_TYPE_MINT_QUOTE_REQUEST: u8 = 0x80;
 pub const MESSAGE_TYPE_MINT_QUOTE_RESPONSE: u8 = 0x81;
 pub const MESSAGE_TYPE_MINT_QUOTE_ERROR: u8 = 0x82;
 
+// Extension message types (vendor range: 0xC0-0xFF)
+pub const MESSAGE_TYPE_MINT_QUOTE_NOTIFICATION: u8 = 0xC0;
+pub const MESSAGE_TYPE_MINT_QUOTE_FAILURE: u8 = 0xC1;
+
 // The `channel bits` indicate whether a message is associated with a specific
 // channel. If the most significant bit of the `extension_type` (referred to as
 // `channel_msg`) is set, the message is related to a channel and includes a
@@ -259,3 +263,7 @@ pub const CHANNEL_BIT_UPDATE_CHANNEL_ERROR: bool = true;
 pub const CHANNEL_BIT_MINT_QUOTE_REQUEST: bool = true;
 pub const CHANNEL_BIT_MINT_QUOTE_RESPONSE: bool = true;
 pub const CHANNEL_BIT_MINT_QUOTE_ERROR: bool = true;
+
+// Extension messages are channel-based
+pub const CHANNEL_BIT_MINT_QUOTE_NOTIFICATION: bool = true;
+pub const CHANNEL_BIT_MINT_QUOTE_FAILURE: bool = true;

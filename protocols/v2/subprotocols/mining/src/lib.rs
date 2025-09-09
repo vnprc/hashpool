@@ -159,6 +159,7 @@ mod set_target;
 mod submit_shares;
 mod update_channel;
 pub mod cashu;
+mod mint_quote_notification;
 
 pub use close_channel::CloseChannel;
 use core::ops::Range;
@@ -175,6 +176,7 @@ pub use set_extranonce_prefix::SetExtranoncePrefix;
 pub use set_group_channel::SetGroupChannel;
 pub use set_new_prev_hash::SetNewPrevHash;
 pub use set_target::SetTarget;
+pub use mint_quote_notification::{MintQuoteNotification, MintQuoteFailure};
 pub use submit_shares::{
     SubmitSharesError, SubmitSharesExtended, SubmitSharesStandard, SubmitSharesSuccess,
 };

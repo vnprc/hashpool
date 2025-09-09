@@ -1,7 +1,9 @@
 use super::super::mining_pool::Downstream;
+use super::pending_shares::PendingShare;
 use bitcoin_hashes::sha256::Hash;
 use mining_sv2::cashu::calculate_work;
-use mint_pool_messaging::{MintPoolMessageHub, MintQuoteRequest, MintQuoteResponse};
+use mining_sv2::MintQuoteNotification;
+use mint_pool_messaging::{MintQuoteRequest, MintQuoteResponse};
 use roles_logic_sv2::{
     errors::Error,
     handlers::mining::{ParseDownstreamMiningMessages, SendTo, SupportedChannelTypes},
@@ -14,6 +16,7 @@ use roles_logic_sv2::{
 };
 use shared_config::Sv2MessagingConfig;
 use std::{convert::TryInto, sync::Arc};
+use tokio::time::Instant;
 use tracing::{error, info, debug};
 
 /// Creates a mint quote request and sends it via TCP and Redis
@@ -50,17 +53,75 @@ fn submit_quote(
     Ok(())
 }
 
+/// Send extension message to specific downstream
+async fn send_extension_message_to_downstream(
+    _pool: Arc<Mutex<super::Pool>>,
+    channel_id: u32,
+    notification: MintQuoteNotification<'static>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // For now, we'll log the notification but skip the actual sending
+    // This is a simplified implementation for Phase 1
+    info!("Would send MintQuoteNotification to channel {}: quote_id={:?}, amount={}", 
+          channel_id,
+          String::from_utf8_lossy(notification.quote_id.inner_as_ref()),
+          notification.amount);
+    
+    // TODO: Implement proper extension message framing and sending
+    // This requires proper SV2 frame construction with extension type
+    
+    Ok(())
+}
+
 /// Handle mint quote response received from mint
-/// This function logs the quote response details
-pub fn handle_mint_quote_response(response: MintQuoteResponse<'static>) {
+/// This function sends an extension message to the downstream with the quote
+pub async fn handle_mint_quote_response(
+    pool: Arc<Mutex<super::Pool>>,
+    response: MintQuoteResponse<'static>,
+) {
     // Extract quote_id as string for logging
     let quote_id_str = std::str::from_utf8(response.quote_id.inner_as_ref())
         .unwrap_or("invalid_utf8");
     
     info!("✅ Received mint quote response: quote_id={}", quote_id_str);
     
-    // TODO: Store quote_id for correlation with shares and eventual SubmitSharesSuccess
-    debug!("TODO: Correlate quote_id {} with pending share submission", quote_id_str);
+    // Get the pending share manager and find the share by hash
+    let header_hash = response.header_hash.inner_as_ref().to_vec();
+    
+    // Get the manager outside of the lock to avoid Send issues
+    let manager = match pool.safe_lock(|p| p.pending_share_manager.clone()) {
+        Ok(manager) => manager,
+        Err(e) => {
+            error!("Failed to access pending share manager: {}", e);
+            return;
+        }
+    };
+    
+    let pending_share = manager.remove_pending_share(&header_hash).await;
+    
+    if let Some(share) = pending_share {
+        // Create the extension message
+        let notification = MintQuoteNotification {
+            channel_id: share.channel_id,
+            sequence_number: share.sequence_number,
+            share_hash: response.header_hash.clone(),
+            quote_id: response.quote_id.clone(),
+            amount: share.amount,
+        };
+        
+        // Send extension message to the downstream
+        if let Err(e) = send_extension_message_to_downstream(
+            pool.clone(),
+            share.channel_id,
+            notification,
+        ).await {
+            error!("Failed to send mint quote notification: {}", e);
+        } else {
+            info!("Sent mint quote notification for channel {} seq {}",
+                  share.channel_id, share.sequence_number);
+        }
+    } else {
+        debug!("No pending share found for hash: {:?}", header_hash);
+    }
 }
 
 /// Send a mint quote request via SV2 TCP connection
@@ -326,6 +387,30 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         while self.solution_sender.try_send(solution.clone()).is_err() {};
                     }
 
+                    // Calculate work amount
+                    let hash_bytes: [u8; 32] = m.hash.inner_as_ref().try_into()
+                        .map_err(|_| Error::ExpectedLen32(m.hash.inner_as_ref().len()))?;
+                    let amount = calculate_work(hash_bytes);
+                    
+                    // Track this share as pending for mint quote
+                    let pending_share = PendingShare {
+                        channel_id: m.channel_id,
+                        sequence_number: m.sequence_number,
+                        share_hash: m.hash.inner_as_ref().to_vec(),
+                        locking_pubkey: m.locking_pubkey.inner_as_ref().to_vec(),
+                        amount,
+                        created_at: Instant::now(),
+                    };
+                    
+                    // Add to pending shares
+                    if let Ok(manager) = self.pool.safe_lock(|p| p.pending_share_manager.clone()) {
+                        let manager_clone = manager.clone();
+                        let share_clone = pending_share.clone();
+                        tokio::spawn(async move {
+                            manager_clone.add_pending_share(share_clone).await;
+                        });
+                    }
+
                     submit_quote(
                         m.clone(), 
                         self.sv2_config.as_ref(),
@@ -345,6 +430,30 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
 
                 },
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetDownstreamTarget => {
+                    // Calculate work amount
+                    let hash_bytes: [u8; 32] = m.hash.inner_as_ref().try_into()
+                        .map_err(|_| Error::ExpectedLen32(m.hash.inner_as_ref().len()))?;
+                    let amount = calculate_work(hash_bytes);
+                    
+                    // Track this share as pending for mint quote
+                    let pending_share = PendingShare {
+                        channel_id: m.channel_id,
+                        sequence_number: m.sequence_number,
+                        share_hash: m.hash.inner_as_ref().to_vec(),
+                        locking_pubkey: m.locking_pubkey.inner_as_ref().to_vec(),
+                        amount,
+                        created_at: Instant::now(),
+                    };
+                    
+                    // Add to pending shares
+                    if let Ok(manager) = self.pool.safe_lock(|p| p.pending_share_manager.clone()) {
+                        let manager_clone = manager.clone();
+                        let share_clone = pending_share.clone();
+                        tokio::spawn(async move {
+                            manager_clone.add_pending_share(share_clone).await;
+                        });
+                    }
+                    
                     submit_quote(
                         m.clone(), 
                         self.sv2_config.as_ref(),

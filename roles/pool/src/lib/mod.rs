@@ -3,20 +3,17 @@ pub mod mining_pool;
 pub mod status;
 pub mod template_receiver;
 
-use std::{convert::TryInto, net::SocketAddr, sync::Arc};
+use std::net::SocketAddr;
 
 use async_channel::{bounded, unbounded};
 
 use error::PoolError;
 use mining_pool::{get_coinbase_output, Configuration, Pool};
-use mint_pool_messaging::{MintQuoteRequest, MintQuoteResponse, Role};
-use roles_logic_sv2::utils::Mutex;
 use shared_config::Sv2MessagingConfig;
 use template_receiver::TemplateRx;
 use tracing::{error, info, warn};
 
 use tokio::select;
-use std::{thread, time::Duration};
 
 #[derive(Clone)]
 pub struct PoolSv2 {
