@@ -948,6 +948,37 @@ impl Pool {
     pub fn remove_downstream(&mut self, downstream_id: u32) {
         self.downstreams.remove(&downstream_id);
     }
+
+    /// Send extension message to specific downstream
+    pub async fn send_extension_message_to_downstream(
+        self_: Arc<Mutex<Self>>,
+        channel_id: u32,
+        notification: mining_sv2::MintQuoteNotification<'static>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let quote_id_str = String::from_utf8_lossy(notification.quote_id.inner_as_ref());
+        info!("Sending MintQuoteNotification to channel {}: quote_id={}, amount={}", 
+              channel_id, quote_id_str, notification.amount);
+        
+        // Create Mining message wrapper
+        let mining_message = Mining::MintQuoteNotification(notification);
+        
+        // Get all downstreams and find the one we need (following existing pattern)
+        let downstreams = self_.safe_lock(|p| p.downstreams.clone())
+            .map_err(|e| format!("Failed to lock pool: {}", e))?;
+        
+        if let Some(downstream) = downstreams.get(&channel_id) {
+            // Use the existing infrastructure to send the message
+            Downstream::match_send_to(
+                downstream.clone(),
+                Ok(SendTo::Respond(mining_message))
+            ).await.map_err(|e| format!("Failed to send extension message: {:?}", e))?;
+        } else {
+            return Err("Downstream not found for channel".into());
+        }
+        
+        info!("✅ Successfully sent MintQuoteNotification to channel {}", channel_id);
+        Ok(())
+    }
 }
 
 #[cfg(test)]

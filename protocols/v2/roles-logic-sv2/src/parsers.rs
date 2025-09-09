@@ -37,6 +37,7 @@ use const_sv2::{
     CHANNEL_BIT_SUBMIT_SHARES_SUCCESS, CHANNEL_BIT_SUBMIT_SOLUTION, CHANNEL_BIT_SUBMIT_SOLUTION_JD,
     CHANNEL_BIT_UPDATE_CHANNEL, CHANNEL_BIT_UPDATE_CHANNEL_ERROR,
     CHANNEL_BIT_MINT_QUOTE_REQUEST, CHANNEL_BIT_MINT_QUOTE_RESPONSE, CHANNEL_BIT_MINT_QUOTE_ERROR,
+    CHANNEL_BIT_MINT_QUOTE_NOTIFICATION,
     MESSAGE_TYPE_ALLOCATE_MINING_JOB_TOKEN, MESSAGE_TYPE_ALLOCATE_MINING_JOB_TOKEN_SUCCESS,
     MESSAGE_TYPE_CHANNEL_ENDPOINT_CHANGED, MESSAGE_TYPE_CLOSE_CHANNEL,
     MESSAGE_TYPE_COINBASE_OUTPUT_DATA_SIZE, MESSAGE_TYPE_DECLARE_MINING_JOB,
@@ -59,6 +60,7 @@ use const_sv2::{
     MESSAGE_TYPE_SUBMIT_SOLUTION, MESSAGE_TYPE_SUBMIT_SOLUTION_JD, MESSAGE_TYPE_UPDATE_CHANNEL,
     MESSAGE_TYPE_UPDATE_CHANNEL_ERROR, MESSAGE_TYPE_MINT_QUOTE_REQUEST,
     MESSAGE_TYPE_MINT_QUOTE_RESPONSE, MESSAGE_TYPE_MINT_QUOTE_ERROR,
+    MESSAGE_TYPE_MINT_QUOTE_NOTIFICATION,
 };
 
 use common_messages_sv2::{
@@ -188,6 +190,9 @@ pub enum Mining<'a> {
     UpdateChannel(UpdateChannel<'a>),
     #[cfg_attr(feature = "with_serde", serde(borrow))]
     UpdateChannelError(UpdateChannelError<'a>),
+    // Extension messages for mint quote notifications
+    #[cfg_attr(feature = "with_serde", serde(borrow))]
+    MintQuoteNotification(mining_sv2::MintQuoteNotification<'a>),
 }
 
 impl<'a> Mining<'a> {
@@ -225,6 +230,7 @@ impl<'a> Mining<'a> {
             Mining::SubmitSharesSuccess(m) => Mining::SubmitSharesSuccess(m.into_static()),
             Mining::UpdateChannel(m) => Mining::UpdateChannel(m.into_static()),
             Mining::UpdateChannelError(m) => Mining::UpdateChannelError(m.into_static()),
+            Mining::MintQuoteNotification(m) => Mining::MintQuoteNotification(m.into_static()),
         }
     }
 }
@@ -343,6 +349,7 @@ impl<'a> IsSv2Message for Mining<'a> {
             Self::SubmitSharesSuccess(_) => MESSAGE_TYPE_SUBMIT_SHARES_SUCCESS,
             Self::UpdateChannel(_) => MESSAGE_TYPE_UPDATE_CHANNEL,
             Self::UpdateChannelError(_) => MESSAGE_TYPE_UPDATE_CHANNEL_ERROR,
+            Self::MintQuoteNotification(_) => MESSAGE_TYPE_MINT_QUOTE_NOTIFICATION,
         }
     }
 
@@ -374,6 +381,7 @@ impl<'a> IsSv2Message for Mining<'a> {
             Self::SubmitSharesSuccess(_) => CHANNEL_BIT_SUBMIT_SHARES_SUCCESS,
             Self::UpdateChannel(_) => CHANNEL_BIT_UPDATE_CHANNEL,
             Self::UpdateChannelError(_) => CHANNEL_BIT_UPDATE_CHANNEL_ERROR,
+            Self::MintQuoteNotification(_) => CHANNEL_BIT_MINT_QUOTE_NOTIFICATION,
         }
     }
 }
@@ -447,6 +455,7 @@ impl<'decoder> From<Mining<'decoder>> for EncodableField<'decoder> {
             Mining::SubmitSharesSuccess(a) => a.into(),
             Mining::UpdateChannel(a) => a.into(),
             Mining::UpdateChannelError(a) => a.into(),
+            Mining::MintQuoteNotification(a) => a.into(),
         }
     }
 }
@@ -515,6 +524,7 @@ impl GetSize for Mining<'_> {
             Mining::SubmitSharesSuccess(a) => a.get_size(),
             Mining::UpdateChannel(a) => a.get_size(),
             Mining::UpdateChannelError(a) => a.get_size(),
+            Mining::MintQuoteNotification(a) => a.get_size(),
         }
     }
 }

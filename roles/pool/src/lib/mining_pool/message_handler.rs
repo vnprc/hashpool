@@ -53,24 +53,6 @@ fn submit_quote(
     Ok(())
 }
 
-/// Send extension message to specific downstream
-async fn send_extension_message_to_downstream(
-    _pool: Arc<Mutex<super::Pool>>,
-    channel_id: u32,
-    notification: MintQuoteNotification<'static>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // For now, we'll log the notification but skip the actual sending
-    // This is a simplified implementation for Phase 1
-    info!("Would send MintQuoteNotification to channel {}: quote_id={:?}, amount={}", 
-          channel_id,
-          String::from_utf8_lossy(notification.quote_id.inner_as_ref()),
-          notification.amount);
-    
-    // TODO: Implement proper extension message framing and sending
-    // This requires proper SV2 frame construction with extension type
-    
-    Ok(())
-}
 
 /// Handle mint quote response received from mint
 /// This function sends an extension message to the downstream with the quote
@@ -109,7 +91,7 @@ pub async fn handle_mint_quote_response(
         };
         
         // Send extension message to the downstream
-        if let Err(e) = send_extension_message_to_downstream(
+        if let Err(e) = super::Pool::send_extension_message_to_downstream(
             pool.clone(),
             share.channel_id,
             notification,
