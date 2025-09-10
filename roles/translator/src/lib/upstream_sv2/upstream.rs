@@ -108,7 +108,7 @@ pub struct Upstream {
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
     wallet: Arc<Wallet>,
     keyset_sender: broadcast::Sender<Vec<u8>>,
-    quote_tracker: Arc<super::quote_tracker::QuoteTracker>,
+    pub quote_tracker: Arc<super::quote_tracker::QuoteTracker>,
 }
 
 impl PartialEq for Upstream {
