@@ -2,7 +2,7 @@
   pkgs,
   lib,
   config,
-  inputs,
+  inputs ? null,
   ...
 }: let
   bitcoind = import ./bitcoind.nix {
@@ -90,6 +90,7 @@ in {
   # https://devenv.sh/languages/
   languages.rust = {
     enable = true;
+    # Use nightly for development (flake will use pinned stable for builds)
     channel = "nightly";
   };
 
