@@ -5,7 +5,7 @@ use tokio::sync::Mutex;
 #[derive(Debug)]
 pub struct QuoteTracker {
     // Map share_hash -> quote_id for ecash minting
-    quotes: Arc<Mutex<HashMap<Vec<u8>, String>>>,
+    pub quotes: Arc<Mutex<HashMap<Vec<u8>, String>>>,
 }
 
 impl QuoteTracker {

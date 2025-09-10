@@ -578,6 +578,68 @@ impl TranslatorSv2 {
 
 
 
+    async fn process_stored_quotes(
+        wallet: &Arc<Wallet>, 
+        upstream: Arc<roles_logic_sv2::utils::Mutex<upstream_sv2::Upstream>>
+    ) -> Result<u64> {
+        tracing::info!("🔄 Starting process_stored_quotes sweep");
+        
+        // Get the quote tracker from the upstream
+        tracing::debug!("📡 Attempting to access quote tracker from upstream");
+        let quote_tracker = match upstream.safe_lock(|u| u.quote_tracker.clone()) {
+            Ok(tracker) => {
+                tracing::debug!("✅ Successfully got quote tracker from upstream");
+                tracker
+            },
+            Err(e) => {
+                tracing::error!("❌ Failed to access quote tracker: {}", e);
+                return Ok(0);
+            }
+        };
+
+        // Get all stored quotes from the tracker
+        tracing::debug!("🔒 Acquiring lock on quotes HashMap");
+        let quotes = quote_tracker.quotes.lock().await;
+        let quote_count = quotes.len();
+        let quote_ids: Vec<String> = quotes.values().cloned().collect();
+        tracing::info!("📊 Found {} quotes in tracker HashMap", quote_count);
+        
+        // Release the lock early to avoid holding it during minting
+        drop(quotes);
+
+        if quote_ids.is_empty() {
+            tracing::debug!("📭 No quotes found in tracker, returning 0");
+            return Ok(0);
+        }
+
+        let mut total_minted = 0u64;
+        
+        for (index, quote_id) in quote_ids.iter().enumerate() {
+            tracing::debug!("🎫 Processing quote {}/{}: {}", index + 1, quote_ids.len(), quote_id);
+            
+            match wallet.mint_mining_share(quote_id, None).await {
+                Ok(proofs) => {
+                    let amount: u64 = proofs.iter().map(|p| u64::from(p.amount)).sum();
+                    total_minted += amount;
+                    tracing::info!("✅ Successfully minted {} sats from quote {}", amount, quote_id);
+                }
+                Err(e) => {
+                    tracing::warn!("⚠️ Failed to mint quote {}: {}", quote_id, e);
+                    // Continue processing other quotes
+                }
+            }
+        }
+
+        if total_minted > 0 {
+            tracing::info!("🎉 Total minted from {} quotes: {} sats", quote_ids.len(), total_minted);
+        } else {
+            tracing::warn!("😞 No tokens were minted from any quotes");
+        }
+
+        tracing::info!("🏁 process_stored_quotes finished, returning {}", total_minted);
+        Ok(total_minted)
+    }
+
 }
 
 fn kill_tasks(task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>) {
