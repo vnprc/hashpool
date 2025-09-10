@@ -426,6 +426,7 @@ impl TranslatorSv2 {
 
     fn spawn_proof_sweeper(&self, upstream: Arc<roles_logic_sv2::utils::Mutex<upstream_sv2::Upstream>>) {
         let wallet = self.wallet.as_ref().unwrap().clone();
+        let locking_privkey = self.config.wallet.locking_privkey.clone();
 
         task::spawn(async move {
             let mut loop_count = 0;
@@ -435,7 +436,7 @@ impl TranslatorSv2 {
                 
                 // Process quotes using stored quotes from extension messages
                 tracing::debug!("📞 About to call process_stored_quotes");
-                match Self::process_stored_quotes(&wallet, upstream.clone()).await {
+                match Self::process_stored_quotes(&wallet, upstream.clone(), locking_privkey.as_deref()).await {
                     Ok(minted_amount) => {
                         tracing::info!("✅ process_stored_quotes returned: minted_amount = {}", minted_amount);
                         
@@ -592,7 +593,8 @@ impl TranslatorSv2 {
 
     async fn process_stored_quotes(
         wallet: &Arc<Wallet>, 
-        upstream: Arc<roles_logic_sv2::utils::Mutex<upstream_sv2::Upstream>>
+        upstream: Arc<roles_logic_sv2::utils::Mutex<upstream_sv2::Upstream>>,
+        locking_privkey: Option<&str>
     ) -> Result<u64> {
         tracing::info!("🔄 Starting process_stored_quotes sweep");
         
@@ -634,16 +636,52 @@ impl TranslatorSv2 {
                 Ok(_) => {
                     tracing::debug!("📥 Successfully added quote {} to wallet", quote_id);
                     
-                    // Now attempt to mint the quote
-                    match wallet.mint_mining_share(quote_id, None).await {
-                        Ok(proofs) => {
-                            let amount: u64 = proofs.iter().map(|p| u64::from(p.amount)).sum();
-                            total_minted += amount;
-                            tracing::info!("✅ Successfully minted {} sats from quote {}", amount, quote_id);
+                    // Get the quote details we just fetched
+                    match wallet.mint_quote_state_mining_share(quote_id).await {
+                        Ok(quote_response) => {
+                            let amount = quote_response.amount.unwrap_or(cdk::Amount::ZERO);
+                            let keyset_id = quote_response.keyset_id;
+                            
+                            // Parse the secret key from config for NUT-20 signing
+                            let secret_key = match locking_privkey {
+                                Some(privkey_hex) => {
+                                    match hex::decode(privkey_hex) {
+                                        Ok(privkey_bytes) => {
+                                            match cdk::nuts::SecretKey::from_slice(&privkey_bytes) {
+                                                Ok(sk) => sk,
+                                                Err(e) => {
+                                                    tracing::error!("Invalid secret key format: {}", e);
+                                                    continue; // Skip this quote
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            tracing::error!("Failed to decode secret key hex: {}", e);
+                                            continue; // Skip this quote
+                                        }
+                                    }
+                                }
+                                None => {
+                                    tracing::error!("Secret key is required for mining share minting (NUT-20)");
+                                    continue; // Skip this quote
+                                }
+                            };
+                            
+                            // Now attempt to mint the quote with correct parameters
+                            match wallet.mint_mining_share(quote_id, amount, keyset_id, secret_key).await {
+                                Ok(proofs) => {
+                                    let amount: u64 = proofs.iter().map(|p| u64::from(p.amount)).sum();
+                                    total_minted += amount;
+                                    tracing::info!("✅ Successfully minted {} ehash from quote {}", amount, quote_id);
+                                }
+                                Err(e) => {
+                                    tracing::warn!("⚠️ Failed to mint quote {}: {}", quote_id, e);
+                                    // Continue processing other quotes
+                                }
+                            }
                         }
                         Err(e) => {
-                            tracing::warn!("⚠️ Failed to mint quote {}: {}", quote_id, e);
-                            // Continue processing other quotes
+                            tracing::warn!("⚠️ Failed to get quote details for {}: {}", quote_id, e);
                         }
                     }
                 }
@@ -655,12 +693,12 @@ impl TranslatorSv2 {
         }
 
         if total_minted > 0 {
-            tracing::info!("🎉 Total minted from {} quotes: {} sats", quote_ids.len(), total_minted);
+            tracing::info!("🎉 Total minted from {} quotes: {} ehash", quote_ids.len(), total_minted);
         } else {
             tracing::warn!("😞 No tokens were minted from any quotes");
         }
 
-        tracing::info!("🏁 process_stored_quotes finished, returning {}", total_minted);
+        tracing::info!("🏁 process_stored_quotes finished");
         Ok(total_minted)
     }
 
