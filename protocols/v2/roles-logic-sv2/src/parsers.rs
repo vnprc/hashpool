@@ -848,6 +848,7 @@ pub enum MiningTypes {
     SubmitSharesSuccess = MESSAGE_TYPE_SUBMIT_SHARES_SUCCESS,
     UpdateChannel = MESSAGE_TYPE_UPDATE_CHANNEL,
     UpdateChannelError = MESSAGE_TYPE_UPDATE_CHANNEL_ERROR,
+    MintQuoteNotification = MESSAGE_TYPE_MINT_QUOTE_NOTIFICATION,
 }
 
 impl TryFrom<u8> for MiningTypes {
@@ -883,6 +884,7 @@ impl TryFrom<u8> for MiningTypes {
             MESSAGE_TYPE_SUBMIT_SHARES_SUCCESS => Ok(MiningTypes::SubmitSharesSuccess),
             MESSAGE_TYPE_UPDATE_CHANNEL => Ok(MiningTypes::UpdateChannel),
             MESSAGE_TYPE_UPDATE_CHANNEL_ERROR => Ok(MiningTypes::UpdateChannelError),
+            MESSAGE_TYPE_MINT_QUOTE_NOTIFICATION => Ok(MiningTypes::MintQuoteNotification),
             MESSAGE_TYPE_SETUP_CONNECTION => Err(Error::UnexpectedMessage(v)),
             _ => {
                 error!("Invalid message type: {}", v);
@@ -985,6 +987,10 @@ impl<'a> TryFrom<(u8, &'a mut [u8])> for Mining<'a> {
             MiningTypes::UpdateChannelError => {
                 let message: UpdateChannelError = from_bytes(v.1)?;
                 Ok(Mining::UpdateChannelError(message))
+            }
+            MiningTypes::MintQuoteNotification => {
+                let message: mining_sv2::MintQuoteNotification = from_bytes(v.1)?;
+                Ok(Mining::MintQuoteNotification(message))
             }
         }
     }
