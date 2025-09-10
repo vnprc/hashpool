@@ -44,7 +44,7 @@ use tokio::{
     task::AbortHandle,
     time::{sleep, Duration},
 };
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use stratum_common::bitcoin::BlockHash;
 use stratum_common::bitcoin::hashes::hex::ToHex;
@@ -337,8 +337,12 @@ impl Upstream {
 
                 let payload = incoming.payload();
                 
+                // Debug: Log all incoming message types
+                debug!("🔍 Received message type: 0x{:02x}", message_type);
+                
                 // Check if this is an extension message (0xC0-0xFF range)
                 if message_type >= 0xC0 && message_type <= 0xFF {
+                    info!("📨 Processing extension message type: 0x{:02x}", message_type);
                     // Handle extension message
                     let quote_tracker = self_.safe_lock(|s| s.quote_tracker.clone())
                         .unwrap_or_else(|e| {

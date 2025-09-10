@@ -1,5 +1,5 @@
 use mining_sv2::{MintQuoteNotification, MintQuoteFailure};
-use tracing::{info, warn, debug};
+use tracing::{debug, info, warn};
 use super::quote_tracker::QuoteTracker;
 use std::sync::Arc;
 
@@ -13,6 +13,8 @@ pub async fn handle_extension_message(
     payload: &[u8],
     quote_tracker: Arc<QuoteTracker>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    debug!("🎯 Handling extension message type: 0x{:02x}, payload length: {}", message_type, payload.len());
+    
     match message_type {
         MESSAGE_TYPE_MINT_QUOTE_NOTIFICATION => {
             // Parse the notification

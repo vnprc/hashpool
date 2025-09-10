@@ -20,12 +20,12 @@ bitcoin = { version= "0.32.2" }
 uuid = { version = "1.7", features = ["v4"] }
 hex = "0.4"
 
-cdk = { git = "https://github.com/vnprc/cdk.git", package = "cdk", rev = "13801859" }
-cdk-axum = { git = "https://github.com/vnprc/cdk.git", package = "cdk-axum", rev = "13801859"}
-cdk-mintd = { git = "https://github.com/vnprc/cdk.git", package = "cdk-mintd", rev = "13801859" }
-cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", package = "cdk-sqlite", rev = "13801859" }
-cdk-redb = { git = "https://github.com/vnprc/cdk.git", package = "cdk-redb", rev = "13801859" }
-cdk-signatory = { git = "https://github.com/vnprc/cdk.git", package = "cdk-signatory", rev = "13801859" }
+cdk = { git = "https://github.com/vnprc/cdk.git", package = "cdk", rev = "5508ad83" }
+cdk-axum = { git = "https://github.com/vnprc/cdk.git", package = "cdk-axum", rev = "5508ad83"}
+cdk-mintd = { git = "https://github.com/vnprc/cdk.git", package = "cdk-mintd", rev = "5508ad83" }
+cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", package = "cdk-sqlite", rev = "5508ad83" }
+cdk-redb = { git = "https://github.com/vnprc/cdk.git", package = "cdk-redb", rev = "5508ad83" }
+cdk-signatory = { git = "https://github.com/vnprc/cdk.git", package = "cdk-signatory", rev = "5508ad83" }
 toml = "0.8.22"
 
 shared_config = { path = "../roles-utils/config" }

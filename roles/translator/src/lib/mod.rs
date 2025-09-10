@@ -323,6 +323,13 @@ impl TranslatorSv2 {
                 return;
             }
         };
+        
+        // Only spawn proof sweeper if we have a private key for signing
+        if self.config.wallet.locking_privkey.is_some() {
+            info!("Spawning proof sweeper");
+            self.spawn_proof_sweeper(upstream.clone());
+        }
+        
         let task_collector_init_task = task_collector.clone();
         
         
@@ -414,36 +421,41 @@ impl TranslatorSv2 {
         let _ =
             task_collector.safe_lock(|t| t.push((task.abort_handle(), "init task".to_string())));
         
-        // Only spawn proof sweeper if we have a private key for signing
-        if self.config.wallet.locking_privkey.is_some() {
-            info!("Spawning proof sweeper");
-            self.spawn_proof_sweeper();
-        }
+        // Note: spawn_proof_sweeper moved to after upstream is created
     }
 
-    fn spawn_proof_sweeper(&self) {
+    fn spawn_proof_sweeper(&self, upstream: Arc<roles_logic_sv2::utils::Mutex<upstream_sv2::Upstream>>) {
         let wallet = self.wallet.as_ref().unwrap().clone();
-        let mint_client = self.mint_client.clone();
-        let locking_pubkey = self.config.wallet.locking_pubkey.as_ref().unwrap().clone();
-        let locking_privkey = self.config.wallet.locking_privkey.clone();
 
         task::spawn(async move {
+            let mut loop_count = 0;
             loop {
-                // Process quotes using locking key approach
-                match Self::process_quotes_by_locking_key(&wallet, &mint_client, &locking_pubkey, locking_privkey.as_deref()).await {
+                loop_count += 1;
+                tracing::info!("🕐 Proof sweeper loop #{} starting", loop_count);
+                
+                // Process quotes using stored quotes from extension messages
+                tracing::debug!("📞 About to call process_stored_quotes");
+                match Self::process_stored_quotes(&wallet, upstream.clone()).await {
                     Ok(minted_amount) => {
+                        tracing::info!("✅ process_stored_quotes returned: minted_amount = {}", minted_amount);
+                        
                         // the people need ehash, let's give it to them (only if we minted some tokens)
                         if minted_amount > 0 {
+                            tracing::info!("🎁 Generating single ehash token since we minted {} tokens", minted_amount);
                             Self::generate_single_ehash_token(&wallet).await;
+                        } else {
+                            tracing::debug!("⏭️ Skipping ehash token generation - no tokens were minted");
                         }
                     }
                     Err(e) => {
-                        tracing::error!("Quote processing failed: {}", e);
+                        tracing::error!("❌ Quote processing failed: {}", e);
                         // Continue the loop - don't generate tokens on error
                     }
                 }
 
+                tracing::debug!("😴 Proof sweeper sleeping for 60 seconds...");
                 tokio::time::sleep(Duration::from_secs(60)).await;
+                tracing::debug!("⏰ Proof sweeper woke up from sleep");
             }
         });
     }
@@ -617,14 +629,26 @@ impl TranslatorSv2 {
         for (index, quote_id) in quote_ids.iter().enumerate() {
             tracing::debug!("🎫 Processing quote {}/{}: {}", index + 1, quote_ids.len(), quote_id);
             
-            match wallet.mint_mining_share(quote_id, None).await {
-                Ok(proofs) => {
-                    let amount: u64 = proofs.iter().map(|p| u64::from(p.amount)).sum();
-                    total_minted += amount;
-                    tracing::info!("✅ Successfully minted {} sats from quote {}", amount, quote_id);
+            // First, fetch quote details from the mint and add to wallet
+            match Self::fetch_and_add_quote_to_wallet(wallet, quote_id).await {
+                Ok(_) => {
+                    tracing::debug!("📥 Successfully added quote {} to wallet", quote_id);
+                    
+                    // Now attempt to mint the quote
+                    match wallet.mint_mining_share(quote_id, None).await {
+                        Ok(proofs) => {
+                            let amount: u64 = proofs.iter().map(|p| u64::from(p.amount)).sum();
+                            total_minted += amount;
+                            tracing::info!("✅ Successfully minted {} sats from quote {}", amount, quote_id);
+                        }
+                        Err(e) => {
+                            tracing::warn!("⚠️ Failed to mint quote {}: {}", quote_id, e);
+                            // Continue processing other quotes
+                        }
+                    }
                 }
                 Err(e) => {
-                    tracing::warn!("⚠️ Failed to mint quote {}: {}", quote_id, e);
+                    tracing::warn!("⚠️ Failed to fetch quote {} details: {}", quote_id, e);
                     // Continue processing other quotes
                 }
             }
@@ -638,6 +662,18 @@ impl TranslatorSv2 {
 
         tracing::info!("🏁 process_stored_quotes finished, returning {}", total_minted);
         Ok(total_minted)
+    }
+
+    /// Fetches quote from mint and adds to wallet's local store
+    async fn fetch_and_add_quote_to_wallet(wallet: &Arc<Wallet>, quote_id: &str) -> Result<()> {
+        tracing::debug!("🔍 Fetching quote {} from mint", quote_id);
+        
+        // Use wallet's mining share specific quote state function
+        let quote = wallet.mint_quote_state_mining_share(quote_id).await
+            .with_context(|| format!("Failed to fetch quote {} from mint", quote_id))?;
+            
+        tracing::debug!("💾 Quote {} fetched and added to wallet (state: {:?})", quote_id, quote.state);
+        Ok(())
     }
 
 }
