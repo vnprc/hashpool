@@ -673,6 +673,18 @@ impl TranslatorSv2 {
                                     let amount: u64 = proofs.iter().map(|p| u64::from(p.amount)).sum();
                                     total_minted += amount;
                                     tracing::info!("✅ Successfully minted {} ehash from quote {}", amount, quote_id);
+                                    
+                                    // Remove the successfully minted quote from the tracker
+                                    let mut quotes = quote_tracker.quotes.lock().await;
+                                    // Find and remove the key that corresponds to this quote_id
+                                    let key_to_remove = quotes.iter()
+                                        .find(|(_, v)| **v == *quote_id)
+                                        .map(|(k, _)| k.clone());
+                                    
+                                    if let Some(key) = key_to_remove {
+                                        quotes.remove(&key);
+                                        tracing::debug!("🗑️ Removed successfully minted quote {} from tracker", quote_id);
+                                    }
                                 }
                                 Err(e) => {
                                     tracing::warn!("⚠️ Failed to mint quote {}: {}", quote_id, e);
