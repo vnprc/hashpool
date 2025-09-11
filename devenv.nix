@@ -12,7 +12,6 @@
   };
 
   bitcoindDataDir = "${config.devenv.root}/.devenv/state/bitcoind";
-  lightningClnDataDir = "${config.devenv.root}/.devenv/state/cln";
   translatorWalletDb = "${config.devenv.root}/.devenv/state/translator/wallet.sqlite";
   mintDb = "${config.devenv.root}/.devenv/state/mint/mint.sqlite";
 
@@ -81,7 +80,6 @@ in {
       bitcoind
       pkgs.just
       pkgs.coreutils # Provides stdbuf for disabling output buffering
-      pkgs.clightning
       pkgs.openssl
       pkgs.pkg-config
     ]
@@ -141,15 +139,6 @@ in {
       '' "bitcoind-${config.env.BITCOIND_NETWORK}.log";
     };
 
-    cln = {
-      exec = withLogging ''
-        mkdir -p ${lightningClnDataDir}
-        ${waitForPort config.env.BITCOIND_RPC_PORT "bitcoind"}
-        lightningd --version
-        lightningd --conf=${config.devenv.root}/config/cln.conf --lightning-dir=${lightningClnDataDir} --network=${config.env.BITCOIND_NETWORK} --bitcoin-rpcport=${config.env.BITCOIND_RPC_PORT}
-
-      '' "cln.log";
-    };
 
     miner = {
       exec = withLogging ''

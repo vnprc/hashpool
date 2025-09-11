@@ -83,13 +83,11 @@ clean TYPE="":
         echo "all sqlite data deleted"; \
     elif [ "{{TYPE}}" = "regtest" ]; then \
         echo "deleting regtest data..."; \
-        rm -rf .devenv/state/bitcoind/regtest .devenv/state/cln/regtest; \
-        rm -f .devenv/state/cln/lightningd-regtest.pid; \
+        rm -rf .devenv/state/bitcoind/regtest; \
         echo "regtest data deleted"; \
     elif [ "{{TYPE}}" = "testnet4" ]; then \
         echo "deleting testnet4 data..."; \
-        rm -rf .devenv/state/bitcoind/testnet4 .devenv/state/cln/testnet4; \
-        rm -f .devenv/state/cln/lightningd-testnet4.pid; \
+        rm -rf .devenv/state/bitcoind/testnet4; \
         echo "testnet4 data deleted"; \
     else \
         echo "Error: TYPE must be 'cashu', 'regtest', or 'testnet4'"; \
