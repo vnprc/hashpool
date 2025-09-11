@@ -903,7 +903,7 @@ impl ChannelFactory {
         } else if hash <= downstream_target {
             Ok(OnNewShare::ShareMeetDownstreamTarget)
         } else {
-            error!("Share does not meet any target: {:?}", m);
+            // error!("Share does not meet any target: {:?}", m);
             let error = SubmitSharesError {
                 channel_id: m.get_channel_id(),
                 sequence_number: m.get_sequence_number(),
