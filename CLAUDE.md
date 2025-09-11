@@ -35,7 +35,6 @@ Hashpool is a fork of the Stratum V2 Reference Implementation (SRI) that replace
    - Bundles blinded messages with shares sent to pool
    - Stores unblinded ecash tokens (message + signature pairs)
    - SQLite database at `.devenv/state/translator/wallet.sqlite`
-   - **⚠️ ISSUE**: Currently not receiving keyset information from mint
 
 ### New Components
 
@@ -45,21 +44,6 @@ Hashpool is a fork of the Stratum V2 Reference Implementation (SRI) that replace
    - Receives quote requests via TCP from pool using SV2 protocol
    - SQLite database at `.devenv/state/mint/mint.sqlite`
    - Configuration: `config/mint.config.toml`
-   - **⚠️ ISSUE**: Not communicating keyset to translator/wallet
-
-## Current Architecture Status
-
-### Working
-- Pool successfully sends MintQuoteRequest to mint via TCP
-- Mint receives requests and creates quotes
-- Mint sends MintQuoteResponse back to pool
-- Direct TCP communication between pool and mint roles
-
-### Broken
-- **Wallet/Translator cannot mint tokens** - Shows error: "No keysets available in wallet"
-- **Root cause**: No mechanism for mint to share its keyset ID with translator
-- Previously used Redis for keyset distribution (now removed)
-- Need to implement keyset sharing mechanism
 
 ## Development Commands
 
@@ -137,28 +121,6 @@ just update-cdk OLD_REV NEW_REV
 just restore-deps
 ```
 
-## Current Development Task: Fix Keyset Communication
-
-### Problem
-The translator/wallet cannot mint ecash tokens because it doesn't know the mint's keyset ID. Error: "No keysets available in wallet - skipping mint attempt"
-
-### Previous Solution (Removed)
-- Redis was used to share keyset information
-- Mint published active keyset to Redis
-- Pool/Translator read keyset from Redis on startup
-
-### Proposed Solutions
-1. **Add keyset to MintQuoteResponse** - Include keyset_id in the response message
-2. **Separate keyset broadcast message** - Create new SV2 message type for keyset updates
-3. **HTTP endpoint** - Translator queries mint's HTTP API for keysets
-4. **Configuration** - Static keyset in config (less flexible)
-
-### Key Files to Modify
-- `protocols/v2/subprotocols/mint-quote/src/mint_quote_response.rs` - Add keyset field
-- `roles/mint/src/lib/sv2_connection/quote_processing.rs` - Include keyset in response
-- `roles/pool/src/lib/mining_pool/message_handler.rs` - Forward keyset to translator
-- `roles/translator/src/lib/upstream_sv2/upstream.rs` - Receive and store keyset
-
 ## Configuration
 
 All SV2 messaging configuration in `config/shared/pool.toml`:
@@ -176,8 +138,6 @@ timeout_seconds = 30
 1. **Direct TCP communication**: Pool and mint communicate directly via TCP, no message hub
 2. **CDK dependencies**: Using forked CDK from `github.com/vnprc/cdk.git`
 3. **Database paths**: Set via environment variables (e.g., `CDK_MINT_DB_PATH`)
-4. **Redis removed**: All Redis-based communication has been deleted
-5. **Keyset issue**: Critical blocker - wallet cannot create tokens without keyset
 
 ## Testing Approach
 
