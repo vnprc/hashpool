@@ -918,7 +918,7 @@ dependencies = [
 [[package]]
 name = "cashu"
 version = "0.11.0"
-source = "git+https://github.com/vnprc/cdk?rev=23984380#23984380177646a725992ffaaf592158a1662a13"
+source = "git+https://github.com/vnprc/cdk?rev=de4d1e3d#de4d1e3daaccf4b4842be3a7337e383883aeb803"
 dependencies = [
  "bitcoin 0.32.7",
  "cbor-diag",
@@ -973,7 +973,7 @@ dependencies = [
 [[package]]
 name = "cdk"
 version = "0.11.0"
-source = "git+https://github.com/vnprc/cdk?rev=23984380#23984380177646a725992ffaaf592158a1662a13"
+source = "git+https://github.com/vnprc/cdk?rev=de4d1e3d#de4d1e3daaccf4b4842be3a7337e383883aeb803"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1008,7 +1008,7 @@ dependencies = [
 [[package]]
 name = "cdk-axum"
 version = "0.11.0"
-source = "git+https://github.com/vnprc/cdk?rev=23984380#23984380177646a725992ffaaf592158a1662a13"
+source = "git+https://github.com/vnprc/cdk?rev=de4d1e3d#de4d1e3daaccf4b4842be3a7337e383883aeb803"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1028,7 +1028,7 @@ dependencies = [
 [[package]]
 name = "cdk-cln"
 version = "0.11.0"
-source = "git+https://github.com/vnprc/cdk?rev=23984380#23984380177646a725992ffaaf592158a1662a13"
+source = "git+https://github.com/vnprc/cdk?rev=de4d1e3d#de4d1e3daaccf4b4842be3a7337e383883aeb803"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.7",
@@ -1046,7 +1046,7 @@ dependencies = [
 [[package]]
 name = "cdk-common"
 version = "0.11.0"
-source = "git+https://github.com/vnprc/cdk?rev=23984380#23984380177646a725992ffaaf592158a1662a13"
+source = "git+https://github.com/vnprc/cdk?rev=de4d1e3d#de4d1e3daaccf4b4842be3a7337e383883aeb803"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1070,7 +1070,7 @@ dependencies = [
 [[package]]
 name = "cdk-fake-wallet"
 version = "0.11.0"
-source = "git+https://github.com/vnprc/cdk?rev=23984380#23984380177646a725992ffaaf592158a1662a13"
+source = "git+https://github.com/vnprc/cdk?rev=de4d1e3d#de4d1e3daaccf4b4842be3a7337e383883aeb803"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.7",
@@ -1092,7 +1092,7 @@ dependencies = [
 [[package]]
 name = "cdk-lnbits"
 version = "0.11.0"
-source = "git+https://github.com/vnprc/cdk?rev=23984380#23984380177646a725992ffaaf592158a1662a13"
+source = "git+https://github.com/vnprc/cdk?rev=de4d1e3d#de4d1e3daaccf4b4842be3a7337e383883aeb803"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1112,7 +1112,7 @@ dependencies = [
 [[package]]
 name = "cdk-lnd"
 version = "0.11.0"
-source = "git+https://github.com/vnprc/cdk?rev=23984380#23984380177646a725992ffaaf592158a1662a13"
+source = "git+https://github.com/vnprc/cdk?rev=de4d1e3d#de4d1e3daaccf4b4842be3a7337e383883aeb803"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1137,7 +1137,7 @@ dependencies = [
 [[package]]
 name = "cdk-mint-rpc"
 version = "0.11.0"
-source = "git+https://github.com/vnprc/cdk?rev=23984380#23984380177646a725992ffaaf592158a1662a13"
+source = "git+https://github.com/vnprc/cdk?rev=de4d1e3d#de4d1e3daaccf4b4842be3a7337e383883aeb803"
 dependencies = [
  "anyhow",
  "cdk",
@@ -1159,7 +1159,7 @@ dependencies = [
 [[package]]
 name = "cdk-mintd"
 version = "0.11.0"
-source = "git+https://github.com/vnprc/cdk?rev=23984380#23984380177646a725992ffaaf592158a1662a13"
+source = "git+https://github.com/vnprc/cdk?rev=de4d1e3d#de4d1e3daaccf4b4842be3a7337e383883aeb803"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1197,7 +1197,7 @@ dependencies = [
 [[package]]
 name = "cdk-payment-processor"
 version = "0.11.0"
-source = "git+https://github.com/vnprc/cdk?rev=23984380#23984380177646a725992ffaaf592158a1662a13"
+source = "git+https://github.com/vnprc/cdk?rev=de4d1e3d#de4d1e3daaccf4b4842be3a7337e383883aeb803"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1230,7 +1230,7 @@ dependencies = [
 [[package]]
 name = "cdk-postgres"
 version = "0.11.0"
-source = "git+https://github.com/vnprc/cdk?rev=23984380#23984380177646a725992ffaaf592158a1662a13"
+source = "git+https://github.com/vnprc/cdk?rev=de4d1e3d#de4d1e3daaccf4b4842be3a7337e383883aeb803"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.7",
@@ -1252,7 +1252,7 @@ dependencies = [
 [[package]]
 name = "cdk-redb"
 version = "0.11.0"
-source = "git+https://github.com/vnprc/cdk?rev=23984380#23984380177646a725992ffaaf592158a1662a13"
+source = "git+https://github.com/vnprc/cdk?rev=de4d1e3d#de4d1e3daaccf4b4842be3a7337e383883aeb803"
 dependencies = [
  "async-trait",
  "cdk-common",
@@ -1268,7 +1268,7 @@ dependencies = [
 [[package]]
 name = "cdk-signatory"
 version = "0.11.0"
-source = "git+https://github.com/vnprc/cdk?rev=23984380#23984380177646a725992ffaaf592158a1662a13"
+source = "git+https://github.com/vnprc/cdk?rev=de4d1e3d#de4d1e3daaccf4b4842be3a7337e383883aeb803"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1293,7 +1293,7 @@ dependencies = [
 [[package]]
 name = "cdk-sql-common"
 version = "0.11.0"
-source = "git+https://github.com/vnprc/cdk?rev=23984380#23984380177646a725992ffaaf592158a1662a13"
+source = "git+https://github.com/vnprc/cdk?rev=de4d1e3d#de4d1e3daaccf4b4842be3a7337e383883aeb803"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.7",
@@ -1311,7 +1311,7 @@ dependencies = [
 [[package]]
 name = "cdk-sqlite"
 version = "0.11.0"
-source = "git+https://github.com/vnprc/cdk?rev=23984380#23984380177646a725992ffaaf592158a1662a13"
+source = "git+https://github.com/vnprc/cdk?rev=de4d1e3d#de4d1e3daaccf4b4842be3a7337e383883aeb803"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.7",

@@ -2,7 +2,6 @@ use async_channel::{bounded, unbounded};
 use cdk::wallet::Wallet;
 use cdk::amount::SplitTarget;
 use cdk_sqlite::WalletSqliteDatabase;
-use cdk::hashpool::MintQuoteStateFilter::OnlyPaid;
 use cdk::nuts::CurrencyUnit;
 use cdk::{HttpClient, mint_url::MintUrl};
 use bip39::Mnemonic;
@@ -490,106 +489,6 @@ impl TranslatorSv2 {
             }
         }
     }
-
-
-
-    async fn process_quotes_by_locking_key(wallet: &Arc<Wallet>, _mint_client: &HttpClient, locking_pubkey: &str, locking_privkey: Option<&str>) -> Result<u64> {
-        // Parse the hex locking pubkey into a PublicKey
-        let pubkey_bytes = hex::decode(locking_pubkey)
-            .with_context(|| format!("Failed to decode locking pubkey: {}", locking_pubkey))?;
-        
-        let pubkey = cdk::nuts::PublicKey::from_slice(&pubkey_bytes)
-            .context("Failed to parse locking pubkey from decoded bytes")?;
-
-        // First, let's debug the lookup step to see if we find any quotes
-        tracing::debug!("Looking up quotes for pubkey: {}", locking_pubkey);
-        
-        let quote_lookup_items = match wallet.lookup_mint_quotes_by_pubkeys(&[pubkey], OnlyPaid).await {
-            Ok(items) => {
-                tracing::info!("Found {} quote lookup items for pubkey {}", items.len(), locking_pubkey);
-                for item in &items {
-                    tracing::debug!("Quote lookup item: quote={}, method={}, pubkey={:?}", 
-                                  item.quote, item.method, item.pubkey);
-                }
-                items
-            }
-            Err(e) => {
-                return Err(e).with_context(|| format!("Failed to lookup quotes for pubkey: {}", locking_pubkey));
-            }
-        };
-
-        if quote_lookup_items.is_empty() {
-            return Ok(0); // This is a legitimate case - no quotes to mint
-        }
-
-        // Parse the secret key if provided
-        let secret_key = match locking_privkey {
-            Some(privkey_hex) => {
-                match hex::decode(privkey_hex) {
-                    Ok(privkey_bytes) => {
-                        match cdk::nuts::SecretKey::from_slice(&privkey_bytes) {
-                            Ok(sk) => Some(sk),
-                            Err(e) => {
-                                tracing::warn!("Failed to parse locking privkey: {:?}", e);
-                                None
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to decode locking privkey hex: {:?}", e);
-                        None
-                    }
-                }
-            }
-            None => None,
-        };
-
-        // Check if we have any keysets available before attempting to mint
-        let keysets = wallet.get_mint_keysets().await
-            .context("Failed to get keysets from wallet")?;
-        
-        if keysets.is_empty() {
-            tracing::warn!("No keysets available in wallet - skipping mint attempt");
-            return Ok(0); // This is also a legitimate case
-        }
-        tracing::debug!("Wallet has {} keysets available", keysets.len());
-
-        // Now use the convenience function that does everything for us:
-        // 1. Query mint for quote IDs by pubkey (using our locking key lookup API)  
-        // 2. Retrieve those quotes from the mint
-        // 3. Mint them all
-        tracing::debug!("Attempting to mint tokens for {} quotes", quote_lookup_items.len());
-        match wallet.mint_tokens_for_pubkey(pubkey, secret_key).await {
-            Ok(proofs) => {
-                let total_amount: u64 = proofs.iter().map(|p| u64::from(p.amount)).sum();
-                match wallet.total_balance().await {
-                    Ok(balance) => {
-                        tracing::info!(
-                            "Successfully minted ehash tokens for pubkey {} with amount {}. Total wallet balance: {}",
-                            locking_pubkey, total_amount, balance
-                        );
-                    }
-                    Err(e) => {
-                        tracing::info!(
-                            "Minted ehash tokens for pubkey {} with amount {}, but failed to get total balance: {:?}",
-                            locking_pubkey, total_amount, e
-                        );
-                    }
-                }
-                if proofs.is_empty() {
-                    tracing::warn!("mint_tokens_for_pubkey returned 0 proofs despite {} quotes being found - this suggests the quotes may not be paid or mintable", quote_lookup_items.len());
-                }
-                return Ok(total_amount);
-            }
-            Err(e) => {
-                return Err(e).with_context(|| format!("Failed to mint ehash tokens for pubkey: {}", locking_pubkey));
-            }
-        }
-    }
-
-
-
-
 
     async fn process_stored_quotes(
         wallet: &Arc<Wallet>, 
