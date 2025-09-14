@@ -89,7 +89,11 @@ clean TYPE="":
         echo "deleting testnet4 data..."; \
         rm -rf .devenv/state/bitcoind/testnet4; \
         echo "testnet4 data deleted"; \
+    elif [ "{{TYPE}}" = "logs" ]; then \
+        echo "deleting logs..."; \
+        rm -rf logs/*; \
+        echo "logs deleted"; \
     else \
-        echo "Error: TYPE must be 'cashu', 'regtest', or 'testnet4'"; \
+        echo "Error: TYPE must be 'cashu', 'regtest', 'testnet4', or logs"; \
         exit 1; \
     fi
