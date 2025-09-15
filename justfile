@@ -31,14 +31,22 @@ restore-deps:
         mv "$bakfile" "$origfile"; \
     done
 
-# update cdk commit hash in all Cargo.toml files
+# update cdk commit hash in all Cargo.toml files and build configs
 update-cdk OLD_REV NEW_REV:
     @echo "Updating CDK revision from {{OLD_REV}} to {{NEW_REV}}..."
+    @# Update Cargo.toml files
     @find . -name "Cargo.toml" | xargs grep -l "cdk.*git.*vnprc.*rev.*{{OLD_REV}}" | while IFS= read -r file; do \
         echo "✅ Updating $file"; \
         sed -i 's|rev = "{{OLD_REV}}"|rev = "{{NEW_REV}}"|g' "$file"; \
     done
+    @# Update justfile CDK_COMMIT variable
+    @echo "✅ Updating justfile CDK_COMMIT"
+    @sed -i 's|CDK_COMMIT := "{{OLD_REV}}"|CDK_COMMIT := "{{NEW_REV}}"|g' justfile
+    @# Update devenv.nix
+    @echo "✅ Updating devenv.nix"
+    @sed -i 's|git checkout {{OLD_REV}}|git checkout {{NEW_REV}}|g' devenv.nix
     @echo "Done! CDK updated from {{OLD_REV}} to {{NEW_REV}}"
+    @echo "Run 'just build-cdk-cli' to rebuild with new version"
 
 # update bitcoind.nix with latest rev & hash
 update-bitcoind:
@@ -69,6 +77,29 @@ db TYPE="":
         echo "Error: TYPE must be 'wallet' or 'mint'"; \
         exit 1; \
     fi
+
+# CDK configuration - update these when CDK version changes
+CDK_REPO := "https://github.com/vnprc/cdk.git"
+CDK_COMMIT := "0315c1f2"
+
+# build cdk-cli from remote repo
+build-cdk-cli:
+    ./scripts/build-cdk-cli.sh
+
+# check ecash balance using built cdk-cli  
+balance:
+    @if [ ! -f "{{justfile_directory()}}/bin/cdk-cli" ]; then \
+        echo "Error: CDK CLI not built. Run 'just build-cdk-cli' first"; \
+        exit 1; \
+    fi
+    @# Create symlink so CDK CLI can read translator's wallet
+    @if [ ! -L "{{justfile_directory()}}/.devenv/state/translator/cdk-cli.sqlite" ]; then \
+        ln -s wallet.sqlite {{justfile_directory()}}/.devenv/state/translator/cdk-cli.sqlite; \
+    fi
+    @sqlite3 {{justfile_directory()}}/.devenv/state/translator/wallet.sqlite \
+        "SELECT 'Total: ' || SUM(amount) || ' ' || unit || ' (' || COUNT(*) || ' proofs)' \
+         FROM proof WHERE state = 'UNSPENT' GROUP BY unit;" \
+        2>/dev/null || echo "Error: Could not read wallet database"
 
 # delete persistent storage; options: cashu, regtest, testnet4
 clean TYPE="":
