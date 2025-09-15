@@ -11,6 +11,10 @@
     stdenv = pkgs.stdenv;
   };
 
+  # CDK configuration
+  cdkRepo = "https://github.com/vnprc/cdk.git";
+  cdkCommit = "0315c1f2";
+
   bitcoindDataDir = "${config.devenv.root}/.devenv/state/bitcoind";
   translatorWalletDb = "${config.devenv.root}/.devenv/state/translator/wallet.sqlite";
   mintDb = "${config.devenv.root}/.devenv/state/mint/mint.sqlite";
@@ -69,6 +73,32 @@ in {
       mkdir -p ${config.devenv.root}/logs
       mkdir -p ${translatorWalletDb}
       mkdir -p ${mintDb}
+    '';
+    before = ["proxy" "mint" "pool"];
+  };
+
+  # Build CDK CLI from remote repo using same CDK version as hashpool
+  tasks.build-cdk-cli = {
+    exec = ''
+      echo "Building CDK CLI from remote repo..."
+      
+      # Create temporary build directory
+      CDK_BUILD_DIR=$(mktemp -d)
+      cd "$CDK_BUILD_DIR"
+      
+      # Clone and build
+      git clone https://github.com/vnprc/cdk.git .
+      git checkout 0315c1f2
+      cargo build --release --bin cdk-cli
+      
+      # Copy to hashpool bin directory
+      mkdir -p ${config.devenv.root}/bin
+      cp target/release/cdk-cli ${config.devenv.root}/bin/cdk-cli
+      
+      # Cleanup
+      rm -rf "$CDK_BUILD_DIR"
+      
+      echo "✅ CDK CLI ready"
     '';
     before = ["proxy" "mint" "pool"];
   };
