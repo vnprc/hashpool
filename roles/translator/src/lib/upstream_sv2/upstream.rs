@@ -12,12 +12,11 @@ use async_channel::{Receiver, Sender};
 use async_std::net::TcpStream;
 use tokio::sync::broadcast;
 use binary_sv2::u256_from_int;
-use cdk::{nuts::KeySet, wallet::Wallet};
+use cdk::wallet::Wallet;
 use codec_sv2::{HandshakeRole, Initiator};
 use error_handling::handle_result;
 use key_utils::Secp256k1PublicKey;
 use mining_sv2::cashu::calculate_work;
-use hex;
 use network_helpers_sv2::Connection;
 use roles_logic_sv2::{
     common_messages_sv2::{Protocol, SetupConnection},
@@ -108,7 +107,6 @@ pub struct Upstream {
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
     wallet: Arc<Wallet>,
     keyset_sender: broadcast::Sender<Vec<u8>>,
-    pub quote_tracker: Arc<super::quote_tracker::QuoteTracker>,
 }
 
 impl PartialEq for Upstream {
@@ -189,7 +187,6 @@ impl Upstream {
             task_collector,
             wallet,
             keyset_sender,
-            quote_tracker: Arc::new(super::quote_tracker::QuoteTracker::new()),
         })))
     }
 
@@ -344,16 +341,16 @@ impl Upstream {
                 if message_type >= 0xC0 && message_type <= 0xFF {
                     info!("📨 Processing extension message type: 0x{:02x}", message_type);
                     // Handle extension message
-                    let quote_tracker = self_.safe_lock(|s| s.quote_tracker.clone())
+                    let wallet = self_.safe_lock(|s| s.wallet.clone())
                         .unwrap_or_else(|e| {
-                            error!("Failed to get quote tracker: {}", e);
-                            Arc::new(super::quote_tracker::QuoteTracker::new())
+                            error!("Failed to get wallet: {}", e);
+                            panic!("Cannot proceed without wallet access");
                         });
                     
                     if let Err(e) = super::extension_handler::handle_extension_message(
                         message_type,
                         payload,
-                        quote_tracker,
+                        wallet,
                     ).await {
                         error!("Failed to handle extension message: {}", e);
                     }

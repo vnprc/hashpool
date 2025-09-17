@@ -2,7 +2,8 @@ use async_channel::{bounded, unbounded};
 use cdk::wallet::Wallet;
 use cdk::amount::SplitTarget;
 use cdk_sqlite::WalletSqliteDatabase;
-use cdk::nuts::CurrencyUnit;
+use cdk::nuts::{CurrencyUnit, MintQuoteState};
+use cdk::Amount;
 use cdk::{HttpClient, mint_url::MintUrl};
 use bip39::Mnemonic;
 
@@ -435,7 +436,7 @@ impl TranslatorSv2 {
                 
                 // Process quotes using stored quotes from extension messages
                 tracing::debug!("📞 About to call process_stored_quotes");
-                match Self::process_stored_quotes(&wallet, upstream.clone(), locking_privkey.as_deref()).await {
+                match Self::process_stored_quotes(&wallet, locking_privkey.as_deref()).await {
                     Ok(minted_amount) => {
                         tracing::info!("✅ process_stored_quotes returned: minted_amount = {}", minted_amount);
                         
@@ -492,48 +493,31 @@ impl TranslatorSv2 {
 
     async fn process_stored_quotes(
         wallet: &Arc<Wallet>, 
-        upstream: Arc<roles_logic_sv2::utils::Mutex<upstream_sv2::Upstream>>,
         locking_privkey: Option<&str>
     ) -> Result<u64> {
-        tracing::info!("🔄 Starting process_stored_quotes sweep");
-        
-        // Get the quote tracker from the upstream
-        tracing::debug!("📡 Attempting to access quote tracker from upstream");
-        let quote_tracker = match upstream.safe_lock(|u| u.quote_tracker.clone()) {
-            Ok(tracker) => {
-                tracing::debug!("✅ Successfully got quote tracker from upstream");
-                tracker
-            },
+        let all_quotes = match wallet.localstore.get_mint_quotes().await {
+            Ok(quotes) => quotes,
             Err(e) => {
-                tracing::error!("❌ Failed to access quote tracker: {}", e);
+                tracing::error!("Failed to fetch quotes from wallet: {}", e);
                 return Ok(0);
             }
         };
-
-        // Get all stored quotes from the tracker
-        tracing::debug!("🔒 Acquiring lock on quotes HashMap");
-        let quotes = quote_tracker.quotes.lock().await;
-        let quote_count = quotes.len();
-        let quote_ids: Vec<String> = quotes.values().cloned().collect();
-        tracing::info!("📊 Found {} quotes in tracker HashMap", quote_count);
         
-        // Release the lock early to avoid holding it during minting
-        drop(quotes);
+        let pending_quotes: Vec<_> = all_quotes.into_iter()
+            .filter(|q| matches!(q.state, MintQuoteState::Paid) && q.amount_mintable() > Amount::ZERO)
+            .collect();
+        
+        let quote_ids: Vec<String> = pending_quotes.iter().map(|q| q.id.clone()).collect();
 
         if quote_ids.is_empty() {
-            tracing::debug!("📭 No quotes found in tracker, returning 0");
             return Ok(0);
         }
 
         let mut total_minted = 0u64;
         
-        for (index, quote_id) in quote_ids.iter().enumerate() {
-            tracing::debug!("🎫 Processing quote {}/{}: {}", index + 1, quote_ids.len(), quote_id);
-            
-            // First, fetch quote details from the mint and add to wallet
+        for quote_id in quote_ids.iter() {
             match Self::fetch_and_add_quote_to_wallet(wallet, quote_id).await {
                 Ok(_) => {
-                    tracing::debug!("📥 Successfully added quote {} to wallet", quote_id);
                     
                     // Get the quote details we just fetched
                     match wallet.mint_quote_state_mining_share(quote_id).await {
@@ -571,40 +555,25 @@ impl TranslatorSv2 {
                                 Ok(proofs) => {
                                     let amount: u64 = proofs.iter().map(|p| u64::from(p.amount)).sum();
                                     total_minted += amount;
-                                    tracing::info!("✅ Successfully minted {} ehash from quote {}", amount, quote_id);
-                                    
-                                    // Remove the successfully minted quote from the tracker
-                                    let mut quotes = quote_tracker.quotes.lock().await;
-                                    // Find and remove the key that corresponds to this quote_id
-                                    let key_to_remove = quotes.iter()
-                                        .find(|(_, v)| **v == *quote_id)
-                                        .map(|(k, _)| k.clone());
-                                    
-                                    if let Some(key) = key_to_remove {
-                                        quotes.remove(&key);
-                                        tracing::debug!("🗑️ Removed successfully minted quote {} from tracker", quote_id);
-                                    }
                                 }
                                 Err(e) => {
-                                    tracing::warn!("⚠️ Failed to mint quote {}: {}", quote_id, e);
-                                    // Continue processing other quotes
+                                    tracing::warn!("Failed to mint quote {}: {}", quote_id, e);
                                 }
                             }
                         }
                         Err(e) => {
-                            tracing::warn!("⚠️ Failed to get quote details for {}: {}", quote_id, e);
+                            tracing::warn!("Failed to get quote details for {}: {}", quote_id, e);
                         }
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("⚠️ Failed to fetch quote {} details: {}", quote_id, e);
-                    // Continue processing other quotes
+                    tracing::warn!("Failed to fetch quote {} details: {}", quote_id, e);
                 }
             }
         }
 
         if total_minted > 0 {
-            tracing::info!("🎉 Total minted from {} quotes: {} ehash", quote_ids.len(), total_minted);
+            tracing::info!("Minted {} ehash from {} quotes", total_minted, quote_ids.len());
         } else {
             tracing::warn!("😞 No tokens were minted from any quotes");
         }
