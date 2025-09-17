@@ -40,7 +40,7 @@ bip39 = { version = "2.0", features = ["rand"] }
 mining_sv2 = { version = "^1.0.0", path = "../../protocols/v2/subprotocols/mining" }
 mint_quote_sv2 = { version = "^1.0.0", path = "../../protocols/v2/subprotocols/mint-quote" }
 bitcoin = { version= "0.32.2" }
-cdk = { git = "https://github.com/vnprc/cdk", rev = "0315c1f2" }
+cdk = { git = "https://github.com/vnprc/cdk", rev = "03041c5c" }
 bitcoin_hashes = { version = "0.16", features = ["serde"] }
 shared_config = { path = "../roles-utils/config" }
 mint_pool_messaging = { path = "../roles-utils/mint-pool-messaging" }

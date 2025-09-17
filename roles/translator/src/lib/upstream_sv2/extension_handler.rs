@@ -1,6 +1,6 @@
 use mining_sv2::{MintQuoteNotification, MintQuoteFailure};
-use tracing::{debug, info, warn};
-use super::quote_tracker::QuoteTracker;
+use tracing::{debug, info, warn, error};
+use cdk::wallet::Wallet;
 use std::sync::Arc;
 
 // Message type constants for extension messages
@@ -11,7 +11,7 @@ const MESSAGE_TYPE_MINT_QUOTE_FAILURE: u8 = 0xC1;
 pub async fn handle_extension_message(
     message_type: u8,
     payload: &[u8],
-    quote_tracker: Arc<QuoteTracker>,
+    wallet: Arc<Wallet>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     debug!("🎯 Handling extension message type: 0x{:02x}, payload length: {}", message_type, payload.len());
     
@@ -27,11 +27,17 @@ pub async fn handle_extension_message(
                 notification.quote_id.inner_as_ref()
             ).to_string();
             
-            info!("Received mint quote {} for share {:?}", 
-                  quote_id, share_hash);
+            info!("Received mint quote {} for share {}", 
+                  quote_id, hex::encode(&share_hash));
             
-            // Store quote for later ecash minting
-            quote_tracker.store_quote(share_hash, quote_id).await;
+            match wallet.mint_quote_state_mining_share(&quote_id).await {
+                Ok(_) => {
+                    info!("Persisted quote {} to wallet database", quote_id);
+                }
+                Err(e) => {
+                    error!("Failed to fetch and persist quote {}: {:?}", quote_id, e);
+                }
+            }
             
             Ok(())
         }
