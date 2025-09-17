@@ -10,7 +10,7 @@ echo "Hashpool Health Check"
 echo "===================="
 
 # Check systemd services
-services=("hashpool-mint" "hashpool-pool" "hashpool-translator" "hashpool-jd-server" "hashpool-jd-client")
+services=("bitcoind-sv2" "hashpool-mint" "hashpool-pool" "hashpool-translator" "hashpool-jd-server" "hashpool-jd-client")
 
 for service in "${services[@]}"; do
     if systemctl is-active --quiet "$service"; then
@@ -26,9 +26,9 @@ echo "-----------"
 
 # Check ports
 ports=(
+    "48332:Bitcoin SV2 RPC"
     "3338:Mint HTTP"
     "34254:Pool SV2"
-    "48332:Bitcoin Test RPC" 
     "34255:Translator SV1"
     "34260:Pool-Mint Internal"
     "34264:JD Server"
@@ -68,9 +68,25 @@ else
 fi
 
 echo
+echo "Bitcoin RPC Check:"
+echo "-----------------"
+if command -v /opt/hashpool/bin/bitcoin-cli-sv2 >/dev/null 2>&1; then
+    if /opt/hashpool/bin/bitcoin-cli-sv2 -testnet4 -rpcuser=username -rpcpassword=password -rpcport=48332 getblockchaininfo >/dev/null 2>&1; then
+        echo -e "Bitcoin RPC: ${GREEN}Connected${NC}"
+        BLOCK_COUNT=$(/opt/hashpool/bin/bitcoin-cli-sv2 -testnet4 -rpcuser=username -rpcpassword=password -rpcport=48332 getblockcount 2>/dev/null)
+        echo "  Block height: ${BLOCK_COUNT:-Unknown}"
+    else
+        echo -e "Bitcoin RPC: ${RED}Not responding${NC}"
+    fi
+else
+    echo -e "Bitcoin CLI: ${YELLOW}Not installed${NC}"
+fi
+
+echo
 echo "Recent Logs:"
 echo "-----------"
 echo "Use these commands to view logs:"
+echo "  sudo journalctl -u bitcoind-sv2 -n 10"
 echo "  sudo journalctl -u hashpool-mint -n 10"
 echo "  sudo journalctl -u hashpool-pool -n 10"
 echo "  sudo journalctl -u hashpool-translator -n 10"

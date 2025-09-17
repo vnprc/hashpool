@@ -40,7 +40,8 @@ sudo apt-get install -y \
     curl \
     cmake \
     clang \
-    protobuf-compiler
+    protobuf-compiler \
+    wget
 
 # Install Rust if not present
 if ! command -v cargo &> /dev/null; then
@@ -65,6 +66,33 @@ sudo chown -R $HASHPOOL_USER:$HASHPOOL_USER $LOG_DIR
 sudo chmod 750 $DATA_DIR
 sudo chmod 755 $CONFIG_DIR
 
+# Step 2.5: Install Bitcoin SV2
+echo -e "\n${YELLOW}Step 2.5: Installing Bitcoin SV2...${NC}"
+
+# Platform detection (for Ubuntu VPS)
+PLATFORM="x86_64-linux-gnu"
+BITCOIN_VERSION="sv2-tp-0.1.17"
+BITCOIN_URL="https://github.com/Sjors/bitcoin/releases/download/${BITCOIN_VERSION}/bitcoin-${BITCOIN_VERSION}-${PLATFORM}.tar.gz"
+
+echo "Downloading Bitcoin SV2 from: $BITCOIN_URL"
+cd /tmp
+wget -q "$BITCOIN_URL" || {
+    echo -e "${RED}Failed to download Bitcoin SV2${NC}"
+    exit 1
+}
+
+echo "Extracting Bitcoin SV2..."
+tar -xzf "bitcoin-${BITCOIN_VERSION}-${PLATFORM}.tar.gz"
+
+echo "Installing Bitcoin SV2 binaries..."
+sudo install -m 755 "bitcoin-${BITCOIN_VERSION}/bin/bitcoind" $HASHPOOL_HOME/bin/bitcoind-sv2
+sudo install -m 755 "bitcoin-${BITCOIN_VERSION}/bin/bitcoin-cli" $HASHPOOL_HOME/bin/bitcoin-cli-sv2
+
+# Cleanup
+rm -rf "bitcoin-${BITCOIN_VERSION}"*
+
+echo -e "${GREEN}Bitcoin SV2 installed successfully${NC}"
+
 # Step 3: Build from source
 echo -e "\n${YELLOW}Step 3: Building Hashpool from source...${NC}"
 
@@ -80,7 +108,7 @@ fi
 
 # Clone fresh copy
 echo "Cloning hashpool repository..."
-git clone https://github.com/vnprc/hashpool.git "$BUILD_DIR"
+git clone -b deploy-test https://github.com/vnprc/hashpool.git "$BUILD_DIR"
 cd "$BUILD_DIR/roles"
 
 # Build all binaries
@@ -147,12 +175,38 @@ ReadWritePaths=$DATA_DIR/mint $LOG_DIR
 WantedBy=multi-user.target
 EOF
 
+# Bitcoin SV2 service  
+sudo tee /etc/systemd/system/bitcoind-sv2.service > /dev/null <<EOF
+[Unit]
+Description=Bitcoin SV2 Daemon
+After=network.target
+
+[Service]
+Type=simple
+User=$HASHPOOL_USER
+Group=$HASHPOOL_USER
+Environment="RUST_LOG=info"
+ExecStart=$HASHPOOL_HOME/bin/bitcoind-sv2 -testnet4 -server=1 -rpcuser=username -rpcpassword=password -rpcport=48332 -rpcallowip=127.0.0.1 -datadir=$DATA_DIR/bitcoind
+Restart=on-failure
+RestartSec=10
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=$DATA_DIR/bitcoind $LOG_DIR
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 # Pool service
 sudo tee /etc/systemd/system/hashpool-pool.service > /dev/null <<EOF
 [Unit]
 Description=Hashpool Pool (Stratum V2 Pool)
-After=network.target hashpool-mint.service
-Wants=hashpool-mint.service
+After=network.target hashpool-mint.service bitcoind-sv2.service
+Wants=hashpool-mint.service bitcoind-sv2.service
 
 [Service]
 Type=simple
@@ -259,6 +313,7 @@ EOF
 # Step 7: Enable and start services
 echo -e "\n${YELLOW}Step 7: Enabling systemd services...${NC}"
 sudo systemctl daemon-reload
+sudo systemctl enable bitcoind-sv2
 sudo systemctl enable hashpool-mint
 sudo systemctl enable hashpool-pool
 sudo systemctl enable hashpool-translator
@@ -268,6 +323,7 @@ sudo systemctl enable hashpool-jd-client
 echo -e "\n${GREEN}Deployment complete!${NC}"
 echo
 echo "To start the services, run:"
+echo "  sudo systemctl start bitcoind-sv2"
 echo "  sudo systemctl start hashpool-mint"
 echo "  sudo systemctl start hashpool-pool"
 echo "  sudo systemctl start hashpool-translator"
