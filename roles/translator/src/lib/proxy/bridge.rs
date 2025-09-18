@@ -268,7 +268,7 @@ impl Bridge {
                 );
             }
             Ok(Ok(OnNewShare::SendSubmitShareUpstream((share, _)))) => {
-                info!("SHARE MEETS UPSTREAM TARGET");
+                debug!("SHARE MEETS UPSTREAM TARGET");
                 match share {
                     Share::Extended(share) => {
                         // Record share hash for quote sweeping
@@ -307,7 +307,7 @@ impl Bridge {
         sv1_submit: Submit,
         version_rolling_mask: Option<HexU32Be>,
     ) -> ProxyResult<'static, SubmitSharesExtended<'static>> {
-        tracing::info!("Processing share submission for channel {} with job_id {}", channel_id, sv1_submit.job_id);
+        tracing::debug!("Processing share submission for channel {} with job_id {}", channel_id, sv1_submit.job_id);
         tracing::debug!("Getting last valid job version from channel factory");
         let last_version = self
             .channel_factory

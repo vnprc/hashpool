@@ -27,12 +27,12 @@ pub async fn handle_extension_message(
                 notification.quote_id.inner_as_ref()
             ).to_string();
             
-            info!("Received mint quote {} for share {}", 
+            debug!("Received mint quote {} for share {}", 
                   quote_id, hex::encode(&share_hash));
             
             match wallet.mint_quote_state_mining_share(&quote_id).await {
                 Ok(_) => {
-                    info!("Persisted quote {} to wallet database", quote_id);
+                    debug!("Persisted quote {} to wallet database", quote_id);
                 }
                 Err(e) => {
                     error!("Failed to fetch and persist quote {}: {:?}", quote_id, e);
