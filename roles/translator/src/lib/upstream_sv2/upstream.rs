@@ -339,7 +339,7 @@ impl Upstream {
                 
                 // Check if this is an extension message (0xC0-0xFF range)
                 if message_type >= 0xC0 && message_type <= 0xFF {
-                    info!("📨 Processing extension message type: 0x{:02x}", message_type);
+                    debug!("📨 Processing extension message type: 0x{:02x}", message_type);
                     // Handle extension message
                     let wallet = self_.safe_lock(|s| s.wallet.clone())
                         .unwrap_or_else(|e| {

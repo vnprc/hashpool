@@ -438,14 +438,9 @@ impl TranslatorSv2 {
                 tracing::debug!("📞 About to call process_stored_quotes");
                 match Self::process_stored_quotes(&wallet, locking_privkey.as_deref()).await {
                     Ok(minted_amount) => {
-                        tracing::info!("✅ process_stored_quotes returned: minted_amount = {}", minted_amount);
-                        
-                        // the people need ehash, let's give it to them (only if we minted some tokens)
-                        if minted_amount > 0 {
-                            tracing::info!("🎁 Generating single ehash token since we minted {} tokens", minted_amount);
-                            Self::generate_single_ehash_token(&wallet).await;
-                        } else {
-                            tracing::debug!("⏭️ Skipping ehash token generation - no tokens were minted");
+                        // Log wallet balance after processing
+                        if let Ok(balance) = wallet.total_balance().await {
+                            tracing::info!("💰 Wallet balance after sweep: {} sats", balance);
                         }
                     }
                     Err(e) => {
@@ -454,41 +449,11 @@ impl TranslatorSv2 {
                     }
                 }
 
-                tracing::debug!("😴 Proof sweeper sleeping for 60 seconds...");
-                tokio::time::sleep(Duration::from_secs(60)).await;
+                tracing::debug!("😴 Proof sweeper sleeping for 15 seconds...");
+                tokio::time::sleep(Duration::from_secs(15)).await;
                 tracing::debug!("⏰ Proof sweeper woke up from sleep");
             }
         });
-    }
-
-    async fn generate_single_ehash_token(wallet: &Arc<Wallet>) {
-        tracing::debug!("Creating single ehash token for distribution");
-        
-        let options = cdk::wallet::SendOptions {
-            memo: None,
-            conditions: None,
-            amount_split_target: SplitTarget::None,
-            send_kind: cdk::wallet::SendKind::OnlineExact,
-            include_fee: false,
-            metadata: std::collections::HashMap::new(),
-            max_proofs: None,
-        };
-        
-        match wallet.prepare_send(cdk::Amount::from(1), options).await {
-            Ok(send) => {
-                match send.confirm(None).await {
-                    Ok(token) => {
-                        tracing::info!("Generated ehash token: {}", token);
-                    },
-                    Err(e) => {
-                        tracing::error!("Failed to generate ehash token: {}", e);
-                    }
-                }
-            },
-            Err(e) => {
-                tracing::error!("Failed to prepare send for ehash token: {}", e);
-            }
-        }
     }
 
     async fn process_stored_quotes(
@@ -503,9 +468,21 @@ impl TranslatorSv2 {
             }
         };
         
+        // Log wallet balance first
+        match wallet.total_balance().await {
+            Ok(balance) => {
+                tracing::info!("💰 Current wallet balance: {} diff", balance);
+            }
+            Err(e) => {
+                tracing::error!("Failed to get wallet balance: {}", e);
+            }
+        }
+        
         let pending_quotes: Vec<_> = all_quotes.into_iter()
             .filter(|q| matches!(q.state, MintQuoteState::Paid) && q.amount_mintable() > Amount::ZERO)
             .collect();
+        
+        tracing::info!("📋 Found {} quotes in Paid state with mintable amount", pending_quotes.len());
         
         let quote_ids: Vec<String> = pending_quotes.iter().map(|q| q.id.clone()).collect();
 
@@ -577,8 +554,6 @@ impl TranslatorSv2 {
         } else {
             tracing::warn!("😞 No tokens were minted from any quotes");
         }
-
-        tracing::info!("🏁 process_stored_quotes finished");
         Ok(total_minted)
     }
 
