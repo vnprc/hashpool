@@ -855,7 +855,29 @@ impl ChannelFactory {
         }
         let hash: Target = hash.into();
 
-        if hash <= bitcoin_target {
+        // Convert to bytes for manual big-endian comparison (fixes endianness bug)
+        let hash_bytes = {
+            let mut h = hash_.as_hash().into_inner();
+            h.reverse();
+            h.to_vec()
+        };
+        let bitcoin_target_bytes = {
+            let bt: binary_sv2::U256 = bitcoin_target.clone().into();
+            bt.to_vec()
+        };
+        let upstream_target_bytes = {
+            let ut: binary_sv2::U256 = upstream_target.clone().into();
+            ut.to_vec()
+        };
+        let downstream_target_bytes = {
+            let dt: binary_sv2::U256 = downstream_target.clone().into();
+            dt.to_vec()
+        };
+        
+        let manual_hash_be_upstream = hash_bytes <= upstream_target_bytes;
+        let manual_hash_be_downstream = hash_bytes <= downstream_target_bytes;
+        let manual_hash_be_bitcoin = hash_bytes <= bitcoin_target_bytes;
+        if manual_hash_be_bitcoin {
             let mut print_hash = hash_.as_hash().into_inner();
             print_hash.reverse();
 
@@ -887,7 +909,7 @@ impl ChannelFactory {
                     extranonce.to_vec(),
                 ))),
             }
-        } else if hash <= upstream_target {
+        } else if manual_hash_be_upstream {
             match self.kind {
                 ExtendedChannelKind::Proxy { .. } | ExtendedChannelKind::ProxyJd { .. } => {
                     let upstream_extranonce_space = self.extranonces.get_range0_len();
@@ -900,10 +922,9 @@ impl ChannelFactory {
                     Ok(OnNewShare::SendSubmitShareUpstream((m, template_id)))
                 }
             }
-        } else if hash <= downstream_target {
+        } else if manual_hash_be_downstream {
             Ok(OnNewShare::ShareMeetDownstreamTarget)
         } else {
-            // error!("Share does not meet any target: {:?}", m);
             let error = SubmitSharesError {
                 channel_id: m.get_channel_id(),
                 sequence_number: m.get_sequence_number(),
