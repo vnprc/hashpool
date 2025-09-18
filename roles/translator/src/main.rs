@@ -47,6 +47,11 @@ fn process_cli_args<'a>() -> ProxyResult<'a, (ProxyConfig, MinerGlobalConfig)> {
 
 #[tokio::main]
 async fn main() {
+    // Initialize rustls crypto provider to fix HTTP client panics
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install default crypto provider");
+    
     tracing_subscriber::fmt::init();
 
     let (mut proxy_config, global_config) = match process_cli_args() {
