@@ -224,12 +224,17 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
         _m: Option<Arc<Mutex<()>>>,
     ) -> Result<SendTo<()>, Error> {
         let header_only = self.downstream_data.header_only;
+        
+        // Use a fixed hashrate to prevent DOS and ensure consistent difficulty
+        // TODO: Move this to pool config file as 'fixed_minimum_hashrate'
+        let fixed_low_hashrate = 10_000_000_000_000.0; // 10 TH/s - ~30 leading zeros
+        
         let reposnses = self
             .channel_factory
             .safe_lock(|factory| {
                 match factory.add_standard_channel(
                     incoming.request_id.as_u32(),
-                    incoming.nominal_hash_rate,
+                    fixed_low_hashrate, // Use fixed rate instead of incoming.nominal_hash_rate
                     header_only,
                     self.id,
                 ) {
@@ -256,7 +261,9 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
         m: OpenExtendedMiningChannel,
     ) -> Result<SendTo<()>, Error> {
         let request_id = m.request_id;
-        let hash_rate = m.nominal_hash_rate;
+        // Use fixed hashrate for extended channels too
+        // TODO: Move this to pool config file as 'fixed_minimum_hashrate'  
+        let hash_rate = 10_000_000_000_000.0; // 10 TH/s - consistent with standard channels
         let min_extranonce_size = m.min_extranonce_size;
         let messages_res = self
             .channel_factory
@@ -272,6 +279,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
     }
 
     fn handle_update_channel(&mut self, m: UpdateChannel) -> Result<SendTo<()>, Error> {
+        // Still track the reported hashrate for monitoring purposes
         let maximum_target =
             roles_logic_sv2::utils::hash_rate_to_target(m.nominal_hash_rate.into(), 10.0)?;
         self.channel_factory
@@ -279,9 +287,24 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
             .unwrap_or_else(|_| {
                 std::process::exit(1);
             });
+        
+        // TODO: Implement progressive fee structure based on share difficulty
+        // Higher difficulty shares should receive lower fees to incentivize 
+        // miners to submit fewer, higher-quality shares. This reduces network
+        // overhead and allows for better pool scalability.
+        // 
+        // Example fee structure:
+        // - Difficulty < 1K: 3% fee
+        // - Difficulty 1K-10K: 2% fee  
+        // - Difficulty 10K-100K: 1% fee
+        // - Difficulty > 100K: 0.5% fee
+        
+        // Use a fixed higher difficulty to prevent DOS - approximately 30 leading zeros
+        // TODO: Move this to pool config file as 'fixed_minimum_hashrate'
+        let fixed_low_target = roles_logic_sv2::utils::hash_rate_to_target(10_000_000_000_000.0, 10.0)?;
         let set_target = SetTarget {
             channel_id: m.channel_id,
-            maximum_target,
+            maximum_target: fixed_low_target,
         };
         Ok(SendTo::Respond(Mining::SetTarget(set_target)))
     }
