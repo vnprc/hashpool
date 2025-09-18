@@ -56,6 +56,9 @@ hex = "0.4"
 cdk = { git = "https://github.com/vnprc/cdk.git", package = "cdk", rev = "03041c5c" }
 cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", package = "cdk-sqlite", rev = "03041c5c" }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+hyper = { version = "1.0", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+http-body-util = "0.1"
 
 [dev-dependencies]
 sha2 = "0.10.6"

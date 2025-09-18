@@ -36,6 +36,7 @@ pub mod proxy_config;
 pub mod status;
 pub mod upstream_sv2;
 pub mod utils;
+pub mod web;
 
 // TODO add to config
 pub const HASH_CURRENCY_UNIT: &str = "HASH";
@@ -159,7 +160,18 @@ impl TranslatorSv2 {
                 .expect("Failed to add mint to localstore");
         }
 
-        self.wallet = Some(wallet);
+        self.wallet = Some(wallet.clone());
+
+        // Start web server
+        if let Some(wallet_ref) = &self.wallet {
+            let web_port = self.config.web_port;
+            let wallet_for_web = wallet_ref.clone();
+            tokio::spawn(async move {
+                if let Err(e) = web::start_web_server(wallet_for_web, web_port).await {
+                    error!("Web server error: {}", e);
+                }
+            });
+        }
 
         let (tx_status, rx_status) = unbounded();
 

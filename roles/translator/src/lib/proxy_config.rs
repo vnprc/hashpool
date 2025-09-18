@@ -16,6 +16,12 @@ pub struct ProxyConfig {
     pub upstream_difficulty_config: UpstreamDifficultyConfig,
     pub mint: Option<MintConfig>,
     pub wallet: WalletConfig,
+    #[serde(default = "default_web_port")]
+    pub web_port: u16,
+}
+
+fn default_web_port() -> u16 {
+    3030
 }
 
 pub struct UpstreamConfig {
@@ -79,6 +85,7 @@ impl ProxyConfig {
             upstream_difficulty_config: upstream.difficulty_config,
             mint: None,
             wallet,
+            web_port: default_web_port(),
         }
     }
 }
