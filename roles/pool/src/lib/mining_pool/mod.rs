@@ -217,6 +217,8 @@ pub struct Pool {
     sv2_config: Option<Sv2MessagingConfig>,
     mint_connections: HashMap<SocketAddr, Sender<EitherFrame>>,
     pending_share_manager: Arc<pending_shares::PendingShareManager>,
+    /// Maps channel_id (from mining protocol) to downstream_id (connection identifier)
+    channel_to_downstream: HashMap<u32, u32, BuildNoHashHasher<u32>>,
 }
 
 impl Downstream {
@@ -818,6 +820,7 @@ impl Pool {
             sv2_config: sv2_config.clone(),
             mint_connections: HashMap::new(),
             pending_share_manager: Arc::new(pending_shares::PendingShareManager::new()),
+            channel_to_downstream: HashMap::with_hasher(BuildNoHashHasher::default()),
         }));
 
         let cloned = pool.clone();
@@ -962,18 +965,29 @@ impl Pool {
         // Create Mining message wrapper
         let mining_message = Mining::MintQuoteNotification(notification);
         
-        // Get all downstreams and find the one we need (following existing pattern)
-        let downstreams = self_.safe_lock(|p| p.downstreams.clone())
-            .map_err(|e| format!("Failed to lock pool: {}", e))?;
+        // Get the downstream ID from channel ID mapping
+        let (downstreams, downstream_id) = self_.safe_lock(|p| {
+            let downstream_id = p.channel_to_downstream.get(&channel_id).copied();
+            (p.downstreams.clone(), downstream_id)
+        }).map_err(|e| format!("Failed to lock pool: {}", e))?;
         
-        if let Some(downstream) = downstreams.get(&channel_id) {
-            // Use the existing infrastructure to send the message
-            Downstream::match_send_to(
-                downstream.clone(),
-                Ok(SendTo::Respond(mining_message))
-            ).await.map_err(|e| format!("Failed to send extension message: {:?}", e))?;
+        // Debug: log available mappings
+        let available_ids: Vec<u32> = downstreams.keys().cloned().collect();
+        debug!("Available downstream IDs: {:?}, looking for channel_id: {}, mapped to downstream_id: {:?}", 
+               available_ids, channel_id, downstream_id);
+        
+        if let Some(downstream_id) = downstream_id {
+            if let Some(downstream) = downstreams.get(&downstream_id) {
+                // Use the existing infrastructure to send the message
+                Downstream::match_send_to(
+                    downstream.clone(),
+                    Ok(SendTo::Respond(mining_message))
+                ).await.map_err(|e| format!("Failed to send extension message: {:?}", e))?;
+            } else {
+                return Err(format!("Downstream not found for downstream_id: {}", downstream_id).into());
+            }
         } else {
-            return Err("Downstream not found for channel".into());
+            return Err(format!("No downstream mapping found for channel_id: {}", channel_id).into());
         }
         
         info!("✅ Successfully sent MintQuoteNotification to channel {}", channel_id);
