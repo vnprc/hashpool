@@ -79,6 +79,7 @@ const HTML_PAGE: &str = r#"<!DOCTYPE html>
             margin: 20px 0; 
             padding: 10px; 
             border: 1px solid #00ff00; 
+            display: inline-block;
         }
         .offline { 
             color: #ff4444; 
@@ -104,11 +105,10 @@ const HTML_PAGE: &str = r#"<!DOCTYPE html>
             <a href="/">📊 Balance</a> | <a href="/faucet">🚰 Faucet</a>
         </div>
         
-        <h1>📊 Ehash Balance</h1>
+        <h1>Ehash Balance</h1>
         <div class="status" id="status">Connecting...</div>
         <div class="balance" id="balance">---</div>
         <div class="unit">HASH</div>
-        <p>Balance updates in real-time as shares are accepted</p>
         <div id="debug" style="margin-top: 20px; font-size: 0.8em; opacity: 0.6;"></div>
     </div>
     
@@ -119,17 +119,20 @@ const HTML_PAGE: &str = r#"<!DOCTYPE html>
         
         function log(msg) {
             console.log(msg);
-            debugEl.textContent = new Date().toLocaleTimeString() + ': ' + msg;
+            if (debugEl) {
+                debugEl.textContent = new Date().toLocaleTimeString() + ': ' + msg;
+            }
         }
         
         function updateBalance() {
+            if (!statusEl || !balanceEl) return; // Skip if elements don't exist
+            
             fetch('/balance')
                 .then(response => response.json())
                 .then(data => {
                     statusEl.textContent = '🟢 Connected';
                     statusEl.className = 'status';
                     balanceEl.textContent = data.balance.toLocaleString();
-                    log('Balance updated: ' + data.balance);
                 })
                 .catch(e => {
                     statusEl.textContent = '🔴 Connection Lost';
@@ -205,17 +208,6 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
         #qr-canvas {
             background: white;
         }
-        .token-info {
-            font-size: 0.8em;
-            margin: 20px 0;
-            padding: 15px;
-            border: 1px solid #00ff00;
-            background: #222;
-            word-break: break-all;
-            max-height: 150px;
-            overflow-y: auto;
-            font-family: 'Courier New', monospace;
-        }
         .status { 
             margin: 20px 0; 
             padding: 10px; 
@@ -281,23 +273,21 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
             <a href="/">📊 Balance</a> | <a href="/faucet">🚰 Faucet</a>
         </div>
         
-        <h1>🚰 Ehash Faucet</h1>
+        <h1>Ehash Faucet</h1>
         <p>Get free ehash tokens for testing!</p>
         
         <button class="faucet-button" id="drip-btn" onclick="requestDrip()">
-            💧 Request Tokens
+            Request Tokens
         </button>
         
         <div class="status" id="status"></div>
         
         <div class="qr-container" id="qr-container">
-            <h3>🎫 Your Token</h3>
             <canvas id="qr-canvas" class="qr-code" onclick="copyToken()" title="Click to copy token" width="400" height="400"></canvas>
             <div style="margin: 10px 0;">
                 <span id="qr-status" style="font-size: 0.9em; color: #00ff00;"></span>
             </div>
-            <div class="token-info" id="token-info" style="display: none;"></div>
-            <p>👆 Click QR to copy token • Animated UR codes work with compatible wallets</p>
+            <p>👆 click to copy</p>
         </div>
     </div>
     
@@ -320,17 +310,16 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
                 const data = await response.json();
                 
                 if (response.ok && data.success) {
-                    status.textContent = `✅ Success! Minted ${data.amount} ehash tokens (${data.token.length} chars)`;
+                    status.textContent = `✅ Success! Minted ${data.amount} ehash tokens`;
                     status.className = 'status success';
                     
                     // Generate QR code for the token
                     generateQR(data.token);
-                    document.getElementById('token-info').textContent = data.token;
                     qrContainer.style.display = 'block';
                     
                     // Re-enable button immediately - server handles rate limiting
                     btn.disabled = false;
-                    btn.textContent = '💧 Request Tokens';
+                    btn.textContent = 'Request Tokens';
                 } else {
                     throw new Error(data.error || 'Unknown error');
                 }
@@ -348,7 +337,7 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
                 status.textContent = `❌ Error: ${error.message}`;
                 status.className = 'status error';
                 btn.disabled = false;
-                btn.textContent = '💧 Request Tokens';
+                btn.textContent = 'Request Tokens';
             }
         }
         
@@ -369,7 +358,7 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
                     // Countdown finished
                     clearInterval(countdownTimer);
                     btn.disabled = false;
-                    btn.textContent = '💧 Request Tokens';
+                    btn.textContent = 'Request Tokens';
                     status.textContent = '';
                     status.className = 'status';
                     countdownTimer = null;
@@ -392,13 +381,8 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
             
             console.log('Generating QR for token length:', token.length);
             
-            // Always show token info for debugging
-            document.getElementById('token-info').textContent = token;
-            document.getElementById('token-info').style.display = 'block';
-            
             try {
                 generateQRCode(canvas, token);
-                status.textContent = `✅ QR Code Generated (${token.length} chars)`;
             } catch (error) {
                 console.error('QR generation failed:', error);
                 status.textContent = `❌ QR generation failed: ${error.message}`;
