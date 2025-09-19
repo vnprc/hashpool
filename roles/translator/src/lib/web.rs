@@ -186,11 +186,12 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
             cursor: not-allowed;
         }
         .qr-container {
-            margin: 30px 0;
+            margin: 30px auto;
             padding: 20px;
             border: 1px solid #00ff00;
             background: #222;
             display: none;
+            width: fit-content;
         }
         .qr-code {
             margin: 20px 0;
@@ -281,7 +282,7 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
         </div>
         
         <h1>🚰 Ehash Faucet</h1>
-        <p>Get free 32 diff ehash tokens for testing!</p>
+        <p>Get free ehash tokens for testing!</p>
         
         <button class="faucet-button" id="drip-btn" onclick="requestDrip()">
             💧 Request Tokens
