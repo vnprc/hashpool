@@ -136,7 +136,7 @@ fn create_mint_quote_request(
         description,
         locking_key,
     };
-    
+
     Ok(request.into_static())
 }
 
@@ -249,8 +249,21 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                 }
             })
             .map_err(|e| roles_logic_sv2::Error::PoisonLock(e.to_string()))??;
+        
+        // Extract channel_id from the OpenStandardMiningChannelSuccess response and add to mapping
         let mut result = vec![];
         for response in reposnses {
+            if let Mining::OpenStandardMiningChannelSuccess(ref success) = response {
+                // Add mapping from channel_id to downstream_id
+                if let Ok(_) = self.pool.safe_lock(|p| {
+                    p.channel_to_downstream.insert(success.channel_id, self.id);
+                    debug!("Added channel mapping: channel_id {} -> downstream_id {}", success.channel_id, self.id);
+                }) {
+                    // Successfully added mapping
+                } else {
+                    error!("Failed to add channel mapping for channel_id: {}", success.channel_id);
+                }
+            }
             result.push(SendTo::Respond(response.into_static()))
         }
         Ok(SendTo::Multiple(result))
@@ -271,8 +284,23 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
             .map_err(|e| roles_logic_sv2::Error::PoisonLock(e.to_string()))?;
         match messages_res {
             Ok(messages) => {
-                let messages = messages.into_iter().map(SendTo::Respond).collect();
-                Ok(SendTo::Multiple(messages))
+                let mut result = vec![];
+                for message in messages {
+                    // Extract channel_id from OpenExtendedMiningChannelSuccess and add to mapping
+                    if let Mining::OpenExtendedMiningChannelSuccess(ref success) = message {
+                        // Add mapping from channel_id to downstream_id
+                        if let Ok(_) = self.pool.safe_lock(|p| {
+                            p.channel_to_downstream.insert(success.channel_id, self.id);
+                            debug!("Added extended channel mapping: channel_id {} -> downstream_id {}", success.channel_id, self.id);
+                        }) {
+                            // Successfully added mapping
+                        } else {
+                            error!("Failed to add extended channel mapping for channel_id: {}", success.channel_id);
+                        }
+                    }
+                    result.push(SendTo::Respond(message));
+                }
+                Ok(SendTo::Multiple(result))
             }
             Err(_) => Err(roles_logic_sv2::Error::ChannelIsNeitherExtendedNeitherInAPool),
         }
