@@ -38,9 +38,6 @@ pub mod upstream_sv2;
 pub mod utils;
 pub mod web;
 
-// TODO add to config
-pub const HASH_CURRENCY_UNIT: &str = "HASH";
-
 use std::{time::Duration, env};
 use anyhow::{Result, Context};
 
@@ -449,10 +446,10 @@ impl TranslatorSv2 {
                 // Process quotes using stored quotes from extension messages
                 tracing::debug!("📞 About to call process_stored_quotes");
                 match Self::process_stored_quotes(&wallet, locking_privkey.as_deref()).await {
-                    Ok(minted_amount) => {
+                    Ok(_minted_amount) => {
                         // Log wallet balance after processing
                         if let Ok(balance) = wallet.total_balance().await {
-                            tracing::info!("💰 Wallet balance after sweep: {} sats", balance);
+                            tracing::info!("💰 Wallet balance after sweep: {} diff", balance);
                         }
                     }
                     Err(e) => {

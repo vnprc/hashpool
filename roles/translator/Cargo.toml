@@ -59,6 +59,8 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 hyper = { version = "1.0", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"
+qrcode = "0.14"
+image = "0.24"
 
 [dev-dependencies]
 sha2 = "0.10.6"
