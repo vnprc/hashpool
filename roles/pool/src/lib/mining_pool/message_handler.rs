@@ -16,7 +16,7 @@ use roles_logic_sv2::{
 };
 use shared_config::Sv2MessagingConfig;
 use std::{convert::TryInto, sync::Arc};
-use tokio::time::Instant;
+use tokio::time::Instant as TokioInstant;
 use tracing::{error, info, debug};
 
 /// Creates a mint quote request and sends it via TCP and Redis
@@ -29,6 +29,25 @@ fn submit_quote(
         .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid header hash: {e}")))?;
     
     let amount = calculate_work(header_hash.to_byte_array());
+    
+    // Update downstream quote counter
+    let channel_id = m.channel_id;
+    let pool_clone_for_stats = pool.clone();
+    tokio::spawn(async move {
+        if let Ok((downstreams, downstream_id)) = pool_clone_for_stats.safe_lock(|p| {
+            let downstream_id = p.channel_to_downstream.get(&channel_id).copied();
+            (p.downstreams.clone(), downstream_id)
+        }) {
+            if let Some(id) = downstream_id {
+                if let Some(downstream) = downstreams.get(&id) {
+                    if let Ok(()) = downstream.safe_lock(|d| {
+                        let mut quotes = futures::executor::block_on(d.quotes_created.lock());
+                        *quotes += 1;
+                    }) {}
+                }
+            }
+        }
+    });
     
     // Send via TCP if SV2 messaging is enabled
     if let Some(config) = sv2_config {
@@ -259,7 +278,9 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                     p.channel_to_downstream.insert(success.channel_id, self.id);
                     debug!("Added channel mapping: channel_id {} -> downstream_id {}", success.channel_id, self.id);
                 }) {
-                    // Successfully added mapping
+                    // Successfully added mapping, now add to downstream's channel list
+                    let mut channels = futures::executor::block_on(self.channels.lock());
+                    channels.push(success.channel_id);
                 } else {
                     error!("Failed to add channel mapping for channel_id: {}", success.channel_id);
                 }
@@ -293,7 +314,9 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                             p.channel_to_downstream.insert(success.channel_id, self.id);
                             debug!("Added extended channel mapping: channel_id {} -> downstream_id {}", success.channel_id, self.id);
                         }) {
-                            // Successfully added mapping
+                            // Successfully added mapping, now add to downstream's channel list
+                            let mut channels = futures::executor::block_on(self.channels.lock());
+                            channels.push(success.channel_id);
                         } else {
                             error!("Failed to add extended channel mapping for channel_id: {}", success.channel_id);
                         }
@@ -408,6 +431,23 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::SendSubmitShareUpstream(_) => unreachable!(),
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::RelaySubmitShareUpstream => unreachable!(),
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetBitcoinTarget((share,t_id,coinbase,_)) => {
+                    // Update downstream stats
+                    let downstream_id_clone = self.id;
+                    let pool_clone = self.pool.clone();
+                    tokio::spawn(async move {
+                        if let Ok(()) = pool_clone.safe_lock(|p| {
+                            if let Some(downstream) = p.downstreams.get(&downstream_id_clone) {
+                                if let Ok(()) = downstream.safe_lock(|d| {
+                                    // Use block_on to increment counters
+                                    let mut shares = futures::executor::block_on(d.shares_submitted.lock());
+                                    *shares += 1;
+                                    let mut last_share = futures::executor::block_on(d.last_share_time.lock());
+                                    *last_share = Some(std::time::Instant::now());
+                                }) {}
+                            }
+                        }) {}
+                    });
+                    
                     if let Some(template_id) = t_id {
                         let solution = SubmitSolution {
                             template_id,
@@ -432,7 +472,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         share_hash: m.hash.inner_as_ref().to_vec(),
                         locking_pubkey: m.locking_pubkey.inner_as_ref().to_vec(),
                         amount,
-                        created_at: Instant::now(),
+                        created_at: TokioInstant::now(),
                     };
                     
                     // Add to pending shares
@@ -463,6 +503,23 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
 
                 },
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetDownstreamTarget => {
+                    // Update downstream stats
+                    let downstream_id_clone = self.id;
+                    let pool_clone = self.pool.clone();
+                    tokio::spawn(async move {
+                        if let Ok(()) = pool_clone.safe_lock(|p| {
+                            if let Some(downstream) = p.downstreams.get(&downstream_id_clone) {
+                                if let Ok(()) = downstream.safe_lock(|d| {
+                                    // Use block_on to increment counters
+                                    let mut shares = futures::executor::block_on(d.shares_submitted.lock());
+                                    *shares += 1;
+                                    let mut last_share = futures::executor::block_on(d.last_share_time.lock());
+                                    *last_share = Some(std::time::Instant::now());
+                                }) {}
+                            }
+                        }) {}
+                    });
+                    
                     // Calculate work amount
                     let hash_bytes: [u8; 32] = m.hash.inner_as_ref().try_into()
                         .map_err(|_| Error::ExpectedLen32(m.hash.inner_as_ref().len()))?;
@@ -475,7 +532,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         share_hash: m.hash.inner_as_ref().to_vec(),
                         locking_pubkey: m.locking_pubkey.inner_as_ref().to_vec(),
                         amount,
-                        created_at: Instant::now(),
+                        created_at: TokioInstant::now(),
                     };
                     
                     // Add to pending shares
