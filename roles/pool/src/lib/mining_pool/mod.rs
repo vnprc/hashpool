@@ -189,6 +189,12 @@ pub struct Downstream {
     channel_factory: Arc<Mutex<PoolChannelFactory>>,
     pool: Arc<Mutex<Pool>>,
     sv2_config: Option<Sv2MessagingConfig>,
+    // Stats tracking
+    pub address: SocketAddr,
+    pub shares_submitted: Arc<tokio::sync::Mutex<u64>>,
+    pub quotes_created: Arc<tokio::sync::Mutex<u64>>,
+    pub last_share_time: Arc<tokio::sync::Mutex<Option<std::time::Instant>>>,
+    pub channels: Arc<tokio::sync::Mutex<Vec<u32>>>,
 }
 
 // TODO remove after porting mint to use Sv2 data types
@@ -208,7 +214,7 @@ impl std::fmt::Debug for Downstream {
 
 /// Accept downstream connection
 pub struct Pool {
-    downstreams: HashMap<u32, Arc<Mutex<Downstream>>, BuildNoHashHasher<u32>>,
+    pub downstreams: HashMap<u32, Arc<Mutex<Downstream>>, BuildNoHashHasher<u32>>,
     solution_sender: Sender<SubmitSolution<'static>>,
     new_template_processed: bool,
     channel_factory: Arc<Mutex<PoolChannelFactory>>,
@@ -252,6 +258,11 @@ impl Downstream {
             channel_factory,
             pool: pool.clone(),
             sv2_config,
+            address,
+            shares_submitted: Arc::new(tokio::sync::Mutex::new(0)),
+            quotes_created: Arc::new(tokio::sync::Mutex::new(0)),
+            last_share_time: Arc::new(tokio::sync::Mutex::new(None)),
+            channels: Arc::new(tokio::sync::Mutex::new(Vec::new())),
         }));
 
         let cloned = self_.clone();
@@ -642,6 +653,10 @@ impl Pool {
         // For now, just return the first available mint connection
         // In production, you might want load balancing or specific routing
         self.mint_connections.values().next().cloned()
+    }
+
+    pub fn get_mint_connections(&self) -> &HashMap<SocketAddr, Sender<EitherFrame>> {
+        &self.mint_connections
     }
 
     async fn accept_incoming_connection_(
