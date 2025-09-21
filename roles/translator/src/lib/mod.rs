@@ -31,6 +31,7 @@ use crate::status::State;
 
 pub mod downstream_sv1;
 pub mod error;
+pub mod miner_stats;
 pub mod proxy;
 pub mod proxy_config;
 pub mod status;
@@ -47,6 +48,7 @@ pub struct TranslatorSv2 {
     reconnect_wait_time: u64,
     wallet: Option<Arc<Wallet>>,
     mint_client: HttpClient,
+    miner_tracker: Arc<miner_stats::MinerTracker>,
 }
 
 fn resolve_and_prepare_db_path(config_path: &str) -> PathBuf {
@@ -128,6 +130,7 @@ impl TranslatorSv2 {
             reconnect_wait_time: wait_time,
             wallet: None,
             mint_client: mint_client,
+            miner_tracker: Arc::new(miner_stats::MinerTracker::new()),
         }
     }
 
@@ -163,8 +166,9 @@ impl TranslatorSv2 {
         if let Some(wallet_ref) = &self.wallet {
             let web_port = self.config.web_port;
             let wallet_for_web = wallet_ref.clone();
+            let miner_tracker_for_web = self.miner_tracker.clone();
             tokio::spawn(async move {
-                if let Err(e) = web::start_web_server(wallet_for_web, web_port).await {
+                if let Err(e) = web::start_web_server(wallet_for_web, miner_tracker_for_web, web_port).await {
                     error!("Web server error: {}", e);
                 }
             });
@@ -346,6 +350,7 @@ impl TranslatorSv2 {
         // can listen for signals and failures on the status channel. This
         // allows for the tproxy to fail gracefully if any of these init tasks
         //fail
+        let miner_tracker_for_task = self.miner_tracker.clone();
         let task = task::spawn(async move {
             // Connect to the SV2 Upstream role
             match upstream_sv2::Upstream::connect(
@@ -424,6 +429,7 @@ impl TranslatorSv2 {
                 proxy_config.downstream_difficulty_config,
                 diff_config,
                 task_collector_downstream,
+                miner_tracker_for_task.clone(),
             );
             
         }); // End of init task

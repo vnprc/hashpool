@@ -4,6 +4,7 @@ use crate::{
     proxy_config::{DownstreamDifficultyConfig, UpstreamDifficultyConfig},
     status,
 };
+use super::super::miner_stats;
 use async_channel::{bounded, Receiver, Sender};
 use async_std::{
     io::BufReader,
@@ -63,6 +64,8 @@ pub struct Downstream {
     pub(super) difficulty_mgmt: DownstreamDifficultyConfig,
     pub(super) upstream_difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
     last_job_id: String, // we usually receive a String on SV1 messages, no need to cast to u32
+    miner_tracker: Arc<miner_stats::MinerTracker>,
+    miner_id: u32,
 }
 
 impl Downstream {
@@ -80,6 +83,8 @@ impl Downstream {
         difficulty_mgmt: DownstreamDifficultyConfig,
         upstream_difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
         last_job_id: String,
+        miner_tracker: Arc<miner_stats::MinerTracker>,
+        miner_id: u32,
     ) -> Self {
         Downstream {
             connection_id,
@@ -94,6 +99,8 @@ impl Downstream {
             difficulty_mgmt,
             upstream_difficulty_config,
             last_job_id,
+            miner_tracker,
+            miner_id,
         }
     }
     /// Instantiate a new `Downstream`.
@@ -111,7 +118,10 @@ impl Downstream {
         difficulty_config: DownstreamDifficultyConfig,
         upstream_difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
+        miner_tracker: Arc<miner_stats::MinerTracker>,
     ) {
+        // Get peer address before moving stream into Arc
+        let peer_addr = stream.peer_addr().unwrap();
         let stream = std::sync::Arc::new(stream);
 
         // Reads and writes from Downstream SV1 Mining Device Client
@@ -121,6 +131,9 @@ impl Downstream {
         let socket_writer_clone = socket_writer.clone();
         // Used to send SV1 `mining.notify` messages to the Downstreams
         let _socket_writer_notify = socket_writer;
+
+        // Register miner with tracker first
+        let miner_id = miner_tracker.add_miner(peer_addr, format!("miner-{}", connection_id)).await;
 
         let downstream = Arc::new(Mutex::new(Downstream {
             connection_id,
@@ -136,8 +149,11 @@ impl Downstream {
             difficulty_mgmt: difficulty_config,
             upstream_difficulty_config,
             last_job_id: "".to_string(),
+            miner_tracker: miner_tracker.clone(),
+            miner_id,
         }));
         let self_ = downstream.clone();
+        info!("📋 Registered miner {} from {} with ID {}", connection_id, peer_addr, miner_id);
 
         let host_ = host.clone();
         // The shutdown channel is used local to the `Downstream::new_downstream()` function.
@@ -155,6 +171,7 @@ impl Downstream {
         let tx_shutdown_clone = tx_shutdown.clone();
         let tx_status_reader = tx_status.clone();
         let task_collector_mining_device = task_collector.clone();
+        let miner_tracker_reader = miner_tracker.clone();
         // Task to read from SV1 Mining Device Client socket via `socket_reader`. Depending on the
         // SV1 message received, a message response is sent directly back to the SV1 Downstream
         // role, or the message is sent upwards to the Bridge for translation into a SV2 message
@@ -183,6 +200,9 @@ impl Downstream {
                                 if let v1::Message::StandardRequest(standard_req) = incoming.clone() {
                                     if let Ok(Submit{..}) = standard_req.try_into() {
                                         handle_result!(tx_status_reader, Self::save_share(self_.clone()));
+                                        // Track share submission for this miner with current expected hashrate
+                                        let current_hashrate = self_.safe_lock(|s| s.difficulty_mgmt.min_individual_miner_hashrate).unwrap();
+                                        miner_tracker_reader.increment_shares(miner_id, current_hashrate).await;
                                     }
                                 }
 
@@ -207,6 +227,9 @@ impl Downstream {
                     }
                 };
             }
+            // Remove miner from tracker when connection closes
+            miner_tracker_reader.remove_miner(miner_id).await;
+            info!("📤 Removed miner {} from tracker", miner_id);
             kill(&tx_shutdown_clone).await;
             warn!("Downstream: Shutting down sv1 downstream reader");
         });
@@ -318,7 +341,13 @@ impl Downstream {
                     select! {
                         res = rx_sv1_notify.recv().fuse() => {
                             // if hashrate has changed, update difficulty management, and send new mining.set_difficulty
-                            handle_result!(tx_status_notify, Self::try_update_difficulty_settings(downstream.clone()).await);
+                            let new_hashrate = handle_result!(tx_status_notify, Self::try_update_difficulty_settings(downstream.clone()).await);
+                            
+                            // Update miner tracker with real calculated hashrate
+                            if let Some(hashrate) = new_hashrate {
+                                let (miner_tracker, miner_id) = downstream.safe_lock(|d| (d.miner_tracker.clone(), d.miner_id)).unwrap();
+                                miner_tracker.update_hashrate(miner_id, hashrate as f64).await;
+                            }
 
                             let sv1_mining_notify_msg = handle_result!(tx_status_notify, res);
                             let message: json_rpc::Message = sv1_mining_notify_msg.clone().into();
@@ -368,6 +397,7 @@ impl Downstream {
         downstream_difficulty_config: DownstreamDifficultyConfig,
         upstream_difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
+        miner_tracker: Arc<miner_stats::MinerTracker>,
     ) {
         let task_collector_downstream = task_collector.clone();
 
@@ -399,6 +429,7 @@ impl Downstream {
                             downstream_difficulty_config.clone(),
                             upstream_difficulty_config.clone(),
                             task_collector_downstream.clone(),
+                            miner_tracker.clone(),
                         )
                         .await;
                     }
@@ -530,8 +561,17 @@ impl IsServer<'static> for Downstream {
     /// large number of independent Mining Devices can be handled with a single SV1 connection.
     /// https://bitcoin.stackexchange.com/questions/29416/how-do-pool-servers-handle-multiple-workers-sharing-one-connection-with-stratum
     fn handle_authorize(&self, request: &client_to_server::Authorize) -> bool {
-        info!("Down: Authorizing");
+        info!("Down: Authorizing worker: {}", request.name);
         debug!("Down: Handling mining.authorize: {:?}", &request);
+        
+        // Update miner name in tracker with the real worker name
+        let miner_tracker = self.miner_tracker.clone();
+        let miner_id = self.miner_id;
+        let worker_name = request.name.clone();
+        tokio::spawn(async move {
+            miner_tracker.update_miner_name(miner_id, worker_name).await;
+        });
+        
         true
     }
 
