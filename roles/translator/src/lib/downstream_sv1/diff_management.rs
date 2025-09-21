@@ -75,7 +75,7 @@ impl Downstream {
     /// difficulty for the connection and sends the new difficulty to the miner
     pub async fn try_update_difficulty_settings(
         self_: Arc<Mutex<Self>>,
-    ) -> ProxyResult<'static, ()> {
+    ) -> ProxyResult<'static, Option<f32>> {
         let (diff_mgmt, channel_id) = self_
             .clone()
             .safe_lock(|d| (d.difficulty_mgmt.clone(), d.connection_id))
@@ -120,7 +120,7 @@ impl Downstream {
             )
             .await?;
         }
-        Ok(())
+        Ok(None)
     }
 
     /// calculates the target according to the current stored hashrate of the miner

@@ -14,6 +14,7 @@ use serde_json::json;
 
 use cdk::wallet::Wallet;
 use cdk::Amount;
+use super::miner_stats;
 
 // Rate limiting: 30 second global cooldown
 const RATE_LIMIT_DURATION: Duration = Duration::from_secs(30);
@@ -46,6 +47,180 @@ impl RateLimiter {
         Ok(())
     }
 }
+
+const MINERS_PAGE: &str = r#"<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Hashpool Connected Miners</title>
+    <style>
+        body { 
+            font-family: 'Courier New', monospace; 
+            background: #1a1a1a; 
+            color: #00ff00; 
+            margin: 0; 
+            padding: 20px;
+            text-align: center;
+        }
+        .container { 
+            max-width: 1200px; 
+            margin: 0 auto; 
+            padding: 40px;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 40px;
+        }
+        .stat-box {
+            text-align: center;
+            padding: 20px;
+            border: 1px solid #00ff00;
+            min-width: 150px;
+        }
+        .stat-value {
+            font-size: 2em;
+            margin-top: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #00ff00;
+        }
+        th {
+            background: #0a0a0a;
+            font-weight: bold;
+        }
+        tr:hover {
+            background: #0a0a0a;
+        }
+        .nav {
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        .nav a {
+            color: #00ff00;
+            text-decoration: none;
+            margin: 0 20px;
+            font-size: 1.2em;
+        }
+        .nav a:hover {
+            text-shadow: 0 0 10px #00ff00;
+        }
+        .refresh {
+            text-align: right;
+            margin-bottom: 10px;
+            font-size: 0.9em;
+            opacity: 0.7;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="nav">
+            <a href="/">📊 Balance</a> | <a href="/faucet">🚰 Faucet</a> | <a href="/miners">⛏️ Miners</a>
+        </div>
+        
+        <h1>⛏️ Connected Miners</h1>
+        
+        <div style="margin: 30px 0; padding: 20px; border: 1px solid #00ff00; text-align: left;">
+            <h3 style="margin-top: 0; text-align: center;">⚙️ Miner Connection Settings</h3>
+            <div style="font-family: monospace; font-size: 1.1em;">
+                <div style="margin: 10px 0;"><strong>Server:</strong> <span style="color: #ffff00;">192.168.1.160</span></div>
+                <div style="margin: 10px 0;"><strong>Port:</strong> <span style="color: #ffff00;">34255</span></div>
+                <div style="margin: 10px 0;"><strong>Protocol:</strong> <span style="color: #ffff00;">Stratum V1</span></div>
+                <div style="margin: 10px 0;"><strong>Username:</strong> <span style="color: #ffff00;">your-worker-name</span></div>
+                <div style="margin: 10px 0;"><strong>Password:</strong> <span style="color: #ffff00;">x</span></div>
+            </div>
+            <div style="margin-top: 15px; font-size: 0.9em; opacity: 0.8;">
+                Example: <code style="background: #333; padding: 5px;">cgminer -o stratum+tcp://192.168.1.160:34255 -u worker1 -p x</code>
+            </div>
+        </div>
+        
+        <div class="stats">
+            <div class="stat-box">
+                <div>Connected Miners</div>
+                <div class="stat-value" id="total-miners">-</div>
+            </div>
+            <div class="stat-box">
+                <div>Total Hashrate</div>
+                <div class="stat-value" id="total-hashrate">-</div>
+            </div>
+            <div class="stat-box">
+                <div>Total Shares</div>
+                <div class="stat-value" id="total-shares">-</div>
+            </div>
+        </div>
+
+        <div class="refresh" id="refresh-time">Loading...</div>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Address</th>
+                    <th>Hashrate</th>
+                    <th>Shares</th>
+                    <th>Connected</th>
+                </tr>
+            </thead>
+            <tbody id="miners-tbody">
+                <tr><td colspan="6" style="text-align: center; opacity: 0.5;">No miners connected</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        async function updateMiners() {
+            try {
+                const response = await fetch('/api/miners');
+                const data = await response.json();
+                
+                document.getElementById('total-miners').textContent = data.total_miners || 0;
+                document.getElementById('total-hashrate').textContent = data.total_hashrate || '0 H/s';
+                document.getElementById('total-shares').textContent = (data.total_shares || 0).toLocaleString();
+                
+                const tbody = document.getElementById('miners-tbody');
+                tbody.innerHTML = '';
+                
+                if (!data.miners || data.miners.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; opacity: 0.5;">No miners connected</td></tr>';
+                } else {
+                    data.miners.forEach(miner => {
+                        const row = tbody.insertRow();
+                        row.insertCell(0).textContent = miner.id || '-';
+                        row.insertCell(1).textContent = miner.name || 'Unknown';
+                        row.insertCell(2).textContent = miner.address || '-';
+                        row.insertCell(3).textContent = miner.hashrate || '0 H/s';
+                        row.insertCell(4).textContent = (miner.shares || 0).toLocaleString();
+                        row.insertCell(5).textContent = miner.connected_time || 'Just now';
+                    });
+                }
+                
+                document.getElementById('refresh-time').textContent = 
+                    'Updated: ' + new Date().toLocaleTimeString();
+            } catch (error) {
+                console.error('Failed to fetch miners:', error);
+                document.getElementById('refresh-time').textContent = 'Error loading data';
+            }
+        }
+        
+        // Update immediately and then every 3 seconds
+        updateMiners();
+        setInterval(updateMiners, 3000);
+    </script>
+</body>
+</html>"#;
 
 const HTML_PAGE: &str = r#"<!DOCTYPE html>
 <html>
@@ -102,7 +277,7 @@ const HTML_PAGE: &str = r#"<!DOCTYPE html>
 <body>
     <div class="container">
         <div class="nav">
-            <a href="/">📊 Balance</a> | <a href="/faucet">🚰 Faucet</a>
+            <a href="/">📊 Balance</a> | <a href="/faucet">🚰 Faucet</a> | <a href="/miners">⛏️ Miners</a>
         </div>
         
         <h1>Ehash Balance</h1>
@@ -194,13 +369,15 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
             border: 1px solid #00ff00;
             background: #222;
             display: none;
+            text-align: center;
             width: fit-content;
+            min-width: 350px;
         }
         .qr-code {
-            margin: 20px 0;
+            margin: 20px auto;
             cursor: pointer;
-            display: inline-block;
-            padding: 10px;
+            display: block;
+            padding: 15px;
             border: 2px solid #00ff00;
             background: white;
             border-radius: 5px;
@@ -270,7 +447,7 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
 <body>
     <div class="container">
         <div class="nav">
-            <a href="/">📊 Balance</a> | <a href="/faucet">🚰 Faucet</a>
+            <a href="/">📊 Balance</a> | <a href="/faucet">🚰 Faucet</a> | <a href="/miners">⛏️ Miners</a>
         </div>
         
         <h1>Ehash Faucet</h1>
@@ -283,7 +460,7 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
         <div class="status" id="status"></div>
         
         <div class="qr-container" id="qr-container">
-            <canvas id="qr-canvas" class="qr-code" onclick="copyToken()" title="Click to copy token" width="400" height="400"></canvas>
+            <canvas id="qr-canvas" class="qr-code" onclick="copyToken()" title="Click to copy token"></canvas>
             <div style="margin: 10px 0;">
                 <span id="qr-status" style="font-size: 0.9em; color: #00ff00;"></span>
             </div>
@@ -389,14 +566,16 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
                 
                 // Display error message on canvas
                 const ctx = canvas.getContext('2d');
+                canvas.width = 300;
+                canvas.height = 300;
                 ctx.fillStyle = '#222222';
-                ctx.fillRect(0, 0, 400, 400);
+                ctx.fillRect(0, 0, 300, 300);
                 ctx.fillStyle = '#ff4444';
                 ctx.font = '16px Courier New';
                 ctx.textAlign = 'center';
-                ctx.fillText('QR Generation Failed', 200, 180);
-                ctx.fillText(`${token.length} characters`, 200, 200);
-                ctx.fillText('Copy text below', 200, 220);
+                ctx.fillText('QR Generation Failed', 150, 130);
+                ctx.fillText(`${token.length} characters`, 150, 150);
+                ctx.fillText('Copy text below', 150, 170);
             }
         }
         
@@ -418,7 +597,7 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
 </body>
 </html>"#;
 
-pub async fn start_web_server(wallet: Arc<Wallet>, port: u16) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn start_web_server(wallet: Arc<Wallet>, miner_tracker: Arc<miner_stats::MinerTracker>, port: u16) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let addr = format!("127.0.0.1:{}", port);
     let listener = TcpListener::bind(&addr).await?;
     let faucet_rate_limiter = Arc::new(RateLimiter::new());
@@ -428,12 +607,13 @@ pub async fn start_web_server(wallet: Arc<Wallet>, port: u16) -> Result<(), Box<
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
         let wallet_clone = wallet.clone();
+        let miner_tracker_clone = miner_tracker.clone();
         let faucet_rate_limiter_clone = faucet_rate_limiter.clone();
 
         tokio::task::spawn(async move {
             if let Err(err) = http1::Builder::new()
                 .serve_connection(io, service_fn(move |req| {
-                    handle_request(req, wallet_clone.clone(), faucet_rate_limiter_clone.clone())
+                    handle_request(req, wallet_clone.clone(), miner_tracker_clone.clone(), faucet_rate_limiter_clone.clone())
                 }))
                 .await
             {
@@ -486,6 +666,7 @@ async fn create_faucet_token(wallet: Arc<Wallet>) -> Result<String, Box<dyn std:
 async fn handle_request(
     req: Request<hyper::body::Incoming>,
     wallet: Arc<Wallet>,
+    miner_tracker: Arc<miner_stats::MinerTracker>,
     faucet_rate_limiter: Arc<RateLimiter>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     let response = match (req.method(), req.uri().path()) {
@@ -498,6 +679,23 @@ async fn handle_request(
             Response::builder()
                 .header("content-type", "text/html; charset=utf-8")
                 .body(Full::new(Bytes::from(FAUCET_PAGE)))
+        }
+        (&Method::GET, "/miners") => {
+            Response::builder()
+                .header("content-type", "text/html; charset=utf-8")
+                .body(Full::new(Bytes::from(MINERS_PAGE)))
+        }
+        (&Method::GET, "/api/miners") => {
+            let stats = miner_tracker.get_stats().await;
+            let miners_data = json!({
+                "total_miners": stats.total_miners,
+                "total_hashrate": stats.total_hashrate,
+                "total_shares": stats.total_shares,
+                "miners": stats.miners
+            });
+            Response::builder()
+                .header("content-type", "application/json")
+                .body(Full::new(Bytes::from(miners_data.to_string())))
         }
         (&Method::POST, "/faucet/drip") => {
             // Check faucet rate limiting - ONLY for faucet requests
