@@ -334,14 +334,16 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
             font-family: 'Courier New', monospace; 
             background: #1a1a1a; 
             color: #00ff00; 
-            margin: 0; 
-            padding: 20px;
-            text-align: center;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
         }
         .container { 
-            max-width: 600px; 
-            margin: 0 auto; 
-            padding: 40px;
+            width: min(600px, calc(100% - 40px));
+            padding: 20px;
+            text-align: center;
         }
         .faucet-button { 
             font-size: 2em; 
@@ -364,26 +366,39 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
             cursor: not-allowed;
         }
         .qr-container {
+            display: grid;
+            place-items: center;
             margin: 30px auto;
-            padding: 20px;
+            padding: 40px;
             border: 1px solid #00ff00;
             background: #222;
-            display: none;
-            text-align: center;
-            width: fit-content;
-            min-width: 350px;
+            border-radius: 5px;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+            width: 400px;
+            height: 400px;
+            box-sizing: border-box;
+        }
+        .qr-container.visible {
+            opacity: 1;
+            visibility: visible;
         }
         .qr-code {
-            margin: 20px auto;
             cursor: pointer;
-            display: block;
             padding: 15px;
-            border: 2px solid #00ff00;
             background: white;
             border-radius: 5px;
+            display: block;
+            width: 280px;
+            height: 280px;
+            box-sizing: border-box;
         }
         #qr-canvas {
             background: white;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
         }
         .status { 
             margin: 20px 0; 
@@ -451,7 +466,7 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
         </div>
         
         <h1>Ehash Faucet</h1>
-        <p>Get free ehash tokens for testing!</p>
+        <p>Get some ehash in your wallet!</p>
         
         <button class="faucet-button" id="drip-btn" onclick="requestDrip()">
             Request Tokens
@@ -461,11 +476,9 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
         
         <div class="qr-container" id="qr-container">
             <canvas id="qr-canvas" class="qr-code" onclick="copyToken()" title="Click to copy token"></canvas>
-            <div style="margin: 10px 0;">
-                <span id="qr-status" style="font-size: 0.9em; color: #00ff00;"></span>
-            </div>
-            <p>👆 click to copy</p>
         </div>
+        <div id="qr-status" style="margin-top: 10px; font-size: 0.9em; color: #00ff00;"></div>
+        <p id="qr-instruction" style="margin: 10px 0; opacity: 0; transition: opacity 0.3s ease;">click to copy</p>
     </div>
     
     <script>
@@ -480,19 +493,21 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
             btn.textContent = '⏳ Minting...';
             status.textContent = 'Creating your ehash tokens...';
             status.className = 'status';
-            qrContainer.style.display = 'none';
+            qrContainer.classList.remove('visible');
+            document.getElementById('qr-instruction').style.opacity = '0';
             
             try {
                 const response = await fetch('/faucet/drip', { method: 'POST' });
                 const data = await response.json();
                 
                 if (response.ok && data.success) {
-                    status.textContent = `✅ Success! Minted ${data.amount} ehash tokens`;
+                    status.textContent = `Success! Minted ${data.amount} ehash tokens`;
                     status.className = 'status success';
                     
                     // Generate QR code for the token
                     generateQR(data.token);
-                    qrContainer.style.display = 'block';
+                    qrContainer.classList.add('visible');
+                    document.getElementById('qr-instruction').style.opacity = '1';
                     
                     // Re-enable button immediately - server handles rate limiting
                     btn.disabled = false;
@@ -529,6 +544,8 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
             
             let remaining = seconds;
             btn.disabled = true;
+            status.textContent = '';
+            status.className = 'status';
             
             function updateCountdown() {
                 if (remaining <= 0) {
@@ -583,10 +600,16 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
             if (currentToken) {
                 navigator.clipboard.writeText(currentToken).then(() => {
                     const status = document.getElementById('status');
+                    const btn = document.getElementById('drip-btn');
                     const originalText = status.textContent;
-                    status.textContent = '📋 Token copied to clipboard!';
+                    status.textContent = 'Token copied to clipboard!';
                     setTimeout(() => {
-                        status.textContent = originalText;
+                        // Don't restore message if we're in countdown mode
+                        if (!btn.disabled || !btn.textContent.includes('Wait')) {
+                            status.textContent = originalText;
+                        } else {
+                            status.textContent = '';
+                        }
                     }, 2000);
                 }).catch(err => {
                     console.error('Copy failed:', err);
