@@ -80,7 +80,7 @@ db TYPE="":
 
 # CDK configuration - update these when CDK version changes
 CDK_REPO := "https://github.com/vnprc/cdk.git"
-CDK_COMMIT := "03041c5c"
+CDK_COMMIT := "57167c66"
 
 # build cdk-cli from remote repo
 build-cdk-cli:
