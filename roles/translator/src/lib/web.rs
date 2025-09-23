@@ -335,15 +335,18 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
             background: #1a1a1a; 
             color: #00ff00; 
             margin: 0;
-            padding: 0;
-            min-height: 100vh;
-            display: grid;
-            place-items: center;
-        }
-        .container { 
-            width: min(600px, calc(100% - 40px));
             padding: 20px;
             text-align: center;
+        }
+        .container { 
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 40px;
+            text-align: center;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
         }
         .faucet-button { 
             font-size: 2em; 
