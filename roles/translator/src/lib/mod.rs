@@ -514,6 +514,12 @@ impl TranslatorSv2 {
                     // Get the quote details we just fetched
                     match wallet.mint_quote_state_mining_share(quote_id).await {
                         Ok(quote_response) => {
+                            // Check if quote is already fully issued
+                            if quote_response.is_fully_issued() {
+                                tracing::debug!("Quote {} is already fully issued ({}), skipping", quote_id, quote_response.amount_issued);
+                                continue;
+                            }
+                            
                             let amount = quote_response.amount.unwrap_or(cdk::Amount::ZERO);
                             let keyset_id = quote_response.keyset_id;
                             
