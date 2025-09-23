@@ -130,10 +130,10 @@ const MINERS_PAGE: &str = r#"<!DOCTYPE html>
             <a href="/">📊 Balance</a> | <a href="/faucet">🚰 Faucet</a> | <a href="/miners">⛏️ Miners</a>
         </div>
         
-        <h1>⛏️ Connected Miners</h1>
+        <h1>Miners</h1>
         
         <div style="margin: 30px 0; padding: 20px; border: 1px solid #00ff00; text-align: left;">
-            <h3 style="margin-top: 0; text-align: center;">⚙️ Miner Connection Settings</h3>
+            <h3 style="margin-top: 0; text-align: center;">⚙️ Connection Settings</h3>
             <div style="font-family: monospace; font-size: 1.1em;">
                 <div style="margin: 10px 0;"><strong>Server:</strong> <span style="color: #ffff00;">192.168.1.160</span></div>
                 <div style="margin: 10px 0;"><strong>Port:</strong> <span style="color: #ffff00;">34255</span></div>

@@ -43,6 +43,8 @@ fn submit_quote(
                     if let Ok(()) = downstream.safe_lock(|d| {
                         let mut quotes = futures::executor::block_on(d.quotes_created.lock());
                         *quotes += 1;
+                        let mut ehash = futures::executor::block_on(d.ehash_mined.lock());
+                        *ehash += amount as u64;
                     }) {}
                 }
             }
@@ -119,6 +121,8 @@ pub async fn handle_mint_quote_response(
         } else {
             info!("Sent mint quote notification for channel {} seq {}",
                   share.channel_id, share.sequence_number);
+            // NOTE: quotes_redeemed should only be incremented when the translator's proof sweeper
+            // actually mints tokens (changes quote state to ISSUED), not when quote is created
         }
     } else {
         debug!("No pending share found for hash: {:?}", header_hash);
