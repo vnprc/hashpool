@@ -193,6 +193,8 @@ pub struct Downstream {
     pub address: SocketAddr,
     pub shares_submitted: Arc<tokio::sync::Mutex<u64>>,
     pub quotes_created: Arc<tokio::sync::Mutex<u64>>,
+    pub quotes_redeemed: Arc<tokio::sync::Mutex<u64>>,
+    pub ehash_mined: Arc<tokio::sync::Mutex<u64>>,
     pub last_share_time: Arc<tokio::sync::Mutex<Option<std::time::Instant>>>,
     pub channels: Arc<tokio::sync::Mutex<Vec<u32>>>,
 }
@@ -261,6 +263,8 @@ impl Downstream {
             address,
             shares_submitted: Arc::new(tokio::sync::Mutex::new(0)),
             quotes_created: Arc::new(tokio::sync::Mutex::new(0)),
+            quotes_redeemed: Arc::new(tokio::sync::Mutex::new(0)),
+            ehash_mined: Arc::new(tokio::sync::Mutex::new(0)),
             last_share_time: Arc::new(tokio::sync::Mutex::new(None)),
             channels: Arc::new(tokio::sync::Mutex::new(Vec::new())),
         }));
