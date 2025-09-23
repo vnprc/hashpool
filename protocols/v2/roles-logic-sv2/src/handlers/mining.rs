@@ -491,10 +491,15 @@ pub trait ParseUpstreamMiningMessages<
                 }
             }
             Ok(Mining::SubmitSharesError(m)) => {
-                error!(
-                    "Received SubmitSharesError with error code {}",
-                    std::str::from_utf8(m.error_code.as_ref()).unwrap_or("unknown error code")
-                );
+                let error_code = std::str::from_utf8(m.error_code.as_ref()).unwrap_or("unknown error code");
+                match error_code {
+                    "difficulty-too-low" => {
+                        debug!("Share rejected: difficulty too low (normal mining behavior)");
+                    }
+                    _ => {
+                        error!("Received SubmitSharesError with error code {}", error_code);
+                    }
+                }
                 match channel_type {
                     SupportedChannelTypes::Standard => self_mutex
                         .safe_lock(|x| x.handle_submit_shares_error(m))
