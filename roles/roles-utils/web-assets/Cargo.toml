@@ -1,0 +1,9 @@
+[package]
+name = "web_assets"
+version = "0.1.0"
+edition = "2021"
+authors = ["Hashpool Contributors"]
+description = "Shared web assets and icons for hashpool web interfaces"
+
+[dependencies]
+# No dependencies - pure Rust constants and functions

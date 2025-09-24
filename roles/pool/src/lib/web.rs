@@ -1,6 +1,6 @@
 use std::convert::Infallible;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use hyper::body::Incoming;
 use hyper::server::conn::http1;
@@ -11,9 +11,13 @@ use http_body_util::Full;
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 use tracing::{error, info};
+use bytes::Bytes;
 
 use super::mining_pool::Pool;
 use roles_logic_sv2::utils::Mutex;
+use web_assets::icons::nav_icon_css;
+
+static CONNECTIONS_PAGE_HTML: OnceLock<Bytes> = OnceLock::new();
 
 // Extension methods for Pool  
 impl Pool {
@@ -193,12 +197,12 @@ impl WebServer {
 async fn handle_request(
     req: Request<Incoming>,
     pool: Arc<Mutex<Pool>>,
-) -> Result<Response<Full<bytes::Bytes>>, Infallible> {
+    ) -> Result<Response<Full<Bytes>>, Infallible> {
     let response = match (req.method(), req.uri().path()) {
         (&Method::GET, "/") => serve_connections_page(pool).await,
         (&Method::GET, "/api/connections") => serve_connections_json(pool).await,
         _ => {
-            let mut response = Response::new(Full::new(bytes::Bytes::from("Not Found")));
+            let mut response = Response::new(Full::new(Bytes::from("Not Found")));
             *response.status_mut() = StatusCode::NOT_FOUND;
             response
         }
@@ -207,14 +211,14 @@ async fn handle_request(
     Ok(response)
 }
 
-async fn serve_connections_json(pool: Arc<Mutex<Pool>>) -> Response<Full<bytes::Bytes>> {
+async fn serve_connections_json(pool: Arc<Mutex<Pool>>) -> Response<Full<Bytes>> {
     let pool_stats = get_pool_stats(pool).await;
     let json = serde_json::to_string(&pool_stats).unwrap_or_else(|_| "{}".to_string());
     
     Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
-        .body(Full::new(bytes::Bytes::from(json)))
+        .body(Full::new(Bytes::from(json)))
         .unwrap()
 }
 
@@ -243,7 +247,7 @@ async fn get_pool_stats(pool: Arc<Mutex<Pool>>) -> PoolStats {
     }
 }
 
-async fn serve_connections_page(_pool: Arc<Mutex<Pool>>) -> Response<Full<bytes::Bytes>> {
+async fn serve_connections_page(_pool: Arc<Mutex<Pool>>) -> Response<Full<Bytes>> {
     let html = r#"<!DOCTYPE html>
 <html>
 <head>
@@ -344,19 +348,47 @@ async fn serve_connections_page(_pool: Arc<Mutex<Pool>>) -> Response<Full<bytes:
         .service-table th {
             background: #333;
         }
+        .services-section h3 {
+            color: #00ff00;
+        }
+        .service-icon-header {
+            width: 2.5em;
+        }
+        .service-icon-cell {
+            width: 2.5em;
+            text-align: center;
+        }
+        .miners-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .miners-table th,
+        .miners-table td {
+            padding: 12px;
+            border-bottom: 1px solid #00ff00;
+        }
+        .miners-icon-header {
+            width: 2.5em;
+        }
+        .miners-icon-cell {
+            width: 2.5em;
+            text-align: center;
+        }
+        /* {{NAV_ICON_CSS}} */
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Hashpool Dashboard</h1>
+        <h1 class="pickaxe-icon">Hashpool Dashboard</h1>
         
         <div class="services-section">
-            <h3>🔧 Service Connections</h3>
+            <h3>Service Connections</h3>
             <table class="service-table">
                 <thead>
                     <tr>
-                        <th>Channel ID</th>
+                        <th class="service-icon-header"></th>
                         <th>Service Name</th>
+                        <th>Channel ID</th>
                         <th>Service (IP)</th>
                         <th>Port</th>
                         <th>Status</th>
@@ -388,10 +420,11 @@ async fn serve_connections_page(_pool: Arc<Mutex<Pool>>) -> Response<Full<bytes:
 
         <div class="refresh" id="refresh-time">Loading...</div>
         
-        <h2>⛏️ Connected Miners</h2>
-        <table>
+        <h2>Connected Proxies</h2>
+        <table class="miners-table">
             <thead>
                 <tr>
+                    <th class="miners-icon-header"></th>
                     <th>ID</th>
                     <th>Address</th>
                     <th>Type</th>
@@ -414,10 +447,14 @@ async fn serve_connections_page(_pool: Arc<Mutex<Pool>>) -> Response<Full<bytes:
             return { ip: address, port: '-' };
         }
 
-        function getServiceName(connType) {
-            if (connType.includes('Job Declarator')) return 'Job Declarator';
-            if (connType.includes('Mint')) return 'Mint Service';
-            return connType;
+        function getServiceMetadata(connType) {
+            if (connType.includes('Job Declarator')) {
+                return { label: 'Job Declarator', iconClass: 'block-icon' };
+            }
+            if (connType.includes('Mint')) {
+                return { label: 'Mint Service', iconClass: 'coins-icon' };
+            }
+            return { label: connType, iconClass: null };
         }
 
         function isServiceConnection(connType) {
@@ -451,27 +488,33 @@ async fn serve_connections_page(_pool: Arc<Mutex<Pool>>) -> Response<Full<bytes:
                 } else {
                     services.forEach(conn => {
                         const row = servicesTbody.insertRow();
-                        const serviceName = getServiceName(conn.connection_type);
+                        const serviceMeta = getServiceMetadata(conn.connection_type);
                         const disconnected = isDisconnected(conn.connection_type);
-                        
+
+                        const iconCell = row.insertCell();
+                        iconCell.className = 'service-icon-cell';
+                        iconCell.innerHTML = serviceMeta.iconClass
+                            ? `<span class="${serviceMeta.iconClass}" aria-hidden="true"></span>`
+                            : '';
+
                         if (disconnected) {
                             // Service is disconnected - show dashes and down status
-                            row.insertCell(0).textContent = '-';
-                            row.insertCell(1).textContent = serviceName;
-                            row.insertCell(2).innerHTML = `<span class="address">-</span>`;
-                            row.insertCell(3).textContent = '-';
-                            row.insertCell(4).innerHTML = `<span class="status-dot status-down"></span><span style="color: #ff4444;">Down</span>`;
+                            row.insertCell().textContent = serviceMeta.label;
+                            row.insertCell().textContent = '-';
+                            row.insertCell().innerHTML = `<span class="address">-</span>`;
+                            row.insertCell().textContent = '-';
+                            row.insertCell().innerHTML = `<span class="status-dot status-down"></span><span style="color: #ff4444;">Down</span>`;
                         } else {
                             // Service is connected - show normal info
                             const addr = parseAddress(conn.address);
                             const channelId = conn.channels.length > 0 ? conn.channels[0] : conn.id;
                             const isUp = conn.connection_type.includes('Mint') || conn.connection_type.includes('Job Declarator') || conn.shares_submitted > 0 || conn.channels.length > 0;
                             
-                            row.insertCell(0).textContent = channelId;
-                            row.insertCell(1).textContent = serviceName;
-                            row.insertCell(2).innerHTML = `<span class="address">${addr.ip}</span>`;
-                            row.insertCell(3).textContent = addr.port;
-                            row.insertCell(4).innerHTML = `<span class="status-dot ${isUp ? 'status-up' : 'status-down'}"></span>${isUp ? 'Up' : '<span style="color: #ff4444;">Down</span>'}`;
+                            row.insertCell().textContent = serviceMeta.label;
+                            row.insertCell().textContent = channelId;
+                            row.insertCell().innerHTML = `<span class="address">${addr.ip}</span>`;
+                            row.insertCell().textContent = addr.port;
+                            row.insertCell().innerHTML = `<span class="status-dot ${isUp ? 'status-up' : 'status-down'}"></span>${isUp ? 'Up' : '<span style="color: #ff4444;">Down</span>'}`;
                         }
                     });
                 }
@@ -481,16 +524,20 @@ async fn serve_connections_page(_pool: Arc<Mutex<Pool>>) -> Response<Full<bytes:
                 minersTbody.innerHTML = '';
                 
                 if (miners.length === 0) {
-                    minersTbody.innerHTML = '<tr><td colspan="6" style="text-align: center; opacity: 0.5;">No miners connected</td></tr>';
+                    minersTbody.innerHTML = '<tr><td colspan="7" style="text-align: center; opacity: 0.5;">No miners connected</td></tr>';
                 } else {
                     miners.forEach(conn => {
                         const row = minersTbody.insertRow();
-                        row.insertCell(0).textContent = conn.id;
-                        row.insertCell(1).innerHTML = `<span class="address">${conn.address}</span>`;
-                        row.insertCell(2).textContent = conn.connection_type;
-                        row.insertCell(3).textContent = conn.channels.length > 0 ? conn.channels.join(', ') : 'None';
-                        row.insertCell(4).textContent = conn.shares_submitted.toLocaleString();
-                        row.insertCell(5).textContent = conn.last_share_time || 'Never';
+                        const iconCell = row.insertCell();
+                        iconCell.className = 'miners-icon-cell';
+                        iconCell.innerHTML = '<span class="miner-icon" aria-hidden="true"></span>';
+
+                        row.insertCell().textContent = conn.id;
+                        row.insertCell().innerHTML = `<span class="address">${conn.address}</span>`;
+                        row.insertCell().textContent = conn.connection_type;
+                        row.insertCell().textContent = conn.channels.length > 0 ? conn.channels.join(', ') : 'None';
+                        row.insertCell().textContent = conn.shares_submitted.toLocaleString();
+                        row.insertCell().textContent = conn.last_share_time || 'Never';
                     });
                 }
                 
@@ -509,9 +556,15 @@ async fn serve_connections_page(_pool: Arc<Mutex<Pool>>) -> Response<Full<bytes:
 </body>
 </html>"#;
 
+    let body = CONNECTIONS_PAGE_HTML
+        .get_or_init(|| {
+            Bytes::from(html.replace("/* {{NAV_ICON_CSS}} */", nav_icon_css()))
+        })
+        .clone();
+
     Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "text/html; charset=utf-8")
-        .body(Full::new(bytes::Bytes::from(html)))
+        .body(Full::new(body))
         .unwrap()
 }

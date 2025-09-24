@@ -193,7 +193,7 @@ impl Client {
                         .unwrap();
                 let submit = client_to_server::Submit {
                     id: 0,
-                    user_name: "user".into(), // TODO: user name should NOT be hardcoded
+                    user_name: "cpu-miner".into(),
                     job_id: job_id.to_string(),
                     extra_nonce2,
                     time: HexU32Be(ntime),
@@ -286,12 +286,12 @@ impl Client {
             .as_secs();
         let authorize = self_
             .safe_lock(|s| {
-                s.authorize(id, "user".to_string(), "password".to_string())
+                s.authorize(id, "cpu-miner".to_string(), "password".to_string())
                     .unwrap()
             })
             .unwrap();
         self_
-            .safe_lock(|s| s.sented_authorize_request.push((id, "user".to_string())))
+            .safe_lock(|s| s.sented_authorize_request.push((id, "cpu-miner".to_string())))
             .unwrap();
         let sender = self_.safe_lock(|s| s.sender_outgoing.clone()).unwrap();
 
@@ -406,7 +406,7 @@ impl IsClient<'static> for Client {
         match self.status() {
             ClientStatus::Init => Err(Error::IncorrectClientStatus("mining.authorize".to_string())),
             _ => {
-                self.sented_authorize_request.push((id, "user".to_string()));
+                self.sented_authorize_request.push((id, "cpu-miner".to_string()));
                 Ok(client_to_server::Authorize { id, name, password }.into())
             }
         }

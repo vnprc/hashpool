@@ -13,6 +13,7 @@ members = [
     "tests-integration",
     "mint",
     "roles-utils/mint-pool-messaging",
+    "roles-utils/web-assets",
 ]
 
 [profile.dev]
