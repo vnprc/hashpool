@@ -1,16 +1,17 @@
-use std::sync::Arc;
 use std::convert::Infallible;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
-use hyper::{body::Bytes, Request, Response, Method, StatusCode};
+use hyper::{body::Bytes, Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use http_body_util::Full;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tracing::{info, error, warn};
 use serde_json::json;
+use web_assets::icons::nav_icon_css;
 
 use cdk::wallet::Wallet;
 use cdk::Amount;
@@ -48,7 +49,7 @@ impl RateLimiter {
     }
 }
 
-const MINERS_PAGE: &str = r#"<!DOCTYPE html>
+const MINERS_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -122,18 +123,19 @@ const MINERS_PAGE: &str = r#"<!DOCTYPE html>
             font-size: 0.9em;
             opacity: 0.7;
         }
+        /* {{NAV_ICON_CSS}} */
     </style>
 </head>
 <body>
     <div class="container">
         <div class="nav">
-            <a href="/">📊 Balance</a> | <a href="/faucet">🚰 Faucet</a> | <a href="/miners">⛏️ Miners</a>
+            <a href="/"><span class="wallet-icon">Wallet</span></a> | <a href="/faucet"><span class="faucet-icon">Faucet</span></a> | <a href="/miners"><span class="pickaxe-icon">Miners</span></a>
         </div>
-        
-        <h1>Miners</h1>
+
+        <h1>Mining Devices</h1>
         
         <div style="margin: 30px 0; padding: 20px; border: 1px solid #00ff00; text-align: left;">
-            <h3 style="margin-top: 0; text-align: center;">⚙️ Connection Settings</h3>
+            <h3 style="margin-top: 0; text-align: center;">Connection Settings</h3>
             <div style="font-family: monospace; font-size: 1.1em;">
                 <div style="margin: 10px 0;"><strong>Server:</strong> <span style="color: #ffff00;">192.168.1.160</span></div>
                 <div style="margin: 10px 0;"><strong>Port:</strong> <span style="color: #ffff00;">34255</span></div>
@@ -163,11 +165,12 @@ const MINERS_PAGE: &str = r#"<!DOCTYPE html>
 
         <div class="refresh" id="refresh-time">Loading...</div>
         
-        <table>
+        <table style="width: 100%; border-collapse: collapse;">
             <thead>
                 <tr>
-                    <th>ID</th>
+                    <th style="width: 2.5em;"></th>
                     <th>Name</th>
+                    <th>ID</th>
                     <th>Address</th>
                     <th>Hashrate</th>
                     <th>Shares</th>
@@ -194,16 +197,20 @@ const MINERS_PAGE: &str = r#"<!DOCTYPE html>
                 tbody.innerHTML = '';
                 
                 if (!data.miners || data.miners.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; opacity: 0.5;">No miners connected</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; opacity: 0.5;">No miners connected</td></tr>';
                 } else {
                     data.miners.forEach(miner => {
                         const row = tbody.insertRow();
-                        row.insertCell(0).textContent = miner.id || '-';
-                        row.insertCell(1).textContent = miner.name || 'Unknown';
-                        row.insertCell(2).textContent = miner.address || '-';
-                        row.insertCell(3).textContent = miner.hashrate || '0 H/s';
-                        row.insertCell(4).textContent = (miner.shares || 0).toLocaleString();
-                        row.insertCell(5).textContent = miner.connected_time || 'Just now';
+                        const iconCell = row.insertCell();
+                        iconCell.style.textAlign = 'center';
+                        iconCell.innerHTML = '<span class="pickaxe-icon" aria-hidden="true"></span>';
+
+                        row.insertCell().textContent = miner.name || 'Unknown';
+                        row.insertCell().textContent = miner.id || '-';
+                        row.insertCell().textContent = miner.address || '-';
+                        row.insertCell().textContent = miner.hashrate || '0 H/s';
+                        row.insertCell().textContent = (miner.shares || 0).toLocaleString();
+                        row.insertCell().textContent = miner.connected_time || 'Just now';
                     });
                 }
                 
@@ -222,11 +229,11 @@ const MINERS_PAGE: &str = r#"<!DOCTYPE html>
 </body>
 </html>"#;
 
-const HTML_PAGE: &str = r#"<!DOCTYPE html>
+const HTML_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Hashpool Ehash Balance</title>
+    <title>Hashpool Ehash Wallet</title>
     <style>
         body { 
             font-family: 'Courier New', monospace; 
@@ -241,7 +248,7 @@ const HTML_PAGE: &str = r#"<!DOCTYPE html>
             margin: 0 auto; 
             padding: 40px;
         }
-        .balance { 
+        .wallet { 
             font-size: 4em; 
             margin: 40px 0; 
             text-shadow: 0 0 10px #00ff00;
@@ -287,23 +294,24 @@ const HTML_PAGE: &str = r#"<!DOCTYPE html>
         .nav a:hover {
             text-shadow: 0 0 10px #00ff00;
         }
+        /* {{NAV_ICON_CSS}} */
     </style>
 </head>
 <body>
     <div class="container">
         <div class="nav">
-            <a href="/">📊 Balance</a> | <a href="/faucet">🚰 Faucet</a> | <a href="/miners">⛏️ Miners</a>
+            <a href="/"><span class="wallet-icon">Wallet</span></a> | <a href="/faucet"><span class="faucet-icon">Faucet</span></a> | <a href="/miners"><span class="pickaxe-icon">Miners</span></a>
         </div>
         
-        <h1>Ehash Balance</h1>
+        <h1>Ehash Wallet</h1>
         <div class="status" id="status">Connecting...</div>
-        <div class="balance" id="balance">---</div>
+        <div class="wallet" id="wallet">---</div>
         <div class="unit">HASH</div>
         <div id="debug" style="margin-top: 20px; font-size: 0.8em; opacity: 0.6;"></div>
     </div>
     
     <script>
-        const balanceEl = document.getElementById('balance');
+        const walletEl = document.getElementById('wallet');
         const statusEl = document.getElementById('status');
         const debugEl = document.getElementById('debug');
         
@@ -313,37 +321,36 @@ const HTML_PAGE: &str = r#"<!DOCTYPE html>
                 debugEl.textContent = new Date().toLocaleTimeString() + ': ' + msg;
             }
         }
-        
-        function updateBalance() {
-            if (!statusEl || !balanceEl) return; // Skip if elements don't exist
+        function updateWalletDisplay() {
+            if (!statusEl || !walletEl) return; // Skip if elements don't exist
             
             fetch('/balance')
                 .then(response => response.json())
                 .then(data => {
                     statusEl.innerHTML = '<span class="status-dot status-up"></span>Connected';
                     statusEl.className = 'status';
-                    balanceEl.textContent = data.balance.toLocaleString();
+                    walletEl.textContent = data.balance.toLocaleString();
                 })
                 .catch(e => {
                     statusEl.innerHTML = '<span class="status-dot status-down"></span>Connection Lost';
                     statusEl.className = 'status offline';
-                    balanceEl.textContent = '---';
+                    walletEl.textContent = '---';
                     log('Fetch failed: ' + e.message);
                 });
         }
         
-        // Update balance immediately and then every 3 seconds
-        updateBalance();
-        setInterval(updateBalance, 3000);
+        // Update wallet immediately and then every 3 seconds
+        updateWalletDisplay();
+        setInterval(updateWalletDisplay, 3000);
     </script>
 </body>
 </html>"#;
 
-const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
+const FAUCET_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Hashpool Ehash Faucet 🚰</title>
+    <title>Hashpool Ehash Faucet</title>
     <style>
         body { 
             font-family: 'Courier New', monospace; 
@@ -440,6 +447,7 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
         .nav a:hover {
             text-shadow: 0 0 10px #00ff00;
         }
+        /* {{NAV_ICON_CSS}} */
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
     <script>
@@ -480,7 +488,7 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
 <body>
     <div class="container">
         <div class="nav">
-            <a href="/">📊 Balance</a> | <a href="/faucet">🚰 Faucet</a> | <a href="/miners">⛏️ Miners</a>
+            <a href="/"><span class="wallet-icon">Wallet</span></a> | <a href="/faucet"><span class="faucet-icon">Faucet</span></a> | <a href="/miners"><span class="pickaxe-icon">Miners</span></a>
         </div>
         
         <h1>Ehash Faucet</h1>
@@ -502,13 +510,17 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
     <script>
         // No library loading needed - the qrcode-generator library is much more reliable
 
+        function setButtonClockState(btn, label) {
+            btn.innerHTML = `<span class="clock-icon" aria-hidden="true"></span><span>${label}</span>`;
+        }
+
         async function requestDrip() {
             const btn = document.getElementById('drip-btn');
             const status = document.getElementById('status');
             const qrContainer = document.getElementById('qr-container');
             
             btn.disabled = true;
-            btn.textContent = '⏳ Minting...';
+            setButtonClockState(btn, 'Minting...');
             status.textContent = 'Creating your ehash tokens...';
             status.className = 'status';
             qrContainer.classList.remove('visible');
@@ -576,7 +588,7 @@ const FAUCET_PAGE: &str = r#"<!DOCTYPE html>
                     countdownTimer = null;
                 } else {
                     // Update button with countdown
-                    btn.textContent = `⏱️ Wait ${remaining}s`;
+                    setButtonClockState(btn, `Wait ${remaining}s`);
                     remaining--;
                 }
             }
@@ -714,17 +726,17 @@ async fn handle_request(
         (&Method::GET, "/") => {
             Response::builder()
                 .header("content-type", "text/html; charset=utf-8")
-                .body(Full::new(Bytes::from(HTML_PAGE)))
+                .body(Full::new(html_page()))
         }
         (&Method::GET, "/faucet") => {
             Response::builder()
                 .header("content-type", "text/html; charset=utf-8")
-                .body(Full::new(Bytes::from(FAUCET_PAGE)))
+                .body(Full::new(faucet_page()))
         }
         (&Method::GET, "/miners") => {
             Response::builder()
                 .header("content-type", "text/html; charset=utf-8")
-                .body(Full::new(Bytes::from(MINERS_PAGE)))
+                .body(Full::new(miners_page()))
         }
         (&Method::GET, "/api/miners") => {
             let stats = miner_tracker.get_stats().await;
@@ -814,3 +826,32 @@ async fn handle_request(
     }))
 }
 
+static MINERS_PAGE_HTML: OnceLock<Bytes> = OnceLock::new();
+static HTML_PAGE_HTML: OnceLock<Bytes> = OnceLock::new();
+static FAUCET_PAGE_HTML: OnceLock<Bytes> = OnceLock::new();
+
+fn miners_page() -> Bytes {
+    MINERS_PAGE_HTML
+        .get_or_init(|| {
+            Bytes::from(
+                MINERS_PAGE_TEMPLATE.replace("/* {{NAV_ICON_CSS}} */", nav_icon_css()),
+            )
+        })
+        .clone()
+}
+
+fn html_page() -> Bytes {
+    HTML_PAGE_HTML
+        .get_or_init(|| {
+            Bytes::from(HTML_PAGE_TEMPLATE.replace("/* {{NAV_ICON_CSS}} */", nav_icon_css()))
+        })
+        .clone()
+}
+
+fn faucet_page() -> Bytes {
+    FAUCET_PAGE_HTML
+        .get_or_init(|| {
+            Bytes::from(FAUCET_PAGE_TEMPLATE.replace("/* {{NAV_ICON_CSS}} */", nav_icon_css()))
+        })
+        .clone()
+}

@@ -49,6 +49,7 @@ mining_sv2 = { version = "^1.0.0", path = "../../protocols/v2/subprotocols/minin
 uuid = { version = "1", features = ["v4"] }
 ureq = { version = "2", features = ["tls"] }
 shared_config = { path = "../roles-utils/config" }
+web_assets = { path = "../roles-utils/web-assets" }
 bip39 = "2.0"
 anyhow = "1.0"
 hex = "0.4"

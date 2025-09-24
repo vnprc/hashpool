@@ -914,6 +914,7 @@ checksum = "d71b6127be86fdcfddb610f7182ac57211d4b18a3e9c82eb2d17662f2227ad6a"
 [[package]]
 name = "cashu"
 version = "0.12.0"
+source = "git+https://github.com/vnprc/cdk?rev=b35fafab#b35fafabb594b5447c52442babc4c3b5d4992978"
 dependencies = [
  "bitcoin 0.32.7",
  "cbor-diag",
@@ -969,6 +970,7 @@ dependencies = [
 [[package]]
 name = "cdk"
 version = "0.12.0"
+source = "git+https://github.com/vnprc/cdk?rev=b35fafab#b35fafabb594b5447c52442babc4c3b5d4992978"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1006,6 +1008,7 @@ dependencies = [
 [[package]]
 name = "cdk-axum"
 version = "0.12.0"
+source = "git+https://github.com/vnprc/cdk?rev=b35fafab#b35fafabb594b5447c52442babc4c3b5d4992978"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1025,6 +1028,7 @@ dependencies = [
 [[package]]
 name = "cdk-cln"
 version = "0.12.0"
+source = "git+https://github.com/vnprc/cdk?rev=b35fafab#b35fafabb594b5447c52442babc4c3b5d4992978"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.7",
@@ -1042,6 +1046,7 @@ dependencies = [
 [[package]]
 name = "cdk-common"
 version = "0.12.0"
+source = "git+https://github.com/vnprc/cdk?rev=b35fafab#b35fafabb594b5447c52442babc4c3b5d4992978"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1066,6 +1071,7 @@ dependencies = [
 [[package]]
 name = "cdk-fake-wallet"
 version = "0.12.0"
+source = "git+https://github.com/vnprc/cdk?rev=b35fafab#b35fafabb594b5447c52442babc4c3b5d4992978"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.7",
@@ -1087,6 +1093,7 @@ dependencies = [
 [[package]]
 name = "cdk-lnbits"
 version = "0.12.0"
+source = "git+https://github.com/vnprc/cdk?rev=b35fafab#b35fafabb594b5447c52442babc4c3b5d4992978"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1105,6 +1112,7 @@ dependencies = [
 [[package]]
 name = "cdk-lnd"
 version = "0.12.0"
+source = "git+https://github.com/vnprc/cdk?rev=b35fafab#b35fafabb594b5447c52442babc4c3b5d4992978"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1129,6 +1137,7 @@ dependencies = [
 [[package]]
 name = "cdk-mint-rpc"
 version = "0.12.0"
+source = "git+https://github.com/vnprc/cdk?rev=b35fafab#b35fafabb594b5447c52442babc4c3b5d4992978"
 dependencies = [
  "anyhow",
  "cdk",
@@ -1150,6 +1159,7 @@ dependencies = [
 [[package]]
 name = "cdk-mintd"
 version = "0.12.0"
+source = "git+https://github.com/vnprc/cdk?rev=b35fafab#b35fafabb594b5447c52442babc4c3b5d4992978"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1184,6 +1194,7 @@ dependencies = [
 [[package]]
 name = "cdk-payment-processor"
 version = "0.12.0"
+source = "git+https://github.com/vnprc/cdk?rev=b35fafab#b35fafabb594b5447c52442babc4c3b5d4992978"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1216,6 +1227,7 @@ dependencies = [
 [[package]]
 name = "cdk-prometheus"
 version = "0.12.0"
+source = "git+https://github.com/vnprc/cdk?rev=b35fafab#b35fafabb594b5447c52442babc4c3b5d4992978"
 dependencies = [
  "anyhow",
  "futures",
@@ -1232,6 +1244,7 @@ dependencies = [
 [[package]]
 name = "cdk-redb"
 version = "0.12.0"
+source = "git+https://github.com/vnprc/cdk?rev=b35fafab#b35fafabb594b5447c52442babc4c3b5d4992978"
 dependencies = [
  "async-trait",
  "cdk-common",
@@ -1247,6 +1260,7 @@ dependencies = [
 [[package]]
 name = "cdk-signatory"
 version = "0.12.0"
+source = "git+https://github.com/vnprc/cdk?rev=b35fafab#b35fafabb594b5447c52442babc4c3b5d4992978"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1271,6 +1285,7 @@ dependencies = [
 [[package]]
 name = "cdk-sql-common"
 version = "0.12.0"
+source = "git+https://github.com/vnprc/cdk?rev=b35fafab#b35fafabb594b5447c52442babc4c3b5d4992978"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.7",
@@ -1287,6 +1302,7 @@ dependencies = [
 [[package]]
 name = "cdk-sqlite"
 version = "0.12.0"
+source = "git+https://github.com/vnprc/cdk?rev=b35fafab#b35fafabb594b5447c52442babc4c3b5d4992978"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.7",
@@ -3758,6 +3774,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "web_assets",
 ]
 
 [[package]]
@@ -5552,6 +5569,7 @@ dependencies = [
  "tracing-subscriber",
  "ureq",
  "uuid",
+ "web_assets",
 ]
 
 [[package]]
@@ -5846,6 +5864,10 @@ dependencies = [
  "js-sys",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "web_assets"
+version = "0.1.0"
 
 [[package]]
 name = "webpki-roots"
