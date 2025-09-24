@@ -460,7 +460,7 @@ async fn serve_connections_page(_pool: Arc<Mutex<Pool>>) -> Response<Full<bytes:
                             row.insertCell(1).textContent = serviceName;
                             row.insertCell(2).innerHTML = `<span class="address">-</span>`;
                             row.insertCell(3).textContent = '-';
-                            row.insertCell(4).innerHTML = `<span class="status-dot status-down"></span>Down`;
+                            row.insertCell(4).innerHTML = `<span class="status-dot status-down"></span><span style="color: #ff4444;">Down</span>`;
                         } else {
                             // Service is connected - show normal info
                             const addr = parseAddress(conn.address);
@@ -471,7 +471,7 @@ async fn serve_connections_page(_pool: Arc<Mutex<Pool>>) -> Response<Full<bytes:
                             row.insertCell(1).textContent = serviceName;
                             row.insertCell(2).innerHTML = `<span class="address">${addr.ip}</span>`;
                             row.insertCell(3).textContent = addr.port;
-                            row.insertCell(4).innerHTML = `<span class="status-dot ${isUp ? 'status-up' : 'status-down'}"></span>${isUp ? 'Up' : 'Down'}`;
+                            row.insertCell(4).innerHTML = `<span class="status-dot ${isUp ? 'status-up' : 'status-down'}"></span>${isUp ? 'Up' : '<span style="color: #ff4444;">Down</span>'}`;
                         }
                     });
                 }

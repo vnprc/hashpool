@@ -260,6 +260,21 @@ const HTML_PAGE: &str = r#"<!DOCTYPE html>
             color: #ff4444; 
             border-color: #ff4444; 
         }
+        .status-dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-up {
+            background-color: #00ff00;
+            box-shadow: 0 0 5px #00ff00;
+        }
+        .status-down {
+            background-color: #ff4444;
+            box-shadow: 0 0 5px #ff4444;
+        }
         .nav {
             margin-bottom: 30px;
         }
@@ -305,12 +320,12 @@ const HTML_PAGE: &str = r#"<!DOCTYPE html>
             fetch('/balance')
                 .then(response => response.json())
                 .then(data => {
-                    statusEl.textContent = '🟢 Connected';
+                    statusEl.innerHTML = '<span class="status-dot status-up"></span>Connected';
                     statusEl.className = 'status';
                     balanceEl.textContent = data.balance.toLocaleString();
                 })
                 .catch(e => {
-                    statusEl.textContent = '🔴 Connection Lost';
+                    statusEl.innerHTML = '<span class="status-dot status-down"></span>Connection Lost';
                     statusEl.className = 'status offline';
                     balanceEl.textContent = '---';
                     log('Fetch failed: ' + e.message);
