@@ -54,8 +54,8 @@ bip39 = "2.0"
 anyhow = "1.0"
 hex = "0.4"
 
-cdk = { git = "https://github.com/vnprc/cdk.git", package = "cdk", rev = "b35fafab" }
-cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", package = "cdk-sqlite", rev = "b35fafab" }
+cdk = { git = "https://github.com/vnprc/cdk.git", package = "cdk", rev = "48502f8c" }
+cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", package = "cdk-sqlite", rev = "48502f8c" }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 hyper = { version = "1.0", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
