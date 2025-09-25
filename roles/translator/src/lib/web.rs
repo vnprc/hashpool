@@ -11,7 +11,7 @@ use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tracing::{info, error, warn};
 use serde_json::json;
-use web_assets::icons::nav_icon_css;
+use web_assets::icons::{nav_icon_css, pickaxe_favicon_inline_svg};
 
 use cdk::wallet::Wallet;
 use cdk::Amount;
@@ -54,6 +54,7 @@ const MINERS_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <title>Hashpool Connected Miners</title>
+    <link rel="icon" type="image/svg+xml" sizes="any" href="/favicon.svg">
     <style>
         body { 
             font-family: 'Courier New', monospace; 
@@ -234,6 +235,7 @@ const HTML_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <title>Hashpool Ehash Wallet</title>
+    <link rel="icon" type="image/svg+xml" sizes="any" href="/favicon.svg">
     <style>
         body { 
             font-family: 'Courier New', monospace; 
@@ -351,6 +353,7 @@ const FAUCET_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <title>Hashpool Ehash Faucet</title>
+    <link rel="icon" type="image/svg+xml" sizes="any" href="/favicon.svg">
     <style>
         body { 
             font-family: 'Courier New', monospace; 
@@ -723,6 +726,7 @@ async fn handle_request(
     faucet_rate_limiter: Arc<RateLimiter>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     let response = match (req.method(), req.uri().path()) {
+        (&Method::GET, "/favicon.ico") | (&Method::GET, "/favicon.svg") => Ok(serve_favicon()),
         (&Method::GET, "/") => {
             Response::builder()
                 .header("content-type", "text/html; charset=utf-8")
@@ -824,6 +828,16 @@ async fn handle_request(
             .body(Full::new(Bytes::from("Internal Server Error")))
             .unwrap()
     }))
+}
+
+fn serve_favicon() -> Response<Full<Bytes>> {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "image/svg+xml")
+        .body(Full::new(Bytes::from_static(
+            pickaxe_favicon_inline_svg().as_bytes(),
+        )))
+        .unwrap()
 }
 
 static MINERS_PAGE_HTML: OnceLock<Bytes> = OnceLock::new();
