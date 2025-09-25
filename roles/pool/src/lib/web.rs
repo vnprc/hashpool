@@ -87,7 +87,7 @@ impl Pool {
                     quotes_redeemed: None,
                     ehash_mined: None,
                     last_share_time: None,
-                    connection_type: "Mint Service".to_string(),
+                    connection_type: "Mint".to_string(),
                 });
             }
         } else {
@@ -101,10 +101,23 @@ impl Pool {
                 quotes_redeemed: None,
                 ehash_mined: None,
                 last_share_time: None,
-                connection_type: "Mint Service (Disconnected)".to_string(),
+                connection_type: "Mint (Disconnected)".to_string(),
             });
         }
-        
+
+        // Add pool service entry representing the dashboard itself
+        connections.push(ConnectionInfo {
+            id: 0,
+            address: self.listen_address.clone(),
+            channels: vec![],
+            shares_submitted: 0,
+            quotes_created: None,
+            quotes_redeemed: None,
+            ehash_mined: None,
+            last_share_time: None,
+            connection_type: "Pool".to_string(),
+        });
+
         // Check for active JDC connections in downstreams
         // A JDC is considered active if it was identified as such and has a recent connection
         let has_active_jdc = connections.iter().any(|c| {
@@ -463,13 +476,16 @@ async fn serve_connections_page(_pool: Arc<Mutex<Pool>>) -> Response<Full<Bytes>
                 return { label: 'Job Declarator', iconClass: 'block-icon' };
             }
             if (connType.includes('Mint')) {
-                return { label: 'Mint Service', iconClass: 'coins-icon' };
+                return { label: 'Mint', iconClass: 'coins-icon' };
             }
+             if (connType.includes('Pool')) {
+                 return { label: 'Pool', iconClass: 'pickaxe-icon' };
+             }
             return { label: connType, iconClass: null };
         }
 
         function isServiceConnection(connType) {
-            return connType.includes('Job Declarator') || connType.includes('Mint');
+            return connType.includes('Job Declarator') || connType.includes('Mint') || connType.includes('Pool');
         }
 
         function isDisconnected(connType) {
@@ -495,7 +511,7 @@ async fn serve_connections_page(_pool: Arc<Mutex<Pool>>) -> Response<Full<Bytes>
                 servicesTbody.innerHTML = '';
                 
                 if (services.length === 0) {
-                    servicesTbody.innerHTML = '<tr><td colspan="5" style="text-align: center; opacity: 0.5;">No service connections</td></tr>';
+                    servicesTbody.innerHTML = '<tr><td colspan="6" style="text-align: center; opacity: 0.5;">No service connections</td></tr>';
                 } else {
                     services.forEach(conn => {
                         const row = servicesTbody.insertRow();
@@ -518,14 +534,17 @@ async fn serve_connections_page(_pool: Arc<Mutex<Pool>>) -> Response<Full<Bytes>
                         } else {
                             // Service is connected - show normal info
                             const addr = parseAddress(conn.address);
-                            const channelId = conn.channels.length > 0 ? conn.channels[0] : conn.id;
+                            const channelId = serviceMeta.label === 'Pool'
+                                ? '-' : (conn.channels.length > 0 ? conn.channels[0] : conn.id);
                             const isUp = conn.connection_type.includes('Mint') || conn.connection_type.includes('Job Declarator') || conn.shares_submitted > 0 || conn.channels.length > 0;
                             
                             row.insertCell().textContent = serviceMeta.label;
                             row.insertCell().textContent = channelId;
                             row.insertCell().innerHTML = `<span class="address">${addr.ip}</span>`;
                             row.insertCell().textContent = addr.port;
-                            row.insertCell().innerHTML = `<span class="status-dot ${isUp ? 'status-up' : 'status-down'}"></span>${isUp ? 'Up' : '<span style="color: #ff4444;">Down</span>'}`;
+                            const poolServiceUp = serviceMeta.label === 'Pool';
+                            const serviceUp = poolServiceUp || isUp;
+                            row.insertCell().innerHTML = `<span class="status-dot ${serviceUp ? 'status-up' : 'status-down'}"></span>${serviceUp ? 'Up' : '<span style="color: #ff4444;">Down</span>'}`;
                         }
                     });
                 }
