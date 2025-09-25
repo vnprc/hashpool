@@ -15,7 +15,7 @@ use bytes::Bytes;
 
 use super::mining_pool::Pool;
 use roles_logic_sv2::utils::Mutex;
-use web_assets::icons::nav_icon_css;
+use web_assets::icons::{nav_icon_css, pickaxe_favicon_inline_svg};
 
 static CONNECTIONS_PAGE_HTML: OnceLock<Bytes> = OnceLock::new();
 
@@ -200,6 +200,7 @@ async fn handle_request(
     ) -> Result<Response<Full<Bytes>>, Infallible> {
     let response = match (req.method(), req.uri().path()) {
         (&Method::GET, "/") => serve_connections_page(pool).await,
+        (&Method::GET, "/favicon.ico") | (&Method::GET, "/favicon.svg") => serve_favicon(),
         (&Method::GET, "/api/connections") => serve_connections_json(pool).await,
         _ => {
             let mut response = Response::new(Full::new(Bytes::from("Not Found")));
@@ -219,6 +220,16 @@ async fn serve_connections_json(pool: Arc<Mutex<Pool>>) -> Response<Full<Bytes>>
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
         .body(Full::new(Bytes::from(json)))
+        .unwrap()
+}
+
+fn serve_favicon() -> Response<Full<Bytes>> {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", "image/svg+xml")
+        .body(Full::new(Bytes::from_static(
+            pickaxe_favicon_inline_svg().as_bytes(),
+        )))
         .unwrap()
 }
 
@@ -253,7 +264,7 @@ async fn serve_connections_page(_pool: Arc<Mutex<Pool>>) -> Response<Full<Bytes>
 <head>
     <meta charset="UTF-8">
     <title>Hashpool Mining Pool Dashboard</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>#️⃣</text></svg>">
+    <link rel="icon" type="image/svg+xml" sizes="any" href="/favicon.svg">
     <style>
         body { 
             font-family: 'Courier New', monospace; 
