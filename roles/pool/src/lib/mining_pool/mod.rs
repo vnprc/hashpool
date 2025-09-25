@@ -227,6 +227,7 @@ pub struct Pool {
     pending_share_manager: Arc<pending_shares::PendingShareManager>,
     /// Maps channel_id (from mining protocol) to downstream_id (connection identifier)
     channel_to_downstream: HashMap<u32, u32, BuildNoHashHasher<u32>>,
+    pub listen_address: String,
 }
 
 impl Downstream {
@@ -840,6 +841,7 @@ impl Pool {
             mint_connections: HashMap::new(),
             pending_share_manager: Arc::new(pending_shares::PendingShareManager::new()),
             channel_to_downstream: HashMap::with_hasher(BuildNoHashHasher::default()),
+            listen_address: config.listen_address.clone(),
         }));
 
         let cloned = pool.clone();
