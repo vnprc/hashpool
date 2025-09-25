@@ -12,6 +12,7 @@ use tokio::sync::Mutex;
 use tracing::{info, error, warn};
 use serde_json::json;
 use web_assets::icons::{nav_icon_css, pickaxe_favicon_inline_svg};
+use web_assets::formatting::format_hash_units;
 
 use cdk::wallet::Wallet;
 use cdk::Amount;
@@ -323,6 +324,7 @@ const HTML_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
                 debugEl.textContent = new Date().toLocaleTimeString() + ': ' + msg;
             }
         }
+        
         function updateWalletDisplay() {
             if (!statusEl || !walletEl) return; // Skip if elements don't exist
             
@@ -331,7 +333,7 @@ const HTML_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
                 .then(data => {
                     statusEl.innerHTML = '<span class="status-dot status-up"></span>Connected';
                     statusEl.className = 'status';
-                    walletEl.textContent = data.balance.toLocaleString();
+                    walletEl.textContent = data.balance;
                 })
                 .catch(e => {
                     statusEl.innerHTML = '<span class="status-dot status-down"></span>Connection Lost';
@@ -799,8 +801,10 @@ async fn handle_request(
         (&Method::GET, "/balance") => {
             match wallet.total_balance().await {
                 Ok(balance) => {
+                    let balance_u64 = u64::from(balance);
                     let json_response = json!({
-                        "balance": u64::from(balance),
+                        "balance": format_hash_units(balance_u64),
+                        "balance_raw": balance_u64,
                         "unit": "HASH"
                     });
                     Response::builder()

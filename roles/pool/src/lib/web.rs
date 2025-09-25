@@ -16,6 +16,7 @@ use bytes::Bytes;
 use super::mining_pool::Pool;
 use roles_logic_sv2::utils::Mutex;
 use web_assets::icons::{nav_icon_css, pickaxe_favicon_inline_svg};
+use web_assets::formatting::format_hash_units;
 
 static CONNECTIONS_PAGE_HTML: OnceLock<Bytes> = OnceLock::new();
 
@@ -164,7 +165,8 @@ pub struct PoolStats {
     pub total_shares: u64,
     pub total_quotes: u64,
     pub quotes_redeemed: Option<u64>,
-    pub ehash_mined: u64,
+    pub ehash_mined: String,  // Formatted string
+    pub ehash_mined_raw: u64, // Raw value for calculations  
     pub connections: Vec<ConnectionInfo>,
 }
 
@@ -266,7 +268,8 @@ async fn get_pool_stats(pool: Arc<Mutex<Pool>>) -> PoolStats {
         total_shares,
         total_quotes,
         quotes_redeemed,
-        ehash_mined,
+        ehash_mined: format_hash_units(ehash_mined),
+        ehash_mined_raw: ehash_mined,
         connections,
     }
 }
@@ -504,7 +507,7 @@ async fn serve_connections_page(_pool: Arc<Mutex<Pool>>) -> Response<Full<Bytes>
                 document.getElementById('total-miners').textContent = miners.length;
                 document.getElementById('total-shares').textContent = data.total_shares.toLocaleString();
                 document.getElementById('quotes-redeemed').textContent = data.quotes_redeemed === null ? '?' : data.quotes_redeemed.toLocaleString();
-                document.getElementById('ehash-mined').textContent = data.ehash_mined.toLocaleString();
+                document.getElementById('ehash-mined').textContent = data.ehash_mined;
                 
                 // Update services table
                 const servicesTbody = document.getElementById('services-tbody');

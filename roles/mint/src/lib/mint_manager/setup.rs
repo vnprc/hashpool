@@ -52,7 +52,7 @@ pub async fn setup_mint(mint_settings: config::Settings, db_path: String) -> Res
         unit: hash_currency_unit.clone(),
         min_amount: Some(Amount::from(1)),
         // TODO update units to 2^bits not just raw bits
-        max_amount: Some(Amount::from(256)),
+        max_amount: Some(Amount::from(u64::MAX)),
         options: None,
     };
     

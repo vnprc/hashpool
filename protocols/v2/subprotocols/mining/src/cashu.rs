@@ -269,7 +269,7 @@ impl<'a> TryFrom<Sv2KeySet<'a>> for KeySet {
 // TODO find a better place for this
 // TODO make configurable
 pub fn calculate_work(hash: [u8; 32]) -> u64 {
-    calculate_work_in_range(hash, 36, 64)
+    calculate_work_in_range(hash, 1, 64)
 }
 
 /// Calculate work using exponential valuation (2^n) where n is number of leading zero bits.
