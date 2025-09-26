@@ -167,8 +167,10 @@ impl TranslatorSv2 {
             let web_port = self.config.web_port;
             let wallet_for_web = wallet_ref.clone();
             let miner_tracker_for_web = self.miner_tracker.clone();
+            let downstream_address = self.config.downstream_address.clone();
+            let downstream_port = self.config.downstream_port;
             tokio::spawn(async move {
-                if let Err(e) = web::start_web_server(wallet_for_web, miner_tracker_for_web, web_port).await {
+                if let Err(e) = web::start_web_server(wallet_for_web, miner_tracker_for_web, web_port, downstream_address, downstream_port).await {
                     error!("Web server error: {}", e);
                 }
             });

@@ -9,8 +9,12 @@ upstream_port = 34254
 upstream_authority_pubkey = "9auqWEzQDVyd2oe1JVGFLMLHZtCo2FFqZwtKA5gd9xbuEu7PH72"
 
 # Local Mining Device Downstream Connection
+# Dev - use your local network IP or 0.0.0.0 to listen on all interfaces
 downstream_address = "0.0.0.0"
 downstream_port = 34255
+# Prod - VPS external IP
+# downstream_address = "188.40.233.11"
+# downstream_port = 34256
 
 # Version support
 max_supported_version = 2
