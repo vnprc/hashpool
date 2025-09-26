@@ -141,7 +141,7 @@ impl MinerTracker {
             MinerApiInfo {
                 id: miner.id,
                 name: miner.name.clone(),
-                address: miner.address.to_string(),
+                address: "REDACTED".to_string(),
                 hashrate,
                 shares: miner.shares_submitted,
                 connected_time,
