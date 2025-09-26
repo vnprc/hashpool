@@ -139,14 +139,14 @@ const MINERS_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
         <div style="margin: 30px 0; padding: 20px; border: 1px solid #00ff00; text-align: left;">
             <h3 style="margin-top: 0; text-align: center;">Connection Settings</h3>
             <div style="font-family: monospace; font-size: 1.1em;">
-                <div style="margin: 10px 0;"><strong>Server:</strong> <span style="color: #ffff00;">192.168.1.160</span></div>
-                <div style="margin: 10px 0;"><strong>Port:</strong> <span style="color: #ffff00;">34255</span></div>
+                <div style="margin: 10px 0;"><strong>Server:</strong> <span style="color: #ffff00;">{0}</span></div>
+                <div style="margin: 10px 0;"><strong>Port:</strong> <span style="color: #ffff00;">{1}</span></div>
                 <div style="margin: 10px 0;"><strong>Protocol:</strong> <span style="color: #ffff00;">Stratum V1</span></div>
                 <div style="margin: 10px 0;"><strong>Username:</strong> <span style="color: #ffff00;">your-worker-name</span></div>
                 <div style="margin: 10px 0;"><strong>Password:</strong> <span style="color: #ffff00;">x</span></div>
             </div>
             <div style="margin-top: 15px; font-size: 0.9em; opacity: 0.8;">
-                Example: <code style="background: #333; padding: 5px;">cgminer -o stratum+tcp://192.168.1.160:34255 -u worker1 -p x</code>
+                Example: <code style="background: #333; padding: 5px;">cgminer -o stratum+tcp://{0}:{1} -u worker1 -p x</code>
             </div>
         </div>
         
@@ -655,7 +655,7 @@ const FAUCET_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
 </body>
 </html>"#;
 
-pub async fn start_web_server(wallet: Arc<Wallet>, miner_tracker: Arc<miner_stats::MinerTracker>, port: u16) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn start_web_server(wallet: Arc<Wallet>, miner_tracker: Arc<miner_stats::MinerTracker>, port: u16, downstream_address: String, downstream_port: u16) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let addr = format!("127.0.0.1:{}", port);
     let listener = TcpListener::bind(&addr).await?;
     let faucet_rate_limiter = Arc::new(RateLimiter::new());
@@ -668,10 +668,13 @@ pub async fn start_web_server(wallet: Arc<Wallet>, miner_tracker: Arc<miner_stat
         let miner_tracker_clone = miner_tracker.clone();
         let faucet_rate_limiter_clone = faucet_rate_limiter.clone();
 
+        let downstream_addr = downstream_address.clone();
+        let downstream_p = downstream_port;
+        
         tokio::task::spawn(async move {
             if let Err(err) = http1::Builder::new()
                 .serve_connection(io, service_fn(move |req| {
-                    handle_request(req, wallet_clone.clone(), miner_tracker_clone.clone(), faucet_rate_limiter_clone.clone())
+                    handle_request(req, wallet_clone.clone(), miner_tracker_clone.clone(), faucet_rate_limiter_clone.clone(), downstream_addr.clone(), downstream_p)
                 }))
                 .await
             {
@@ -726,6 +729,8 @@ async fn handle_request(
     wallet: Arc<Wallet>,
     miner_tracker: Arc<miner_stats::MinerTracker>,
     faucet_rate_limiter: Arc<RateLimiter>,
+    downstream_address: String,
+    downstream_port: u16,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     let response = match (req.method(), req.uri().path()) {
         (&Method::GET, "/favicon.ico") | (&Method::GET, "/favicon.svg") => Ok(serve_favicon()),
@@ -742,7 +747,7 @@ async fn handle_request(
         (&Method::GET, "/miners") => {
             Response::builder()
                 .header("content-type", "text/html; charset=utf-8")
-                .body(Full::new(miners_page()))
+                .body(Full::new(miners_page(&downstream_address, downstream_port)))
         }
         (&Method::GET, "/api/miners") => {
             let stats = miner_tracker.get_stats().await;
@@ -848,14 +853,12 @@ static MINERS_PAGE_HTML: OnceLock<Bytes> = OnceLock::new();
 static HTML_PAGE_HTML: OnceLock<Bytes> = OnceLock::new();
 static FAUCET_PAGE_HTML: OnceLock<Bytes> = OnceLock::new();
 
-fn miners_page() -> Bytes {
-    MINERS_PAGE_HTML
-        .get_or_init(|| {
-            Bytes::from(
-                MINERS_PAGE_TEMPLATE.replace("/* {{NAV_ICON_CSS}} */", nav_icon_css()),
-            )
-        })
-        .clone()
+fn miners_page(address: &str, port: u16) -> Bytes {
+    let formatted_html = MINERS_PAGE_TEMPLATE
+        .replace("/* {{NAV_ICON_CSS}} */", nav_icon_css())
+        .replace("{0}", address)
+        .replace("{1}", &port.to_string());
+    Bytes::from(formatted_html)
 }
 
 fn html_page() -> Bytes {
