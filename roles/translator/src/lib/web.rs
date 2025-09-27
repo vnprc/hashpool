@@ -536,7 +536,7 @@ const FAUCET_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
                 const data = await response.json();
                 
                 if (response.ok && data.success) {
-                    status.textContent = `Success! Minted ${data.amount} ehash tokens`;
+                    status.innerHTML = `Success! Minted ${data.amount} ehash tokens<br><br>Redeem <a href="https://wallet.hashpool.dev" target="_blank" style="color: #00ff00; text-decoration: underline;">here</a>`;
                     status.className = 'status success';
                     
                     // Generate QR code for the token
@@ -636,14 +636,18 @@ const FAUCET_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
                 navigator.clipboard.writeText(currentToken).then(() => {
                     const status = document.getElementById('status');
                     const btn = document.getElementById('drip-btn');
-                    const originalText = status.textContent;
-                    status.textContent = 'Token copied to clipboard!';
+                    const originalHTML = status.innerHTML;
+                    // Only replace the first line, keep the redeem link
+                    const lines = originalHTML.split('<br>');
+                    lines[0] = 'Token copied to clipboard!';
+                    status.innerHTML = lines.join('<br>');
+                    
                     setTimeout(() => {
                         // Don't restore message if we're in countdown mode
                         if (!btn.disabled || !btn.textContent.includes('Wait')) {
-                            status.textContent = originalText;
+                            status.innerHTML = originalHTML;
                         } else {
-                            status.textContent = '';
+                            status.innerHTML = '';
                         }
                     }, 2000);
                 }).catch(err => {
