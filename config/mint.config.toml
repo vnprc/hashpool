@@ -2,6 +2,7 @@
 listen_host = "localhost"
 listen_port = 3338
 url = "http://localhost:3338"
+# url = "https://mint.hashpool.dev"
 mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
 
 [info.http_cache]

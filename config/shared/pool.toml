@@ -13,6 +13,9 @@ timeout_ms = 5000
 host = "localhost"
 port = 3338
 url = "http://localhost:3338"
+# host = "mint.hashpool.dev"
+# port = 443
+# url = "https://mint.hashpool.dev"
 
 [pool]
 port = 34254
