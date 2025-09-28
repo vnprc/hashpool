@@ -66,7 +66,7 @@ const MINERS_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
             text-align: center;
         }
         .container { 
-            max-width: 1200px; 
+            max-width: 800px; 
             margin: 0 auto; 
             padding: 40px;
         }
@@ -115,6 +115,8 @@ const MINERS_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
             text-decoration: none;
             margin: 0 20px;
             font-size: 1.2em;
+            white-space: nowrap;
+            display: inline-block;
         }
         .nav a:hover {
             text-shadow: 0 0 10px #00ff00;
@@ -131,7 +133,7 @@ const MINERS_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
 <body>
     <div class="container">
         <div class="nav">
-            <a href="/"><span class="wallet-icon">Wallet</span></a> | <a href="/faucet"><span class="faucet-icon">Faucet</span></a> | <a href="/miners"><span class="pickaxe-icon">Miners</span></a>
+            <a href="/"><span class="wallet-icon">Wallet</span></a> | <a href="/miners"><span class="pickaxe-icon">Miners</span></a> | <a href="/pool"><span class="miner-icon">Pool</span></a>
         </div>
 
         <h1>Mining Devices</h1>
@@ -293,89 +295,13 @@ const HTML_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
             text-decoration: none;
             margin: 0 20px;
             font-size: 1.2em;
+            white-space: nowrap;
+            display: inline-block;
         }
         .nav a:hover {
             text-shadow: 0 0 10px #00ff00;
         }
-        /* {{NAV_ICON_CSS}} */
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="nav">
-            <a href="/"><span class="wallet-icon">Wallet</span></a> | <a href="/faucet"><span class="faucet-icon">Faucet</span></a> | <a href="/miners"><span class="pickaxe-icon">Miners</span></a>
-        </div>
-        
-        <h1>Ehash Wallet</h1>
-        <div class="status" id="status">Connecting...</div>
-        <div class="wallet" id="wallet">---</div>
-        <div class="unit">HASH</div>
-        <div id="debug" style="margin-top: 20px; font-size: 0.8em; opacity: 0.6;"></div>
-    </div>
-    
-    <script>
-        const walletEl = document.getElementById('wallet');
-        const statusEl = document.getElementById('status');
-        const debugEl = document.getElementById('debug');
-        
-        function log(msg) {
-            console.log(msg);
-            if (debugEl) {
-                debugEl.textContent = new Date().toLocaleTimeString() + ': ' + msg;
-            }
-        }
-        
-        function updateWalletDisplay() {
-            if (!statusEl || !walletEl) return; // Skip if elements don't exist
-            
-            fetch('/balance')
-                .then(response => response.json())
-                .then(data => {
-                    statusEl.innerHTML = '<span class="status-dot status-up"></span>Connected';
-                    statusEl.className = 'status';
-                    walletEl.textContent = data.balance;
-                })
-                .catch(e => {
-                    statusEl.innerHTML = '<span class="status-dot status-down"></span>Connection Lost';
-                    statusEl.className = 'status offline';
-                    walletEl.textContent = '---';
-                    log('Fetch failed: ' + e.message);
-                });
-        }
-        
-        // Update wallet immediately and then every 3 seconds
-        updateWalletDisplay();
-        setInterval(updateWalletDisplay, 3000);
-    </script>
-</body>
-</html>"#;
-
-const FAUCET_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Hashpool Ehash Faucet</title>
-    <link rel="icon" type="image/svg+xml" sizes="any" href="/favicon.svg">
-    <style>
-        body { 
-            font-family: 'Courier New', monospace; 
-            background: #1a1a1a; 
-            color: #00ff00; 
-            margin: 0;
-            padding: 20px;
-            text-align: center;
-        }
-        .container { 
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 40px;
-            text-align: center;
-        }
-        h1 {
-            text-align: center;
-            margin-bottom: 30px;
-        }
-        .faucet-button { 
+        .mint-button { 
             font-size: 2em; 
             padding: 20px 40px;
             background: transparent;
@@ -386,12 +312,12 @@ const FAUCET_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
             margin: 20px;
             transition: all 0.3s;
         }
-        .faucet-button:hover {
+        .mint-button:hover {
             background: #00ff00;
             color: #1a1a1a;
             text-shadow: none;
         }
-        .faucet-button:disabled {
+        .mint-button:disabled {
             opacity: 0.5;
             cursor: not-allowed;
         }
@@ -440,18 +366,6 @@ const FAUCET_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
         .error { 
             color: #ff4444; 
         }
-        .nav {
-            margin-bottom: 30px;
-        }
-        .nav a {
-            color: #00ff00;
-            text-decoration: none;
-            margin: 0 20px;
-            font-size: 1.2em;
-        }
-        .nav a:hover {
-            text-shadow: 0 0 10px #00ff00;
-        }
         /* {{NAV_ICON_CSS}} */
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
@@ -493,28 +407,57 @@ const FAUCET_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
 <body>
     <div class="container">
         <div class="nav">
-            <a href="/"><span class="wallet-icon">Wallet</span></a> | <a href="/faucet"><span class="faucet-icon">Faucet</span></a> | <a href="/miners"><span class="pickaxe-icon">Miners</span></a>
+            <a href="/"><span class="wallet-icon">Wallet</span></a> | <a href="/miners"><span class="pickaxe-icon">Miners</span></a> | <a href="/pool"><span class="miner-icon">Pool</span></a>
         </div>
         
-        <h1>Ehash Faucet</h1>
-        <p>Get some ehash in your wallet!</p>
+        <h1>Ehash Wallet</h1>
+        <div class="wallet" id="wallet">---</div>
         
-        <button class="faucet-button" id="drip-btn" onclick="requestDrip()">
-            Request Tokens
+        <button class="mint-button" id="drip-btn" onclick="requestDrip()">
+            <span class="qr-icon"></span>Mint
         </button>
         
-        <div class="status" id="status"></div>
+        <div class="status" id="status" style="text-align: center; border: none; display: block; margin: 20px auto;"></div>
         
         <div class="qr-container" id="qr-container">
             <canvas id="qr-canvas" class="qr-code" onclick="copyToken()" title="Click to copy token"></canvas>
         </div>
         <div id="qr-status" style="margin-top: 10px; font-size: 0.9em; color: #00ff00;"></div>
         <p id="qr-instruction" style="margin: 10px 0; opacity: 0; transition: opacity 0.3s ease;">click to copy</p>
+        
+        <div id="debug" style="margin-top: 20px; font-size: 0.8em; opacity: 0.6;"></div>
     </div>
     
     <script>
-        // No library loading needed - the qrcode-generator library is much more reliable
+        const walletEl = document.getElementById('wallet');
+        const debugEl = document.getElementById('debug');
+        
+        function log(msg) {
+            console.log(msg);
+            if (debugEl) {
+                debugEl.textContent = new Date().toLocaleTimeString() + ': ' + msg;
+            }
+        }
+        
+        function updateWalletDisplay() {
+            if (!walletEl) return; // Skip if element doesn't exist
+            
+            fetch('/balance')
+                .then(response => response.json())
+                .then(data => {
+                    walletEl.textContent = data.balance;
+                })
+                .catch(e => {
+                    walletEl.textContent = '---';
+                    log('Fetch failed: ' + e.message);
+                });
+        }
+        
+        // Update wallet immediately and then every 3 seconds
+        updateWalletDisplay();
+        setInterval(updateWalletDisplay, 3000);
 
+        // Faucet functionality
         function setButtonClockState(btn, label) {
             btn.innerHTML = `<span class="clock-icon" aria-hidden="true"></span><span>${label}</span>`;
         }
@@ -532,11 +475,11 @@ const FAUCET_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
             document.getElementById('qr-instruction').style.opacity = '0';
             
             try {
-                const response = await fetch('/faucet/drip', { method: 'POST' });
+                const response = await fetch('/mint/tokens', { method: 'POST' });
                 const data = await response.json();
                 
                 if (response.ok && data.success) {
-                    status.innerHTML = `Success! Minted ${data.amount} ehash tokens<br><br>Redeem <a href="https://wallet.hashpool.dev" target="_blank" style="color: #00ff00; text-decoration: underline;">here</a>`;
+                    status.innerHTML = `Success! Minted ${data.amount} ehash<br><br>Redeem <a href="https://wallet.hashpool.dev" target="_blank" style="color: #00ff00; text-decoration: underline;">here</a>`;
                     status.className = 'status success';
                     
                     // Generate QR code for the token
@@ -546,7 +489,7 @@ const FAUCET_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
                     
                     // Re-enable button immediately - server handles rate limiting
                     btn.disabled = false;
-                    btn.textContent = 'Request Tokens';
+                    btn.innerHTML = '<span class="qr-icon"></span>Mint';
                 } else {
                     throw new Error(data.error || 'Unknown error');
                 }
@@ -587,7 +530,7 @@ const FAUCET_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
                     // Countdown finished
                     clearInterval(countdownTimer);
                     btn.disabled = false;
-                    btn.textContent = 'Request Tokens';
+                    btn.innerHTML = '<span class="qr-icon"></span>Mint';
                     status.textContent = '';
                     status.className = 'status';
                     countdownTimer = null;
@@ -659,10 +602,165 @@ const FAUCET_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
 </body>
 </html>"#;
 
-pub async fn start_web_server(wallet: Arc<Wallet>, miner_tracker: Arc<miner_stats::MinerTracker>, port: u16, downstream_address: String, downstream_port: u16) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+const POOL_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Hashpool Pool Settings</title>
+    <link rel="icon" type="image/svg+xml" sizes="any" href="/favicon.svg">
+    <style>
+        body { 
+            font-family: 'Courier New', monospace; 
+            background: #1a1a1a; 
+            color: #00ff00; 
+            margin: 0;
+            padding: 20px;
+            text-align: center;
+        }
+        .container { 
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px;
+            text-align: center;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .nav {
+            margin-bottom: 30px;
+        }
+        .nav a {
+            color: #00ff00;
+            text-decoration: none;
+            margin: 0 20px;
+            font-size: 1.2em;
+            white-space: nowrap;
+            display: inline-block;
+        }
+        .nav a:hover {
+            text-shadow: 0 0 10px #00ff00;
+        }
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 40px;
+        }
+        .stat-box {
+            text-align: center;
+            padding: 20px;
+            border: 1px solid #00ff00;
+            min-width: 150px;
+        }
+        .stat-value {
+            font-size: 2em;
+            margin-top: 10px;
+        }
+        .status { 
+            margin: 20px 0; 
+            padding: 10px; 
+            border: 1px solid #00ff00; 
+            display: inline-block;
+        }
+        .offline { 
+            color: #ff4444; 
+            border-color: #ff4444; 
+        }
+        .status-dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-up {
+            background-color: #00ff00;
+            box-shadow: 0 0 5px #00ff00;
+        }
+        .status-down {
+            background-color: #ff4444;
+            box-shadow: 0 0 5px #ff4444;
+        }
+        /* {{NAV_ICON_CSS}} */
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="nav">
+            <a href="/"><span class="wallet-icon">Wallet</span></a> | <a href="/miners"><span class="pickaxe-icon">Miners</span></a> | <a href="/pool"><span class="miner-icon">Pool</span></a>
+        </div>
+
+        <h1>Mining Pool</h1>
+        
+        <div style="margin: 30px 0; padding: 20px; border: 1px solid #00ff00; text-align: left;">
+            <h3 style="margin-top: 0; text-align: center;">Pool Settings</h3>
+            <div style="font-family: monospace; font-size: 1.1em;">
+                <div style="margin: 10px 0;"><strong>Pool:</strong> <span style="color: #ffff00;">Hashpool</span></div>
+                <div style="margin: 10px 0;"><strong>Server:</strong> <span style="color: #ffff00;">{upstream_address}</span></div>
+                <div style="margin: 10px 0;"><strong>Port:</strong> <span style="color: #ffff00;">{upstream_port}</span></div>
+                <div style="margin: 10px 0;"><strong>Protocol:</strong> <span style="color: #ffff00;">Stratum V2</span></div>
+            </div>
+        </div>
+        
+        <div class="stats">
+            <div class="stat-box">
+                <div>Blockchain</div>
+                <div class="stat-value" id="blockchain-status">{blockchain_network}</div>
+            </div>
+            <div class="stat-box">
+                <div>Block Height</div>
+                <div class="stat-value" id="block-height-status">-</div>
+            </div>
+            <div class="stat-box">
+                <div>Last Block Found</div>
+                <div class="stat-value" id="last-block-status">-</div>
+            </div>
+        </div>
+        
+        <div class="status" id="status">Connecting...</div>
+    </div>
+    
+    <script>
+        const statusEl = document.getElementById('status');
+        const blockchainEl = document.getElementById('blockchain-status');
+        const blockHeightEl = document.getElementById('block-height-status');
+        const lastBlockEl = document.getElementById('last-block-status');
+        
+        function updatePoolStatus() {
+            if (!statusEl) return; // Skip if element doesn't exist
+            
+            fetch('/balance')
+                .then(response => response.json())
+                .then(data => {
+                    statusEl.innerHTML = '<span class="status-dot status-up"></span>Connected';
+                    statusEl.className = 'status';
+                    
+                    // TODO: Update these with real data when available
+                    // For now, keep blockchain static and others as placeholders
+                    if (blockHeightEl) blockHeightEl.textContent = '-';
+                    if (lastBlockEl) lastBlockEl.textContent = '-';
+                })
+                .catch(e => {
+                    statusEl.innerHTML = '<span class="status-dot status-down"></span>Connection Lost';
+                    statusEl.className = 'status offline';
+                    
+                    // Show disconnected state for status boxes
+                    if (blockHeightEl) blockHeightEl.textContent = '-';
+                    if (lastBlockEl) lastBlockEl.textContent = '-';
+                });
+        }
+        
+        // Update immediately and then every 3 seconds
+        updatePoolStatus();
+        setInterval(updatePoolStatus, 3000);
+    </script>
+</body>
+</html>"#;
+
+pub async fn start_web_server(wallet: Arc<Wallet>, miner_tracker: Arc<miner_stats::MinerTracker>, port: u16, downstream_address: String, downstream_port: u16, upstream_address: String, upstream_port: u16) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let addr = format!("127.0.0.1:{}", port);
     let listener = TcpListener::bind(&addr).await?;
-    let faucet_rate_limiter = Arc::new(RateLimiter::new());
+    let mint_rate_limiter = Arc::new(RateLimiter::new());
     info!("🌐 Web server starting on http://{}", addr);
 
     loop {
@@ -670,15 +768,17 @@ pub async fn start_web_server(wallet: Arc<Wallet>, miner_tracker: Arc<miner_stat
         let io = TokioIo::new(stream);
         let wallet_clone = wallet.clone();
         let miner_tracker_clone = miner_tracker.clone();
-        let faucet_rate_limiter_clone = faucet_rate_limiter.clone();
+        let mint_rate_limiter_clone = mint_rate_limiter.clone();
 
         let downstream_addr = downstream_address.clone();
         let downstream_p = downstream_port;
+        let upstream_addr = upstream_address.clone();
+        let upstream_p = upstream_port;
         
         tokio::task::spawn(async move {
             if let Err(err) = http1::Builder::new()
                 .serve_connection(io, service_fn(move |req| {
-                    handle_request(req, wallet_clone.clone(), miner_tracker_clone.clone(), faucet_rate_limiter_clone.clone(), downstream_addr.clone(), downstream_p)
+                    handle_request(req, wallet_clone.clone(), miner_tracker_clone.clone(), mint_rate_limiter_clone.clone(), downstream_addr.clone(), downstream_p, upstream_addr.clone(), upstream_p)
                 }))
                 .await
             {
@@ -688,11 +788,11 @@ pub async fn start_web_server(wallet: Arc<Wallet>, miner_tracker: Arc<miner_stat
     }
 }
 
-async fn create_faucet_token(wallet: Arc<Wallet>) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+async fn create_mint_token(wallet: Arc<Wallet>) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     // Create a 32 diff token (32 sat amount)
     let amount = Amount::from(32u64);
     
-    info!("🚰 Creating faucet token for {} diff", amount);
+    info!("🪙 Creating mint token for {} diff", amount);
     
     // Check wallet balance first
     let balance = wallet.total_balance().await?;
@@ -724,7 +824,7 @@ async fn create_faucet_token(wallet: Arc<Wallet>) -> Result<String, Box<dyn std:
     );
     
     let token_string = token.to_string();
-    info!("✅ Faucet token created successfully with {} proofs", single_proof.len());
+    info!("✅ Mint token created successfully with {} proofs", single_proof.len());
     Ok(token_string)
 }
 
@@ -732,9 +832,11 @@ async fn handle_request(
     req: Request<hyper::body::Incoming>,
     wallet: Arc<Wallet>,
     miner_tracker: Arc<miner_stats::MinerTracker>,
-    faucet_rate_limiter: Arc<RateLimiter>,
+    mint_rate_limiter: Arc<RateLimiter>,
     downstream_address: String,
     downstream_port: u16,
+    upstream_address: String,
+    upstream_port: u16,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     let response = match (req.method(), req.uri().path()) {
         (&Method::GET, "/favicon.ico") | (&Method::GET, "/favicon.svg") => Ok(serve_favicon()),
@@ -743,15 +845,15 @@ async fn handle_request(
                 .header("content-type", "text/html; charset=utf-8")
                 .body(Full::new(html_page()))
         }
-        (&Method::GET, "/faucet") => {
-            Response::builder()
-                .header("content-type", "text/html; charset=utf-8")
-                .body(Full::new(faucet_page()))
-        }
         (&Method::GET, "/miners") => {
             Response::builder()
                 .header("content-type", "text/html; charset=utf-8")
                 .body(Full::new(miners_page(&downstream_address, downstream_port)))
+        }
+        (&Method::GET, "/pool") => {
+            Response::builder()
+                .header("content-type", "text/html; charset=utf-8")
+                .body(Full::new(pool_page(upstream_address.clone(), upstream_port)))
         }
         (&Method::GET, "/api/miners") => {
             let stats = miner_tracker.get_stats().await;
@@ -765,12 +867,12 @@ async fn handle_request(
                 .header("content-type", "application/json")
                 .body(Full::new(Bytes::from(miners_data.to_string())))
         }
-        (&Method::POST, "/faucet/drip") => {
-            // Check faucet rate limiting - ONLY for faucet requests
-            match faucet_rate_limiter.check_rate_limit().await {
+        (&Method::POST, "/mint/tokens") => {
+            // Check mint rate limiting - ONLY for mint requests
+            match mint_rate_limiter.check_rate_limit().await {
                 Ok(()) => {
-                    info!("🚰 Faucet request accepted");
-                    match create_faucet_token(wallet).await {
+                    info!("🪙 Mint request accepted");
+                    match create_mint_token(wallet).await {
                         Ok(token) => {
                             let json_response = json!({
                                 "success": true,
@@ -782,7 +884,7 @@ async fn handle_request(
                                 .body(Full::new(Bytes::from(json_response.to_string())))
                         }
                         Err(e) => {
-                            error!("Failed to create faucet token: {}", e);
+                            error!("Failed to create mint token: {}", e);
                             let json_response = json!({
                                 "success": false,
                                 "error": format!("Failed to create token: {}", e)
@@ -855,7 +957,7 @@ fn serve_favicon() -> Response<Full<Bytes>> {
 
 static MINERS_PAGE_HTML: OnceLock<Bytes> = OnceLock::new();
 static HTML_PAGE_HTML: OnceLock<Bytes> = OnceLock::new();
-static FAUCET_PAGE_HTML: OnceLock<Bytes> = OnceLock::new();
+static POOL_PAGE_HTML: OnceLock<Bytes> = OnceLock::new();
 
 fn miners_page(address: &str, port: u16) -> Bytes {
     let formatted_html = MINERS_PAGE_TEMPLATE
@@ -873,10 +975,23 @@ fn html_page() -> Bytes {
         .clone()
 }
 
-fn faucet_page() -> Bytes {
-    FAUCET_PAGE_HTML
-        .get_or_init(|| {
-            Bytes::from(FAUCET_PAGE_TEMPLATE.replace("/* {{NAV_ICON_CSS}} */", nav_icon_css()))
-        })
-        .clone()
+
+fn pool_page(upstream_address: String, upstream_port: u16) -> Bytes {
+    // TODO: Add human-readable pool name configuration
+    
+    // Get blockchain network from environment variable
+    let blockchain_network = std::env::var("BITCOIND_NETWORK")
+        .unwrap_or_else(|_| "testnet4".to_string());
+    
+    // TODO: Fetch block height from template provider
+    // This will require implementing communication with the template provider
+    // to get current block template information
+    
+    let formatted_html = POOL_PAGE_TEMPLATE
+        .replace("/* {{NAV_ICON_CSS}} */", nav_icon_css())
+        .replace("{upstream_address}", &upstream_address)
+        .replace("{upstream_port}", &upstream_port.to_string())
+        .replace("{blockchain_network}", &blockchain_network);
+        
+    Bytes::from(formatted_html)
 }
