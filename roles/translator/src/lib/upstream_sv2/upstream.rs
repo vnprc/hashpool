@@ -16,7 +16,7 @@ use cdk::wallet::Wallet;
 use codec_sv2::{HandshakeRole, Initiator};
 use error_handling::handle_result;
 use key_utils::Secp256k1PublicKey;
-use mining_sv2::cashu::calculate_work;
+use mining_sv2::cashu::calculate_ehash_amount;
 use network_helpers_sv2::Connection;
 use roles_logic_sv2::{
     common_messages_sv2::{Protocol, SetupConnection},
@@ -107,6 +107,8 @@ pub struct Upstream {
     task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
     wallet: Arc<Wallet>,
     keyset_sender: broadcast::Sender<Vec<u8>>,
+    /// Minimum difficulty for calculating ehash units
+    minimum_difficulty: u32,
 }
 
 impl PartialEq for Upstream {
@@ -136,6 +138,7 @@ impl Upstream {
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
         wallet: Arc<Wallet>,
         keyset_sender: broadcast::Sender<Vec<u8>>,
+        minimum_difficulty: u32,
     ) -> ProxyResult<'static, Arc<Mutex<Self>>> {
         // Connect to the SV2 Upstream role retry connection every 5 seconds.
         let socket = loop {
@@ -187,6 +190,7 @@ impl Upstream {
             task_collector,
             wallet,
             keyset_sender,
+            minimum_difficulty,
         })))
     }
 
@@ -770,10 +774,10 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
     ) -> Result<roles_logic_sv2::handlers::mining::SendTo<Downstream>, RolesLogicError> {
         // TODO is it better to recalculate this value from the share or to pass it over the wire?
         let share_hash = m.hash.to_vec().to_hex();
-        let amount = calculate_work(m.hash.inner_as_ref().try_into().expect("not 32 bytes"));
+        let amount = calculate_ehash_amount(m.hash.inner_as_ref().try_into().expect("not 32 bytes"), self.minimum_difficulty);
         
         info!(
-            "Successfully created a quote for share {} with difficulty {}",
+            "Successfully created a quote for share {} worth {} ehash",
             share_hash,
             amount,
         );

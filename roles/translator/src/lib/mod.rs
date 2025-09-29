@@ -49,6 +49,7 @@ pub struct TranslatorSv2 {
     wallet: Option<Arc<Wallet>>,
     mint_client: HttpClient,
     miner_tracker: Arc<miner_stats::MinerTracker>,
+    ehash_config: Option<shared_config::EhashConfig>,
 }
 
 fn resolve_and_prepare_db_path(config_path: &str) -> PathBuf {
@@ -119,7 +120,7 @@ fn extract_mint_url(config: &ProxyConfig) -> String {
 }
 
 impl TranslatorSv2 {
-    pub fn new(config: ProxyConfig) -> Self {
+    pub fn new(config: ProxyConfig, ehash_config: Option<shared_config::EhashConfig>) -> Self {
         let mut rng = rand::thread_rng();
         let mint_url = extract_mint_url(&config);
         let wait_time = rng.gen_range(0..=3000);
@@ -131,6 +132,7 @@ impl TranslatorSv2 {
             wallet: None,
             mint_client: mint_client,
             miner_tracker: Arc::new(miner_stats::MinerTracker::new()),
+            ehash_config,
         }
     }
 
@@ -316,6 +318,12 @@ impl TranslatorSv2 {
         // Create broadcast channel for keyset updates
         let (keyset_sender, keyset_receiver) = broadcast::channel(16);
         
+        // Get minimum difficulty from config or use default
+        let minimum_difficulty = self.ehash_config
+            .as_ref()
+            .map(|c| c.minimum_difficulty)
+            .unwrap_or(32);
+
         // Instantiate a new `Upstream` (SV2 Pool)
         let upstream = match upstream_sv2::Upstream::new(
             upstream_addr,
@@ -331,6 +339,7 @@ impl TranslatorSv2 {
             task_collector_upstream,
             wallet.clone(),
             keyset_sender,
+            minimum_difficulty,
         )
         .await
         {
@@ -459,7 +468,7 @@ impl TranslatorSv2 {
                     Ok(_minted_amount) => {
                         // Log wallet balance after processing
                         if let Ok(balance) = wallet.total_balance().await {
-                            tracing::info!("💰 Wallet balance after sweep: {} diff", balance);
+                            tracing::info!("💰 Wallet balance after sweep: {} ehash", balance);
                         }
                     }
                     Err(e) => {
@@ -490,7 +499,7 @@ impl TranslatorSv2 {
         // Log wallet balance first
         match wallet.total_balance().await {
             Ok(balance) => {
-                tracing::info!("💰 Current wallet balance: {} diff", balance);
+                tracing::info!("💰 Current wallet balance: {} ehash", balance);
             }
             Err(e) => {
                 tracing::error!("Failed to get wallet balance: {}", e);

@@ -98,6 +98,6 @@ async fn main() {
     };
 
     
-    let mut pool = PoolSv2::new(config, global_config.sv2_messaging);
+    let mut pool = PoolSv2::new(config, global_config.sv2_messaging, global_config.ehash);
     let _ = pool.start().await;
 }

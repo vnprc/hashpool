@@ -228,6 +228,7 @@ pub struct Pool {
     /// Maps channel_id (from mining protocol) to downstream_id (connection identifier)
     channel_to_downstream: HashMap<u32, u32, BuildNoHashHasher<u32>>,
     pub listen_address: String,
+    pub minimum_difficulty: u32,
 }
 
 impl Downstream {
@@ -804,6 +805,7 @@ impl Pool {
         sender_message_received_signal: Sender<()>,
         status_tx: status::Sender,
         sv2_config: Option<Sv2MessagingConfig>,
+        ehash_config: Option<shared_config::EhashConfig>,
     ) -> Arc<Mutex<Self>> {
         let extranonce_len = 32;
         let range_0 = std::ops::Range { start: 0, end: 0 };
@@ -830,6 +832,11 @@ impl Pool {
             config.pool_signature.clone(),
         )));
         
+        let minimum_difficulty = ehash_config
+            .as_ref()
+            .map(|c| c.minimum_difficulty)
+            .unwrap_or(32); // Default to 32 if not configured
+
         let pool = Arc::new(Mutex::new(Pool {
             downstreams: HashMap::with_hasher(BuildNoHashHasher::default()),
             solution_sender,
@@ -842,6 +849,7 @@ impl Pool {
             pending_share_manager: Arc::new(pending_shares::PendingShareManager::new()),
             channel_to_downstream: HashMap::with_hasher(BuildNoHashHasher::default()),
             listen_address: config.listen_address.clone(),
+            minimum_difficulty,
         }));
 
         let cloned = pool.clone();

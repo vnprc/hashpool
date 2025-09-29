@@ -10,7 +10,7 @@ use async_channel::{bounded, unbounded};
 
 use error::PoolError;
 use mining_pool::{get_coinbase_output, Configuration, Pool};
-use shared_config::Sv2MessagingConfig;
+use shared_config::{Sv2MessagingConfig, EhashConfig};
 use template_receiver::TemplateRx;
 use tracing::{error, info, warn};
 
@@ -20,6 +20,7 @@ use tokio::select;
 pub struct PoolSv2 {
     config: Configuration,
     sv2_messaging_config: Option<Sv2MessagingConfig>,
+    ehash_config: Option<EhashConfig>,
 }
 
 // TODO remove after porting mint to use Sv2 data types
@@ -29,15 +30,17 @@ impl std::fmt::Debug for PoolSv2 {
             .field("config", &self.config)
             .field("mint", &"debug not implemented")
             .field("sv2_messaging_config", &self.sv2_messaging_config)
+            .field("ehash_config", &self.ehash_config)
             .finish()
     }
 }
 
 impl PoolSv2 {
-    pub fn new(config: Configuration, sv2_messaging_config: Option<Sv2MessagingConfig>) -> PoolSv2 {
+    pub fn new(config: Configuration, sv2_messaging_config: Option<Sv2MessagingConfig>, ehash_config: Option<EhashConfig>) -> PoolSv2 {
         PoolSv2 {
             config,
             sv2_messaging_config,
+            ehash_config,
         }
     }
 
@@ -81,6 +84,7 @@ impl PoolSv2 {
             s_message_recv_signal,
             status::Sender::DownstreamListener(status_tx.clone()),
             self.sv2_messaging_config.clone(),
+            self.ehash_config.clone(),
         );
 
         // Start web server on port 8081 (different from proxy's 3030 and any 8080 services)
