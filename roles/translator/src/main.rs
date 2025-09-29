@@ -69,5 +69,5 @@ async fn main() {
 
     tracing::info!("Proxy Config: {:?}", &proxy_config);
 
-    lib::TranslatorSv2::new(proxy_config).start().await;
+    lib::TranslatorSv2::new(proxy_config, global_config.ehash).start().await;
 }

@@ -1,7 +1,7 @@
 use super::super::mining_pool::Downstream;
 use super::pending_shares::PendingShare;
 use bitcoin_hashes::sha256::Hash;
-use mining_sv2::cashu::calculate_work;
+use mining_sv2::cashu::calculate_ehash_amount;
 use mining_sv2::MintQuoteNotification;
 use mint_pool_messaging::{MintQuoteRequest, MintQuoteResponse};
 use roles_logic_sv2::{
@@ -28,7 +28,9 @@ fn submit_quote(
     let header_hash = Hash::from_slice(m.hash.inner_as_ref())
         .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid header hash: {e}")))?;
     
-    let amount = calculate_work(header_hash.to_byte_array());
+    let minimum_difficulty = pool.safe_lock(|p| p.minimum_difficulty)
+        .map_err(|_| roles_logic_sv2::Error::PoisonLock(format!("Failed to lock pool")))?;
+    let amount = calculate_ehash_amount(header_hash.to_byte_array(), minimum_difficulty);
     
     // Update downstream quote counter
     let channel_id = m.channel_id;
@@ -467,7 +469,9 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                     // Calculate work amount
                     let hash_bytes: [u8; 32] = m.hash.inner_as_ref().try_into()
                         .map_err(|_| Error::ExpectedLen32(m.hash.inner_as_ref().len()))?;
-                    let amount = calculate_work(hash_bytes);
+                    let minimum_difficulty = self.pool.safe_lock(|p| p.minimum_difficulty)
+                        .map_err(|_| Error::PoisonLock(format!("Failed to lock pool")))?;
+                    let amount = calculate_ehash_amount(hash_bytes, minimum_difficulty);
                     
                     // Track this share as pending for mint quote
                     let pending_share = PendingShare {
@@ -524,10 +528,12 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         }) {}
                     });
                     
-                    // Calculate work amount
+                    // Calculate ehash units
                     let hash_bytes: [u8; 32] = m.hash.inner_as_ref().try_into()
                         .map_err(|_| Error::ExpectedLen32(m.hash.inner_as_ref().len()))?;
-                    let amount = calculate_work(hash_bytes);
+                    let minimum_difficulty = self.pool.safe_lock(|p| p.minimum_difficulty)
+                        .map_err(|_| Error::PoisonLock(format!("Failed to lock pool")))?;
+                    let amount = calculate_ehash_amount(hash_bytes, minimum_difficulty);
                     
                     // Track this share as pending for mint quote
                     let pending_share = PendingShare {

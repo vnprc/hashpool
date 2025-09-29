@@ -76,10 +76,16 @@ impl WalletConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+pub struct EhashConfig {
+    pub minimum_difficulty: u32,
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct MinerGlobalConfig {
     pub mint: MintConfig,
     pub pool: PoolConfig,
     pub proxy: ProxyConfig,
+    pub ehash: Option<EhashConfig>,
 }
 
 impl MinerGlobalConfig {
@@ -120,6 +126,7 @@ pub struct PoolGlobalConfig {
     pub pool: PoolConfig,
     pub proxy: ProxyConfig,
     pub sv2_messaging: Option<Sv2MessagingConfig>,
+    pub ehash: Option<EhashConfig>,
 }
 
 impl PoolGlobalConfig {

@@ -263,7 +263,7 @@ impl TestPoolSv2 {
             authority_config,
             coinbase_outputs,
         );
-        let pool = PoolSv2::new(config, None);
+        let pool = PoolSv2::new(config, None, None);
 
         Self { pool }
     }
@@ -435,7 +435,7 @@ pub async fn start_sv2_translator(upstream: SocketAddr) -> SocketAddr {
     };
     let config =
         translator_sv2::proxy_config::ProxyConfig::new(upstream_conf, downstream_conf, wallet_config, 2, 2, 8);
-    let translator_v2 = translator_sv2::TranslatorSv2::new(config);
+    let translator_v2 = translator_sv2::TranslatorSv2::new(config, None);
     tokio::spawn(async move {
         translator_v2.start().await;
     });

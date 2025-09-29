@@ -12,7 +12,6 @@ use tokio::sync::Mutex;
 use tracing::{info, error, warn};
 use serde_json::json;
 use web_assets::icons::{nav_icon_css, pickaxe_favicon_inline_svg};
-use web_assets::formatting::format_hash_units;
 
 use cdk::wallet::Wallet;
 use cdk::Amount;
@@ -445,7 +444,8 @@ const HTML_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
             fetch('/balance')
                 .then(response => response.json())
                 .then(data => {
-                    walletEl.textContent = data.balance;
+                    // Format balance with commas using the raw value
+                    walletEl.textContent = data.balance_raw.toLocaleString() + ' ehash';
                 })
                 .catch(e => {
                     walletEl.textContent = '---';
@@ -792,12 +792,12 @@ async fn create_mint_token(wallet: Arc<Wallet>) -> Result<String, Box<dyn std::e
     // Create a 32 diff token (32 sat amount)
     let amount = Amount::from(32u64);
     
-    info!("🪙 Creating mint token for {} diff", amount);
+    info!("🪙 Creating mint token for {} ehash", amount);
     
     // Check wallet balance first
     let balance = wallet.total_balance().await?;
     if balance < amount {
-        error!("❌ Insufficient balance in wallet: {} diff available, need {} diff", balance, amount);
+        error!("❌ Insufficient balance in wallet: {} diff available, need {} ehash", balance, amount);
         return Err("Insufficient balance in wallet".into());
     }
     
@@ -806,7 +806,7 @@ async fn create_mint_token(wallet: Arc<Wallet>) -> Result<String, Box<dyn std::e
     let single_proof = match wallet.swap_from_unspent(amount, None, false).await {
         Ok(proofs) => {
             let total_amount: Amount = proofs.iter().fold(Amount::ZERO, |acc, p| acc + p.amount);
-            info!("💱 Swapped for {} proofs totaling {} diff", proofs.len(), total_amount);
+            info!("💱 Swapped for {} proofs totaling {} ehash", proofs.len(), total_amount);
             proofs
         }
         Err(e) => {
@@ -914,7 +914,7 @@ async fn handle_request(
                 Ok(balance) => {
                     let balance_u64 = u64::from(balance);
                     let json_response = json!({
-                        "balance": format_hash_units(balance_u64),
+                        "balance": format!("{} ehash", balance_u64),
                         "balance_raw": balance_u64,
                         "unit": "HASH"
                     });

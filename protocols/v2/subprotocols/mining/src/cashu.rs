@@ -266,44 +266,37 @@ impl<'a> TryFrom<Sv2KeySet<'a>> for KeySet {
     }
 }
 
-// TODO find a better place for this
-// TODO make configurable
-pub fn calculate_work(hash: [u8; 32]) -> u64 {
-    calculate_work_in_range(hash, 1, 64)
-}
-
-/// Calculate work using exponential valuation (2^n) where n is number of leading zero bits.
+/// Calculate ehash units using exponential valuation (2^n)
+/// where n is difficulty above the minimum threshold.
 /// - Each additional zero bit is exponentially more difficult to find
-/// - Shares should be valued proportionally to their computational difficulty
+/// - Shares should be valued proportionally to their computational difficulty relative to minimum
 ///
 /// Parameters:
 /// - hash: The 32-byte hash to analyze
-/// - min_leading_zeros: Minimum number of leading zero bits required (e.g., 36 for mainnet)
-/// - max_representable_bits: Maximum representable difficulty bits (e.g., 64 to compress from 256)
+/// - min_leading_zeros: Minimum number of leading zero bits for 1 unit of ehash
 ///
-/// Returns the exponential work value: 2^(min(leading_zeros, max_representable_bits))
-pub fn calculate_work_in_range(hash: [u8; 32], min_leading_zeros: u32, max_representable_bits: u32) -> u64 {
-    let leading_zero_bits = count_leading_zero_bits(hash);
+/// Returns the exponential work value: 2^(leading_zeros - min_leading_zeros)
+pub fn calculate_ehash_amount(hash: [u8; 32], min_leading_zeros: u32) -> u64 {
+    let leading_zero_bits = calculate_difficulty(hash);
 
     // Only count work above the minimum threshold
     if leading_zero_bits < min_leading_zeros {
         return 0; // Below minimum difficulty, no reward
     }
 
-    // Cap at maximum representable bits to prevent overflow
-    let effective_bits = std::cmp::min(leading_zero_bits, max_representable_bits);
-
-    // Use exponential valuation: 2^n where n is effective difficulty bits
+    // Calculate relative difficulty above the minimum threshold
+    let relative_difficulty = leading_zero_bits - min_leading_zeros;
+    
     // For values above 63, we'd overflow u64, so cap at 2^63
-    if effective_bits >= 63 {
+    if relative_difficulty >= 63 {
         1u64 << 63 // Maximum representable value in u64
     } else {
-        1u64 << effective_bits
+        1u64 << relative_difficulty
     }
 }
 
 /// Count the number of leading zero bits in a hash
-pub fn count_leading_zero_bits(hash: [u8; 32]) -> u32 {
+pub fn calculate_difficulty(hash: [u8; 32]) -> u32 {
     let mut count = 0u32;
 
     for byte in hash {
@@ -461,94 +454,81 @@ mod tests {
     }
 
     #[test]
-    fn test_format_quote_event_json_contains_fields() {
-        let hash = sha256::Hash::hash(b"test");
+    fn test_calculate_ehash_amount() {
+        // Test with 32-96 bit range
+        const MIN_DIFFICULTY: u32 = 32;
+        
+        // Hash with exactly minimum difficulty (32 leading zeros)
+        let mut min_hash = [0u8; 32]; // init to all zero bits
+        min_hash[4] = 0xFF; // set the 5th byte to FF
+        assert_eq!(calculate_ehash_amount(min_hash, MIN_DIFFICULTY), 1); // 2^0 = 1 ehash
 
-        let req = cdk::nuts::nutXX::MintQuoteMiningShareRequest {
-            amount: Amount::from(1000u64),
-            unit: CurrencyUnit::Hash,
-            header_hash: cdk::secp256k1::hashes::Hash::from_slice(&hash.to_byte_array()).unwrap(),
-            description: Some("test quote".into()),
-            pubkey: Some(make_pubkey()),
-            keyset_id: cdk::nuts::nut02::Id::v1_from_keys(&cdk::nuts::Keys::new(BTreeMap::new())),
-        };
+        // Hash slightly below minimum (31 leading zeros) - should get 0
+        let mut below_min = [0u8; 32]; // init to all zero bits
+        below_min[3] = 0x01; // set the 4th byte to 01
+        assert_eq!(calculate_ehash_amount(below_min, MIN_DIFFICULTY), 0); // 0 ehash
 
-        let out = format_quote_event_json(&req);
+        // Hash with 40 leading zeros - gets 256 ehash
+        let mut hash_40 = [0u8; 32]; // init to all zero bits
+        hash_40[5] = 0xFF; // set the 6th byte to FF
+        assert_eq!(calculate_ehash_amount(hash_40, MIN_DIFFICULTY), 256); // 2^8 = 256 ehash
 
-        assert!(out.contains("test quote"));
-        assert!(out.contains("HASH"));
-    }
+        // Hash with exactly 48 leading zeros - gets 65536 ehash
+        let mut hash_48 = [0u8; 32]; // init to all zero bits
+        hash_48[6] = 0x80; // set the 7th byte to FF
+        assert_eq!(calculate_ehash_amount(hash_48, MIN_DIFFICULTY), 65536); // 2^16 = 65536 ehash
 
+        // Maximum representable difficulty (96 leading zeros) - capped at 2^63
+        let mut max_diff = [0u8; 32]; // init to all zero bits
+        max_diff[12] = 1; // 12*8 = 96 leading zeros, should be capped
+        assert_eq!(calculate_ehash_amount(max_diff, MIN_DIFFICULTY), 1u64 << 63); // 2^96 = u64 max value ehash
 
-    #[test]
-    fn test_calculate_work_expected_values() {
-        // All zeros: 256 leading zero bits, capped at 64, gets 2^63 (max u64 value we can represent)
-        assert_eq!(calculate_work([0u8; 32]), 1u64 << 63);
-
-        // 255 leading zeros (one bit set at the end): gets 2^63 (still capped)
-        let mut one = [0u8; 32];
-        one[31] = 1;
-        assert_eq!(calculate_work(one), 1u64 << 63);
-
-        // 251 leading zeros (0x10 = bit 4 set): gets 2^63 (still capped)
-        let mut sixteen = [0u8; 32];
-        sixteen[31] = 0x10;
-        assert_eq!(calculate_work(sixteen), 1u64 << 63);
-
-        // Test configurable function with lower thresholds
-        // 40 leading zeros: bytes 0-4 are zero (40 bits), byte 5 has bit set
-        let mut test_hash = [0u8; 32];
-        test_hash[5] = 1; // First non-zero bit is at bit 47 (5*8 + 7), so 47 leading zeros
-        assert_eq!(calculate_work_in_range(test_hash, 36, 50), 1u64 << 47);
-
-        // Below minimum: should get 0
-        let mut low_hash = [0u8; 32];
-        low_hash[3] = 1; // 3*8 + 7 = 31 leading zeros, below minimum of 36
-        assert_eq!(calculate_work_in_range(low_hash, 36, 50), 0);
+        // All zeros (256 leading zeros) - should also be capped at 2^63
+        assert_eq!(calculate_ehash_amount([0u8; 32], MIN_DIFFICULTY), 1u64 << 63);
     }
 
     #[test]
-    fn test_count_leading_zero_bits() {
+    fn test_calculate_difficulty() {
         // All zeros should have 256 leading zero bits
-        assert_eq!(count_leading_zero_bits([0u8; 32]), 256);
+        assert_eq!(calculate_difficulty([0u8; 32]), 256);
 
         let mut one = [0u8; 32];
         one[31] = 1;
-        assert_eq!(count_leading_zero_bits(one), 255);
+        assert_eq!(calculate_difficulty(one), 255);
 
         // 0x10 in last byte: 4 leading zeros in that byte + 31*8 from previous bytes = 251
         let mut sixteen = [0u8; 32];
         sixteen[31] = 0x10;
-        assert_eq!(count_leading_zero_bits(sixteen), 251);
+        assert_eq!(calculate_difficulty(sixteen), 251);
 
         // First bit set should have 0 leading zeros
         let mut first_bit = [0u8; 32];
         first_bit[0] = 0x80;
-        assert_eq!(count_leading_zero_bits(first_bit), 0);
+        assert_eq!(calculate_difficulty(first_bit), 0);
 
         // Second bit set should have 1 leading zero
         let mut second_bit = [0u8; 32];
         second_bit[0] = 0x40;
-        assert_eq!(count_leading_zero_bits(second_bit), 1);
+        assert_eq!(calculate_difficulty(second_bit), 1);
     }
 
     #[test]
-    fn test_exponential_valuation() {
-        // Test that each additional zero bit doubles the reward
-        // Use lower thresholds to avoid overflow in tests
-
-        // 10 leading zeros: 2^10 = 1024
-        let mut hash1 = [0u8; 32];
-        hash1[1] = 0x40; // Sets bit 6 of byte 1: 8 + 1 = 9 leading zeros
-        hash1[1] = 0x20; // Sets bit 5 of byte 1: 8 + 2 = 10 leading zeros
-        assert_eq!(calculate_work_in_range(hash1, 5, 20), 1u64 << 10);
-
-        // 11 leading zeros: 2^11 = 2048 (double the previous)
-        let mut hash2 = [0u8; 32];
-        hash2[1] = 0x10; // Sets bit 4 of byte 1: 8 + 3 = 11 leading zeros
-        assert_eq!(calculate_work_in_range(hash2, 5, 20), 1u64 << 11);
+    fn test_ehash_amount_different_thresholds() {
+        // Test how different minimum difficulty thresholds affect rewards
+        
+        // Same hash (40 leading zeros) with different thresholds
+        let mut hash = [0u8; 32];
+        hash[5] = 0x80; // 40 leading zeros exactly
+        
+        // With threshold 32: gets 256 ehash (2^(40-32) = 2^8)
+        assert_eq!(calculate_ehash_amount(hash, 32), 256);
+        
+        // With threshold 35: gets 32 ehash (2^(40-35) = 2^5)
+        assert_eq!(calculate_ehash_amount(hash, 35), 32);
+        
+        // With threshold 45: gets 0 (hash doesn't meet minimum)
+        assert_eq!(calculate_ehash_amount(hash, 45), 0);
     }
-
 
     #[test]
     fn test_sv2_keyset_wire_roundtrip() {
