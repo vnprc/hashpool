@@ -15,134 +15,139 @@ use bytes::Bytes;
 
 use super::mining_pool::Pool;
 use roles_logic_sv2::utils::Mutex;
+use std::collections::HashMap;
+use super::stats::StatsHandle;
 use web_assets::icons::{nav_icon_css, pickaxe_favicon_inline_svg};
 
 static CONNECTIONS_PAGE_HTML: OnceLock<Bytes> = OnceLock::new();
 
-// Extension methods for Pool  
-impl Pool {
-    pub fn get_connections_info(&self) -> Vec<ConnectionInfo> {
-        let mut connections = Vec::new();
+async fn get_connections_info(
+    stats_handle: StatsHandle,
+    listen_address: String,
+    downstreams: HashMap<u32, Arc<Mutex<super::mining_pool::Downstream>>, nohash_hasher::BuildNoHashHasher<u32>>,
+    mint_connections: HashMap<SocketAddr, async_channel::Sender<super::mining_pool::EitherFrame>>,
+) -> Vec<ConnectionInfo> {
+    let mut connections = Vec::new();
+    
+    // Get all downstream stats from the stats manager
+    let all_stats = stats_handle.get_all_downstream_stats().await;
+    
+    // Convert downstream stats to connection info
+    for (downstream_id, stats) in all_stats {
+        // Get the downstream address
+        let address = if let Some(downstream_arc) = downstreams.get(&downstream_id) {
+            downstream_arc.safe_lock(|downstream| {
+                downstream.address.to_string()
+            }).unwrap_or_else(|_| "Unknown".to_string())
+        } else {
+            "Unknown".to_string()
+        };
         
-        // Add downstream mining connections (including JDC)
-        for (id, downstream_arc) in &self.downstreams {
-            let result = downstream_arc.safe_lock(|downstream| {
-                let shares = futures::executor::block_on(downstream.shares_submitted.lock());
-                let quotes = futures::executor::block_on(downstream.quotes_created.lock());
-                let quotes_redeemed = futures::executor::block_on(downstream.quotes_redeemed.lock());
-                let ehash_mined = futures::executor::block_on(downstream.ehash_mined.lock());
-                let last_share = futures::executor::block_on(downstream.last_share_time.lock())
-                    .map(|t| {
-                        let elapsed = t.elapsed();
-                        if elapsed.as_secs() > 0 {
-                            format!("{}s ago", elapsed.as_secs())
-                        } else {
-                            format!("{}ms ago", elapsed.as_millis())
-                        }
-                    });
-                let channels_list = futures::executor::block_on(downstream.channels.lock()).clone();
-                
-                // Determine connection type based on activity patterns
-                let connection_type = if channels_list.is_empty() && *shares == 0 && *quotes == 0 {
-                    // No channels, no shares, no quotes = likely JDC
-                    "Job Declarator (JDC)".to_string()
-                } else if channels_list.is_empty() {
-                    "Mining (no channels)".to_string()
+        let last_share_time = stats.last_share_time
+            .map(|instant| {
+                let elapsed = instant.elapsed();
+                if elapsed.as_secs() < 60 {
+                    format!("{}s ago", elapsed.as_secs())
+                } else if elapsed.as_secs() < 3600 {
+                    format!("{}m ago", elapsed.as_secs() / 60)
                 } else {
-                    format!("Mining ({} channels)", channels_list.len())
-                };
-                
-                ConnectionInfo {
-                    id: *id,
-                    address: downstream.address.to_string(),
-                    channels: channels_list,
-                    shares_submitted: *shares,
-                    quotes_created: Some(*quotes),
-                    quotes_redeemed: Some(*quotes_redeemed),
-                    ehash_mined: Some(*ehash_mined),
-                    last_share_time: last_share,
-                    connection_type,
+                    format!("{}h ago", elapsed.as_secs() / 3600)
                 }
             });
-            
-            if let Ok(conn_info) = result {
-                connections.push(conn_info);
-            }
-        }
         
-        // Add expected services (always show, even if disconnected)
-        let mint_connections = self.get_mint_connections();
-        let has_mint = !mint_connections.is_empty();
-        
-        // Always show mint service entry
-        if has_mint {
-            // Mint is connected
-            for (address, _sender) in mint_connections {
-                connections.push(ConnectionInfo {
-                    id: 0,
-                    address: address.to_string(),
-                    channels: vec![],
-                    shares_submitted: 0,
-                    quotes_created: None,
-                    quotes_redeemed: None,
-                    ehash_mined: None,
-                    last_share_time: None,
-                    connection_type: "Mint".to_string(),
-                });
-            }
+        // Determine connection type based on activity patterns (matching original logic)
+        let connection_type = if stats.channels.is_empty() && stats.shares_submitted == 0 && stats.quotes_created == 0 {
+            // No channels, no shares, no quotes = likely JDC
+            "Job Declarator".to_string()
         } else {
-            // Mint is disconnected
+            // Has channels or has submitted shares/quotes = Mining connection
+            "Mining".to_string()
+        };
+        
+        connections.push(ConnectionInfo {
+            id: downstream_id,
+            address,
+            channels: stats.channels,
+            shares_submitted: stats.shares_submitted,
+            quotes_created: Some(stats.quotes_created),
+            quotes_redeemed: Some(0), // Not tracked yet
+            ehash_mined: Some(stats.ehash_mined),
+            last_share_time,
+            connection_type,
+        });
+    }
+    
+    // Add expected services (always show, even if disconnected)
+    let has_mint = !mint_connections.is_empty();
+    
+    // Always show mint service entry
+    if has_mint {
+        // Mint is connected
+        for (address, _sender) in mint_connections {
             connections.push(ConnectionInfo {
                 id: 0,
-                address: "-".to_string(),
+                address: address.to_string(),
                 channels: vec![],
                 shares_submitted: 0,
                 quotes_created: None,
                 quotes_redeemed: None,
                 ehash_mined: None,
                 last_share_time: None,
-                connection_type: "Mint (Disconnected)".to_string(),
+                connection_type: "Mint".to_string(),
             });
         }
-
-        // Add pool service entry representing the dashboard itself
+    } else {
+        // Mint is disconnected
         connections.push(ConnectionInfo {
             id: 0,
-            address: self.listen_address.clone(),
+            address: "-".to_string(),
             channels: vec![],
             shares_submitted: 0,
             quotes_created: None,
             quotes_redeemed: None,
             ehash_mined: None,
             last_share_time: None,
-            connection_type: "Pool".to_string(),
+            connection_type: "Mint (Disconnected)".to_string(),
         });
-
-        // Check for active JDC connections in downstreams
-        // A JDC is considered active if it was identified as such and has a recent connection
-        let has_active_jdc = connections.iter().any(|c| {
-            c.connection_type.contains("Job Declarator") && 
-            // Consider JDC active if it was detected (regardless of last_share_time since JDCs don't submit shares)
-            c.connection_type.contains("Job Declarator")
-        });
-        
-        if !has_active_jdc {
-            // No active JDC found, add disconnected entry
-            connections.push(ConnectionInfo {
-                id: 0,
-                address: "-".to_string(),
-                channels: vec![],
-                shares_submitted: 0,
-                quotes_created: None,
-                quotes_redeemed: None,
-                ehash_mined: None,
-                last_share_time: None,
-                connection_type: "Job Declarator (Disconnected)".to_string(),
-            });
-        }
-        
-        connections
     }
+
+    // Add pool service entry representing the dashboard itself
+    connections.push(ConnectionInfo {
+        id: 0,
+        address: listen_address,
+        channels: vec![],
+        shares_submitted: 0,
+        quotes_created: None,
+        quotes_redeemed: None,
+        ehash_mined: None,
+        last_share_time: None,
+        connection_type: "Pool".to_string(),
+    });
+
+    // Check for active JDC connections in downstreams
+    // A JDC is considered active if it was identified as such and has a recent connection
+    let has_active_jdc = connections.iter().any(|c| {
+        c.connection_type.contains("Job Declarator") && 
+        // Consider JDC active if it was detected (regardless of last_share_time since JDCs don't submit shares)
+        c.connection_type.contains("Job Declarator")
+    });
+    
+    if !has_active_jdc {
+        // No active JDC found, add disconnected entry
+        connections.push(ConnectionInfo {
+            id: 0,
+            address: "-".to_string(),
+            channels: vec![],
+            shares_submitted: 0,
+            quotes_created: None,
+            quotes_redeemed: None,
+            ehash_mined: None,
+            last_share_time: None,
+            connection_type: "Job Declarator (Disconnected)".to_string(),
+        });
+    }
+    
+    connections
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -248,10 +253,23 @@ fn serve_favicon() -> Response<Full<Bytes>> {
 }
 
 async fn get_pool_stats(pool: Arc<Mutex<Pool>>) -> PoolStats {
-    let connections = match pool.safe_lock(|p| p.get_connections_info()) {
-        Ok(conns) => conns,
-        Err(_) => Vec::new(),
+    // Get the stats handle and other info we need from the pool
+    let (stats_handle, listen_address, downstreams, mint_connections) = match pool.safe_lock(|p| {
+        (p.stats_handle.clone(), p.listen_address.clone(), p.downstreams.clone(), p.get_mint_connections().clone())
+    }) {
+        Ok(data) => data,
+        Err(_) => return PoolStats {
+            total_connections: 0,
+            total_shares: 0,
+            total_quotes: 0,
+            quotes_redeemed: None,
+            ehash_mined: "0 ehash".to_string(),
+            ehash_mined_raw: 0,
+            connections: Vec::new(),
+        }
     };
+    
+    let connections = get_connections_info(stats_handle, listen_address, downstreams, mint_connections).await;
     let total_connections = connections.len();
     let total_shares: u64 = connections.iter().map(|c| c.shares_submitted).sum();
     let total_quotes: u64 = connections.iter().map(|c| c.quotes_created.unwrap_or(0)).sum();

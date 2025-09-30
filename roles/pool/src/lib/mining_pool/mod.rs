@@ -189,14 +189,8 @@ pub struct Downstream {
     channel_factory: Arc<Mutex<PoolChannelFactory>>,
     pool: Arc<Mutex<Pool>>,
     sv2_config: Option<Sv2MessagingConfig>,
-    // Stats tracking
+    // Connection info for dashboard
     pub address: SocketAddr,
-    pub shares_submitted: Arc<tokio::sync::Mutex<u64>>,
-    pub quotes_created: Arc<tokio::sync::Mutex<u64>>,
-    pub quotes_redeemed: Arc<tokio::sync::Mutex<u64>>,
-    pub ehash_mined: Arc<tokio::sync::Mutex<u64>>,
-    pub last_share_time: Arc<tokio::sync::Mutex<Option<std::time::Instant>>>,
-    pub channels: Arc<tokio::sync::Mutex<Vec<u32>>>,
 }
 
 // TODO remove after porting mint to use Sv2 data types
@@ -229,6 +223,7 @@ pub struct Pool {
     channel_to_downstream: HashMap<u32, u32, BuildNoHashHasher<u32>>,
     pub listen_address: String,
     pub minimum_difficulty: u32,
+    pub stats_handle: super::stats::StatsHandle,
 }
 
 impl Downstream {
@@ -263,13 +258,15 @@ impl Downstream {
             pool: pool.clone(),
             sv2_config,
             address,
-            shares_submitted: Arc::new(tokio::sync::Mutex::new(0)),
-            quotes_created: Arc::new(tokio::sync::Mutex::new(0)),
-            quotes_redeemed: Arc::new(tokio::sync::Mutex::new(0)),
-            ehash_mined: Arc::new(tokio::sync::Mutex::new(0)),
-            last_share_time: Arc::new(tokio::sync::Mutex::new(None)),
-            channels: Arc::new(tokio::sync::Mutex::new(Vec::new())),
         }));
+        
+        // Notify stats manager about new downstream connection
+        pool.safe_lock(|p| {
+            p.stats_handle.send_stats(super::stats::StatsMessage::DownstreamConnected { 
+                downstream_id: id, 
+                is_work_selection_enabled: downstream_data.work_selection 
+            });
+        }).unwrap_or(());
 
         let cloned = self_.clone();
 
@@ -837,6 +834,14 @@ impl Pool {
             .map(|c| c.minimum_difficulty)
             .unwrap_or(32); // Default to 32 if not configured
 
+        // Create stats manager and handle
+        let (mut stats_manager, stats_handle) = super::stats::StatsManager::new();
+        
+        // Spawn stats manager task
+        tokio::spawn(async move {
+            stats_manager.run().await;
+        });
+
         let pool = Arc::new(Mutex::new(Pool {
             downstreams: HashMap::with_hasher(BuildNoHashHasher::default()),
             solution_sender,
@@ -850,6 +855,7 @@ impl Pool {
             channel_to_downstream: HashMap::with_hasher(BuildNoHashHasher::default()),
             listen_address: config.listen_address.clone(),
             minimum_difficulty,
+            stats_handle,
         }));
 
         let cloned = pool.clone();
@@ -979,6 +985,8 @@ impl Pool {
     /// to communicate will fail but continue with the next downstream.
     pub fn remove_downstream(&mut self, downstream_id: u32) {
         self.downstreams.remove(&downstream_id);
+        // Notify stats manager about downstream disconnection
+        self.stats_handle.send_stats(super::stats::StatsMessage::DownstreamDisconnected { downstream_id });
     }
 
     /// Send extension message to specific downstream
