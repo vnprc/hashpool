@@ -1,34 +1,14 @@
-use cdk::{amount::Amount, nuts::{CurrencyUnit, KeySet, PublicKey, Keys}};
+use cdk::nuts::KeySet;
 use core::array;
-use std::{collections::BTreeMap, convert::{TryFrom, TryInto}};
+use std::convert::{TryFrom, TryInto};
+use ehash::{calculate_keyset_id, build_cdk_keyset, signing_keys_from_cdk, KeysetConversionError, KeysetId, SigningKey};
 pub use std::error::Error;
-use tracing::warn;
 
 #[cfg(not(feature = "with_serde"))]
 pub use binary_sv2::binary_codec_sv2::{self, Decodable as Deserialize, Encodable as Serialize, *};
 #[cfg(not(feature = "with_serde"))]
 pub use derive_codec_sv2::{Decodable as Deserialize, Encodable as Serialize};
 
-
-pub struct KeysetId(pub cdk::nuts::nut02::Id);
-
-impl From<KeysetId> for u64 {
-    fn from(id: KeysetId) -> Self {
-        let bytes = id.0.to_bytes();
-        let mut array = [0u8; 8];
-        array[..bytes.len()].copy_from_slice(&bytes);
-        u64::from_be_bytes(array)
-    }
-}
-
-impl TryFrom<u64> for KeysetId {
-    type Error = cdk::nuts::nut02::Error;
-    
-    fn try_from(value: u64) -> Result<Self, Self::Error> {
-        let bytes = value.to_be_bytes();
-        cdk::nuts::nut02::Id::from_bytes(&bytes).map(KeysetId)
-    }
-}
 
 /// Convert SV2 keyset bytes to CDK keyset ID with proper version detection
 pub fn keyset_from_sv2_bytes(keyset_bytes: &[u8]) -> Result<cdk::nuts::nut02::Id, cdk::nuts::nut02::Error> {
@@ -87,14 +67,6 @@ pub fn keyset_from_sv2_bytes(keyset_bytes: &[u8]) -> Result<cdk::nuts::nut02::Id
     result
 }
 
-impl std::ops::Deref for KeysetId {
-    type Target = cdk::nuts::nut02::Id;
-    
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Sv2SigningKey<'decoder> {
     pub amount: u64,
@@ -108,6 +80,26 @@ impl<'decoder> Default for Sv2SigningKey<'decoder> {
             amount: Default::default(),
             parity_bit: Default::default(),
             pubkey: PubKey::from(<[u8; 32]>::from([0_u8; 32])),
+        }
+    }
+}
+
+impl<'a> From<SigningKey> for Sv2SigningKey<'a> {
+    fn from(key: SigningKey) -> Self {
+        Sv2SigningKey {
+            amount: key.amount,
+            parity_bit: key.parity_bit,
+            pubkey: key.pubkey,
+        }
+    }
+}
+
+impl<'a> From<&Sv2SigningKey<'a>> for SigningKey {
+    fn from(key: &Sv2SigningKey<'a>) -> Self {
+        SigningKey {
+            amount: key.amount,
+            parity_bit: key.parity_bit,
+            pubkey: key.pubkey.clone().into_static(),
         }
     }
 }
@@ -167,8 +159,9 @@ impl<'a> TryFrom<&[Sv2SigningKey<'a>; 64]> for Sv2KeySetWire<'a> {
         let encoded_keys = B064K::try_from(buffer.to_vec())
             .map_err(|_| binary_sv2::Error::DecodableConversionError)?;
 
+        let signing_keys: Vec<SigningKey> = keys.iter().map(SigningKey::from).collect();
         Ok(Sv2KeySetWire {
-            id: calculate_keyset_id(keys),
+            id: calculate_keyset_id(&signing_keys),
             keys: encoded_keys,
         })
     }
@@ -202,114 +195,46 @@ impl<'a> Default for Sv2KeySet<'a> {
 }
 
 impl<'a> TryFrom<KeySet> for Sv2KeySet<'a> {
-    type Error = Box<dyn Error>;
+    type Error = KeysetConversionError;
 
     fn try_from(value: KeySet) -> Result<Self, Self::Error> {
-        let id: u64 = KeysetId(value.id).into();
-
-        let mut sv2_keys = Vec::with_capacity(64);
-        for (amount_str, public_key) in value.keys.keys().iter() {
-            let mut pubkey_bytes = public_key.to_bytes();
-            let (parity_byte, pubkey_data) = pubkey_bytes.split_at_mut(1);
-            let parity_bit = parity_byte[0] == 0x03;
-
-            let pubkey = PubKey::from_bytes(pubkey_data)
-                .map_err(|_| "Failed to parse public key")?
-                .into_static();
-
-            let signing_key = Sv2SigningKey {
-                amount: (*amount_str.as_ref()).into(),
-                parity_bit,
-                pubkey,
-            };
-            sv2_keys.push(signing_key);
-        }
-
-        // sanity check
-        if sv2_keys.len() != 64 {
-            return Err(format!("Expected KeySet to have exactly 64 keys. Keys found: {}", sv2_keys.len()).into());
-        }
-
-        let keys: [Sv2SigningKey<'a>; 64] = sv2_keys
+        let signing_keys: [SigningKey; 64] = signing_keys_from_cdk(&value)?;
+        let KeySet { id: cdk_id, .. } = value;
+        let id: u64 = KeysetId(cdk_id).into();
+        let sv2_keys_vec = Vec::from(signing_keys)
+            .into_iter()
+            .map(Sv2SigningKey::from)
+            .collect::<Vec<_>>();
+        let keys: [Sv2SigningKey<'a>; 64] = sv2_keys_vec
             .try_into()
-            .map_err(|_| "Failed to convert Vec<Sv2SigningKey> into array")?;
-
+            .map_err(|_| KeysetConversionError::InvalidKeyCount(0))?;
         Ok(Sv2KeySet { id, keys })
     }
 }
 
 impl<'a> TryFrom<Sv2KeySet<'a>> for KeySet {
-    type Error = Box<dyn Error>;
+    type Error = KeysetConversionError;
 
     fn try_from(value: Sv2KeySet) -> Result<Self, Self::Error> {
-        let id = *KeysetId::try_from(value.id)?;
-
-        let mut keys_map: BTreeMap<Amount, PublicKey> = BTreeMap::new();
-        for signing_key in value.keys.iter() {
-            let amount_str = Amount::from(signing_key.amount);
-
-            let mut pubkey_bytes = [0u8; 33];
-            pubkey_bytes[0] = if signing_key.parity_bit { 0x03 } else { 0x02 };
-            pubkey_bytes[1..].copy_from_slice(&signing_key.pubkey.inner_as_ref());
-            
-            let public_key = PublicKey::from_slice(&pubkey_bytes)?;
-    
-            keys_map.insert(amount_str, public_key);
-        }
-
-        Ok(KeySet {
-            id,
-            unit: CurrencyUnit::Hash,
-            keys: cdk::nuts::Keys::new(keys_map),
-            final_expiry: None,
-        })
+        let signing_keys_vec = value.keys.iter().map(SigningKey::from).collect::<Vec<_>>();
+        let signing_keys: [SigningKey; 64] = signing_keys_vec
+            .try_into()
+            .map_err(|_| KeysetConversionError::InvalidKeyCount(0))?;
+        build_cdk_keyset(value.id, &signing_keys)
     }
 }
 
 
-fn sv2_signing_keys_to_keys(keys: &[Sv2SigningKey]) -> Result<Keys, String> {
-    let mut map = BTreeMap::new();
-    for (i, k) in keys.iter().enumerate() {
-        let mut pubkey_bytes = [0u8; 33];
-        pubkey_bytes[0] = if k.parity_bit { 0x03 } else { 0x02 };
-        pubkey_bytes[1..].copy_from_slice(k.pubkey.inner_as_ref());
-
-        let pubkey = PublicKey::from_slice(&pubkey_bytes)
-            .map_err(|e| format!("Failed to parse public key for key {}: {:?}", i, e))?;
-
-        map.insert(
-            Amount::from(k.amount),
-            pubkey,
-        );
-    }
-    Ok(Keys::new(map))
-}
-
-fn calculate_keyset_id(keys: &[Sv2SigningKey]) -> u64 {
-    match sv2_signing_keys_to_keys(keys) {
-        Ok(keys_map) => {
-            let id = cdk::nuts::nut02::Id::v1_from_keys(&keys_map);
-            let id_bytes = id.to_bytes();
-
-            let mut padded = [0u8; 8];
-            padded[..id_bytes.len()].copy_from_slice(&id_bytes);
-
-            u64::from_be_bytes(padded)
-        }
-        Err(e) => {
-            warn!("Failed to generate Keys, defaulting keyset ID to 0: {}", e);
-            0
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use bitcoin_hashes::sha256;
+    use cdk::amount::Amount;
     use rand::{Rng, RngCore};
     use secp256k1::{PublicKey as SecpPublicKey, Secp256k1, SecretKey};
     use std::collections::BTreeMap;
+    use ehash::{signing_keys_to_cdk, calculate_keyset_id, SigningKey};
 
     // ------------------------------------------------------------------------------------------------
     // Helper functions (available only when compiling tests)
@@ -393,7 +318,8 @@ mod tests {
     #[test]
     fn test_sv2_signing_keys_to_keys_valid() {
         let sv2_keyset = test_sv2_keyset();
-        let keys = sv2_signing_keys_to_keys(&sv2_keyset.keys).unwrap();
+        let signing_keys: Vec<SigningKey> = sv2_keyset.keys.iter().map(SigningKey::from).collect();
+        let keys = signing_keys_to_cdk(&signing_keys).unwrap();
         assert_eq!(keys.len(), sv2_keyset.keys.len());
 
         for k in sv2_keyset.keys.iter() {
@@ -404,7 +330,8 @@ mod tests {
     #[test]
     fn test_calculate_keyset_id_nonzero() {
         let sv2_keyset = test_sv2_keyset();
-        let id = calculate_keyset_id(&sv2_keyset.keys);
+        let signing_keys: Vec<SigningKey> = sv2_keyset.keys.iter().map(SigningKey::from).collect();
+        let id = calculate_keyset_id(&signing_keys);
         assert_ne!(id, 0);
     }
 

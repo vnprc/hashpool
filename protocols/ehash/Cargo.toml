@@ -9,5 +9,8 @@ license = "MIT OR Apache-2.0"
 binary_sv2 = { version = "^1.0.0", path = "../v2/binary-sv2/binary-sv2" }
 mint_quote_sv2 = { version = "^1.0.0", path = "../v2/subprotocols/mint-quote" }
 thiserror = "1"
+cdk = { git = "https://github.com/vnprc/cdk", rev = "48502f8c" }
 
 [dev-dependencies]
+rand = "0.8"
+secp256k1 = "0.31"
