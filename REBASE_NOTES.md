@@ -86,3 +86,7 @@ Everything else is intentionally Hashpool-specific and should stay local unless 
 
 ### Scope Check
 Command used: `git diff --name-status e8d76d68642ea28aa48a2da7e41fb4470bbe2681`. No additional tracked changes exist outside the paths enumerated above.
+
+## Phase 1 Progress – 2025-10-01
+- Established the `protocols/ehash` crate to centralize Cashu helpers and moved the quote builder plus keyset conversion routines out of `mining_sv2::cashu` (`b73a3985`, `115c1f89`, `5d78302f`).
+- Next chunk moves the remaining Sv2 keyset wire types (`Sv2SigningKey`, `Sv2KeySet`, `Sv2KeySetWire`) into `protocols/ehash` so downstream roles import them from the shared crate instead of duplicating conversions.

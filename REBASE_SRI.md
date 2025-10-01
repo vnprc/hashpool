@@ -8,6 +8,11 @@ Prepare the existing hashpool codebase (built on an older SRI commit) for a smoo
 2. **Document the minimal patch set**: know exactly which SRI files we touch and why.
 3. **Rebase only after the fork is “rebase-ready”**: once the custom logic lives in small shims, the rebase becomes mostly conflict resolution and API updates.
 
+## Status – 2025-10-01
+- Phase 0 snapshot/baseline tasks are complete and captured in `REBASE_NOTES.md`.
+- Phase 1 is in progress. Latest commits (`5d78302f`, `115c1f89`, `b73a3985`) carved out `protocols/ehash` and moved quote/keyset helpers out of the legacy `mining_sv2::cashu` module.
+- Next chunk: finish relocating the Sv2 keyset wire types into `protocols/ehash`, then update pool/translator call sites to depend on the new module surface before trimming the old helpers.
+
 ## Phase 0 – Snapshot & Baseline (1 day)
 1. Create a dedicated worktree rooted at `e8d76d68642ea28aa48a2da7e41fb4470bbe2681` (e.g., `git worktree add ../sri-baseline e8d76d6`) to make comparisons easy while keeping master untouched.
 2. Record the current diff against that fork point (list modified files) using the worktree as reference.

@@ -1852,6 +1852,7 @@ version = "0.1.0"
 dependencies = [
  "binary_sv2",
  "cdk",
+ "derive_codec_sv2",
  "mint_quote_sv2",
  "thiserror 1.0.69",
 ]
