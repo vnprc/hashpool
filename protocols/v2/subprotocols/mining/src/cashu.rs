@@ -1,7 +1,7 @@
 use cdk::nuts::KeySet;
 use core::array;
 use std::convert::{TryFrom, TryInto};
-use ehash::{calculate_keyset_id, build_cdk_keyset, signing_keys_from_cdk, KeysetConversionError, KeysetId, SigningKey};
+use ehash::{build_cdk_keyset, calculate_keyset_id, signing_keys_from_cdk, KeysetConversionError, KeysetId, SigningKey};
 pub use std::error::Error;
 
 #[cfg(not(feature = "with_serde"))]
@@ -9,63 +9,6 @@ pub use binary_sv2::binary_codec_sv2::{self, Decodable as Deserialize, Encodable
 #[cfg(not(feature = "with_serde"))]
 pub use derive_codec_sv2::{Decodable as Deserialize, Encodable as Serialize};
 
-
-/// Convert SV2 keyset bytes to CDK keyset ID with proper version detection
-pub fn keyset_from_sv2_bytes(keyset_bytes: &[u8]) -> Result<cdk::nuts::nut02::Id, cdk::nuts::nut02::Error> {
-    tracing::debug!("Converting keyset from {} bytes: {}", keyset_bytes.len(), cdk::util::hex::encode(keyset_bytes));
-    
-    if keyset_bytes.is_empty() {
-        // Return a default Version00 keyset with all zeros
-        let placeholder = [0u8; 8];
-        tracing::debug!("Empty keyset bytes, returning placeholder: {}", cdk::util::hex::encode(&placeholder));
-        return cdk::nuts::nut02::Id::from_bytes(&placeholder);
-    }
-    
-    // Check if this looks like a real keyset (has any non-zero bytes)
-    let has_real_data = keyset_bytes.iter().any(|&x| x != 0);
-    
-    if !has_real_data {
-        // All zeros - create a Version00 placeholder
-        let placeholder = [0u8; 8];
-        return cdk::nuts::nut02::Id::from_bytes(&placeholder);
-    }
-    
-    // Determine the expected format based on length and content
-    let result = match keyset_bytes.len() {
-        8 => {
-            // Could be Version00 (1 + 7 bytes) - try parsing directly
-            tracing::debug!("Parsing 8-byte keyset as Version00");
-            cdk::nuts::nut02::Id::from_bytes(keyset_bytes)
-        }
-        33 => {
-            // Could be Version01 (1 + 32 bytes) - try parsing directly  
-            tracing::debug!("Parsing 33-byte keyset as Version01");
-            cdk::nuts::nut02::Id::from_bytes(keyset_bytes)
-        }
-        len if len >= 8 => {
-            // Take last 8 bytes and try as Version00 (keyset is right-padded)
-            let mut bytes = [0u8; 8];
-            let start = len - 8;
-            bytes.copy_from_slice(&keyset_bytes[start..]);
-            tracing::debug!("Truncating {}-byte keyset to 8 bytes for Version00: {}", len, cdk::util::hex::encode(&bytes));
-            cdk::nuts::nut02::Id::from_bytes(&bytes)
-        }
-        _ => {
-            // Too short, pad to 8 bytes for Version00
-            let mut bytes = [0u8; 8];
-            bytes[..keyset_bytes.len()].copy_from_slice(keyset_bytes);
-            tracing::debug!("Padding {}-byte keyset to 8 bytes for Version00: {}", keyset_bytes.len(), cdk::util::hex::encode(&bytes));
-            cdk::nuts::nut02::Id::from_bytes(&bytes)
-        }
-    };
-    
-    match &result {
-        Ok(id) => tracing::debug!("Successfully converted keyset to ID: {}", cdk::util::hex::encode(id.to_bytes())),
-        Err(e) => tracing::warn!("Failed to convert keyset: {:?}", e),
-    }
-    
-    result
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Sv2SigningKey<'decoder> {

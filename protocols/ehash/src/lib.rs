@@ -9,5 +9,5 @@ pub mod keyset;
 pub mod work;
 
 pub use quote::{build_mint_quote_request, QuoteBuildError};
-pub use keyset::{build_cdk_keyset, calculate_keyset_id, signing_keys_from_cdk, signing_keys_to_cdk, KeysetConversionError, KeysetId, SigningKey};
+pub use keyset::{build_cdk_keyset, calculate_keyset_id, keyset_from_sv2_bytes, signing_keys_from_cdk, signing_keys_to_cdk, KeysetConversionError, KeysetId, SigningKey};
 pub use work::{calculate_difficulty, calculate_ehash_amount};

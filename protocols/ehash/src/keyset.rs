@@ -124,6 +124,31 @@ pub fn build_cdk_keyset(
     })
 }
 
+pub fn keyset_from_sv2_bytes(bytes: &[u8]) -> Result<cdk::nuts::nut02::Id, cdk::nuts::nut02::Error> {
+    if bytes.is_empty() {
+        return cdk::nuts::nut02::Id::from_bytes(&[0u8; 8]);
+    }
+
+    let has_real_data = bytes.iter().any(|&x| x != 0);
+    if !has_real_data {
+        return cdk::nuts::nut02::Id::from_bytes(&[0u8; 8]);
+    }
+
+    match bytes.len() {
+        8 | 33 => cdk::nuts::nut02::Id::from_bytes(bytes),
+        len if len >= 8 => {
+            let mut temp = [0u8; 8];
+            temp.copy_from_slice(&bytes[len - 8..]);
+            cdk::nuts::nut02::Id::from_bytes(&temp)
+        }
+        _ => {
+            let mut temp = [0u8; 8];
+            temp[..bytes.len()].copy_from_slice(bytes);
+            cdk::nuts::nut02::Id::from_bytes(&temp)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,5 +207,16 @@ mod tests {
             assert_eq!(lhs.parity_bit, rhs.parity_bit);
             assert_eq!(lhs.pubkey.inner_as_ref(), rhs.pubkey.inner_as_ref());
         }
+    }
+
+    #[test]
+    fn sv2_keyset_bytes_roundtrip() {
+        let keyset = keyset_from_sv2_bytes(&[0u8; 8]).unwrap();
+        assert_eq!(keyset.to_bytes(), [0u8; 8]);
+
+        let mut padded = [0u8; 12];
+        padded[8..].copy_from_slice(&[1,2,3,4]);
+        let id = keyset_from_sv2_bytes(&padded).unwrap();
+        assert_eq!(&id.to_bytes(), &[0,0,0,0,1,2,3,4]);
     }
 }
