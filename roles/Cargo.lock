@@ -1851,6 +1851,7 @@ name = "ehash"
 version = "0.1.0"
 dependencies = [
  "binary_sv2",
+ "cdk",
  "mint_quote_sv2",
  "thiserror 1.0.69",
 ]
@@ -3247,6 +3248,7 @@ dependencies = [
  "cdk",
  "const_sv2",
  "derive_codec_sv2",
+ "ehash",
  "rand 0.8.5",
  "secp256k1 0.31.1",
  "serde_json",
