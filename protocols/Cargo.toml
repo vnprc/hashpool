@@ -3,6 +3,7 @@
 resolver="2"
 
 members = [
+    "ehash",
     "v1",
     "v2/binary-sv2/serde-sv2",
     "v2/binary-sv2/no-serde-sv2/codec",

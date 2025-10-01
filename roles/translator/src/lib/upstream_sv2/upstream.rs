@@ -16,7 +16,7 @@ use cdk::wallet::Wallet;
 use codec_sv2::{HandshakeRole, Initiator};
 use error_handling::handle_result;
 use key_utils::Secp256k1PublicKey;
-use mining_sv2::cashu::calculate_ehash_amount;
+use ehash::calculate_ehash_amount;
 use network_helpers_sv2::Connection;
 use roles_logic_sv2::{
     common_messages_sv2::{Protocol, SetupConnection},

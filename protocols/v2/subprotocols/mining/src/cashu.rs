@@ -266,51 +266,6 @@ impl<'a> TryFrom<Sv2KeySet<'a>> for KeySet {
     }
 }
 
-/// Calculate ehash units using exponential valuation (2^n)
-/// where n is difficulty above the minimum threshold.
-/// - Each additional zero bit is exponentially more difficult to find
-/// - Shares should be valued proportionally to their computational difficulty relative to minimum
-///
-/// Parameters:
-/// - hash: The 32-byte hash to analyze
-/// - min_leading_zeros: Minimum number of leading zero bits for 1 unit of ehash
-///
-/// Returns the exponential work value: 2^(leading_zeros - min_leading_zeros)
-pub fn calculate_ehash_amount(hash: [u8; 32], min_leading_zeros: u32) -> u64 {
-    let leading_zero_bits = calculate_difficulty(hash);
-
-    // Only count work above the minimum threshold
-    if leading_zero_bits < min_leading_zeros {
-        return 0; // Below minimum difficulty, no reward
-    }
-
-    // Calculate relative difficulty above the minimum threshold
-    let relative_difficulty = leading_zero_bits - min_leading_zeros;
-    
-    // For values above 63, we'd overflow u64, so cap at 2^63
-    if relative_difficulty >= 63 {
-        1u64 << 63 // Maximum representable value in u64
-    } else {
-        1u64 << relative_difficulty
-    }
-}
-
-/// Count the number of leading zero bits in a hash
-pub fn calculate_difficulty(hash: [u8; 32]) -> u32 {
-    let mut count = 0u32;
-
-    for byte in hash {
-        if byte == 0 {
-            count += 8; // Each zero byte adds 8 bits
-        } else {
-            // Count the leading zeros in the current byte
-            count += byte.leading_zeros();
-            break; // Stop counting after the first non-zero byte
-        }
-    }
-
-    count
-}
 
 fn sv2_signing_keys_to_keys(keys: &[Sv2SigningKey]) -> Result<Keys, String> {
     let mut map = BTreeMap::new();
@@ -451,83 +406,6 @@ mod tests {
         let sv2_keyset = test_sv2_keyset();
         let id = calculate_keyset_id(&sv2_keyset.keys);
         assert_ne!(id, 0);
-    }
-
-    #[test]
-    fn test_calculate_ehash_amount() {
-        // Test with 32-96 bit range
-        const MIN_DIFFICULTY: u32 = 32;
-        
-        // Hash with exactly minimum difficulty (32 leading zeros)
-        let mut min_hash = [0u8; 32]; // init to all zero bits
-        min_hash[4] = 0xFF; // set the 5th byte to FF
-        assert_eq!(calculate_ehash_amount(min_hash, MIN_DIFFICULTY), 1); // 2^0 = 1 ehash
-
-        // Hash slightly below minimum (31 leading zeros) - should get 0
-        let mut below_min = [0u8; 32]; // init to all zero bits
-        below_min[3] = 0x01; // set the 4th byte to 01
-        assert_eq!(calculate_ehash_amount(below_min, MIN_DIFFICULTY), 0); // 0 ehash
-
-        // Hash with 40 leading zeros - gets 256 ehash
-        let mut hash_40 = [0u8; 32]; // init to all zero bits
-        hash_40[5] = 0xFF; // set the 6th byte to FF
-        assert_eq!(calculate_ehash_amount(hash_40, MIN_DIFFICULTY), 256); // 2^8 = 256 ehash
-
-        // Hash with exactly 48 leading zeros - gets 65536 ehash
-        let mut hash_48 = [0u8; 32]; // init to all zero bits
-        hash_48[6] = 0x80; // set the 7th byte to FF
-        assert_eq!(calculate_ehash_amount(hash_48, MIN_DIFFICULTY), 65536); // 2^16 = 65536 ehash
-
-        // Maximum representable difficulty (96 leading zeros) - capped at 2^63
-        let mut max_diff = [0u8; 32]; // init to all zero bits
-        max_diff[12] = 1; // 12*8 = 96 leading zeros, should be capped
-        assert_eq!(calculate_ehash_amount(max_diff, MIN_DIFFICULTY), 1u64 << 63); // 2^96 = u64 max value ehash
-
-        // All zeros (256 leading zeros) - should also be capped at 2^63
-        assert_eq!(calculate_ehash_amount([0u8; 32], MIN_DIFFICULTY), 1u64 << 63);
-    }
-
-    #[test]
-    fn test_calculate_difficulty() {
-        // All zeros should have 256 leading zero bits
-        assert_eq!(calculate_difficulty([0u8; 32]), 256);
-
-        let mut one = [0u8; 32];
-        one[31] = 1;
-        assert_eq!(calculate_difficulty(one), 255);
-
-        // 0x10 in last byte: 4 leading zeros in that byte + 31*8 from previous bytes = 251
-        let mut sixteen = [0u8; 32];
-        sixteen[31] = 0x10;
-        assert_eq!(calculate_difficulty(sixteen), 251);
-
-        // First bit set should have 0 leading zeros
-        let mut first_bit = [0u8; 32];
-        first_bit[0] = 0x80;
-        assert_eq!(calculate_difficulty(first_bit), 0);
-
-        // Second bit set should have 1 leading zero
-        let mut second_bit = [0u8; 32];
-        second_bit[0] = 0x40;
-        assert_eq!(calculate_difficulty(second_bit), 1);
-    }
-
-    #[test]
-    fn test_ehash_amount_different_thresholds() {
-        // Test how different minimum difficulty thresholds affect rewards
-        
-        // Same hash (40 leading zeros) with different thresholds
-        let mut hash = [0u8; 32];
-        hash[5] = 0x80; // 40 leading zeros exactly
-        
-        // With threshold 32: gets 256 ehash (2^(40-32) = 2^8)
-        assert_eq!(calculate_ehash_amount(hash, 32), 256);
-        
-        // With threshold 35: gets 32 ehash (2^(40-35) = 2^5)
-        assert_eq!(calculate_ehash_amount(hash, 35), 32);
-        
-        // With threshold 45: gets 0 (hash doesn't meet minimum)
-        assert_eq!(calculate_ehash_amount(hash, 45), 0);
     }
 
     #[test]

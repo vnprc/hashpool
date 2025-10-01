@@ -34,7 +34,7 @@
 ### Pool Role (`roles/pool/`)
 | File(s) | Purpose | Shim / Entry Point | Upstream? | Notes |
 | --- | --- | --- | --- | --- |
-| `roles/pool/Cargo.toml` | add `roles-utils` crates, mint quote protocol, Cashu deps | `hashpool_cashu` feature set | No | Pool-only wiring. |
+| `roles/pool/Cargo.toml` | add `roles-utils` crates, mint quote protocol, Cashu deps | `ehash` helper crate | No | Pool-only wiring. |
 | `roles/pool/src/lib/mining_pool/{message_handler.rs,mod.rs,setup_connection.rs}` | hook submit-share path to mint quote pipeline, track mint connection, register SV2 mint frames | `Pool::send_extension_message_to_downstream`, `handle_mint_quote_response` | No | Core Cashu integration. |
 | `roles/pool/src/lib/mining_pool/pending_shares.rs` | manage share ↔ quote state until mint responds | `PendingShareManager::add/remove` | No | Cashu shim. |
 | `roles/pool/src/lib/{stats.rs,web.rs}` | track quote metrics, expose status UI | `StatsHandle::send_stats`, `web::spawn_server` | No | Hashpool diagnostics. |
@@ -86,4 +86,3 @@ Everything else is intentionally Hashpool-specific and should stay local unless 
 
 ### Scope Check
 Command used: `git diff --name-status e8d76d68642ea28aa48a2da7e41fb4470bbe2681`. No additional tracked changes exist outside the paths enumerated above.
-
