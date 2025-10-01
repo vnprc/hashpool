@@ -2,9 +2,9 @@ use super::super::mining_pool::Downstream;
 use super::pending_shares::PendingShare;
 use super::super::stats::StatsMessage;
 use bitcoin_hashes::sha256::Hash;
-use ehash::calculate_ehash_amount;
+use ehash::{build_mint_quote_request, calculate_ehash_amount};
 use mining_sv2::MintQuoteNotification;
-use mint_pool_messaging::{MintQuoteRequest, MintQuoteResponse};
+use mint_pool_messaging::MintQuoteResponse;
 use roles_logic_sv2::{
     errors::Error,
     handlers::mining::{ParseDownstreamMiningMessages, SendTo, SupportedChannelTypes},
@@ -123,49 +123,12 @@ pub async fn handle_mint_quote_response(
     }
 }
 
-/// Send a mint quote request via SV2 TCP connection
-/// Create a mint quote request from a submitted share
-fn create_mint_quote_request(
-    m: &SubmitSharesExtended<'static>,
-    amount: u64,
-) -> Result<MintQuoteRequest<'static>, Box<dyn std::error::Error + Send + Sync>> {
-    use binary_sv2::{Str0255, U256, CompressedPubKey, Sv2Option};
-    use std::convert::TryInto;
-    
-    // Create SV2 mint quote request
-    let unit_str = "HASH".as_bytes().to_vec();
-    let unit: Str0255 = unit_str.try_into()
-        .map_err(|e| format!("Failed to create unit string: {:?}", e))?;
-    
-    let header_hash_bytes = m.hash.inner_as_ref().to_vec();
-    let header_hash: U256 = header_hash_bytes.try_into()
-        .map_err(|e| format!("Failed to create header hash: {:?}", e))?;
-    
-    let locking_key: CompressedPubKey = m.locking_pubkey.clone();
-    
-    // Create optional description (empty for now)
-    let description: Sv2Option<Str0255> = Sv2Option::new(None);
-    
-    let request = MintQuoteRequest {
-        amount,
-        unit,
-        header_hash,
-        description,
-        locking_key,
-    };
-
-    Ok(request.into_static())
-}
-
 /// Send mint quote request via TCP connection to mint
 async fn send_sv2_mint_quote_tcp(
     pool: Arc<Mutex<super::Pool>>,
     m: SubmitSharesExtended<'static>,
     amount: u64,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    use binary_sv2::{Str0255, U256, CompressedPubKey, Sv2Option};
-    use std::convert::TryInto;
-    
     // Get mint connection sender
     let mint_sender = {
         let mint_connection = pool.safe_lock(|p| p.get_mint_connection())
@@ -178,27 +141,8 @@ async fn send_sv2_mint_quote_tcp(
         }
     };
     
-    // Create SV2 mint quote request
-    let unit_str = "HASH".as_bytes().to_vec();
-    let unit: Str0255 = unit_str.try_into()
-        .map_err(|e| format!("Failed to create unit string: {:?}", e))?;
-    
-    let header_hash_bytes = m.hash.inner_as_ref().to_vec();
-    let header_hash: U256 = header_hash_bytes.try_into()
-        .map_err(|e| format!("Failed to create header hash: {:?}", e))?;
-    
-    let locking_key: CompressedPubKey = m.locking_pubkey.clone();
-    
-    // Create optional description (empty for now)
-    let description: Sv2Option<Str0255> = Sv2Option::new(None);
-    
-    let request = MintQuoteRequest {
-        amount,
-        unit,
-        header_hash,
-        description,
-        locking_key,
-    };
+    let request = build_mint_quote_request(amount, m.hash.inner_as_ref(), m.locking_pubkey.clone())
+        .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))?;
     
     // Send over TCP connection using the standard SV2 message pattern
     debug!("Sending SV2 mint quote request over TCP: amount={}", amount);
