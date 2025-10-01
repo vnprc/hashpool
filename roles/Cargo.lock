@@ -1849,6 +1849,11 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 [[package]]
 name = "ehash"
 version = "0.1.0"
+dependencies = [
+ "binary_sv2",
+ "mint_quote_sv2",
+ "thiserror 1.0.69",
+]
 
 [[package]]
 name = "either"
