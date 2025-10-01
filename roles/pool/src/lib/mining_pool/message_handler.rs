@@ -2,7 +2,7 @@ use super::super::mining_pool::Downstream;
 use super::pending_shares::PendingShare;
 use super::super::stats::StatsMessage;
 use bitcoin_hashes::sha256::Hash;
-use mining_sv2::cashu::calculate_ehash_amount;
+use ehash::calculate_ehash_amount;
 use mining_sv2::MintQuoteNotification;
 use mint_pool_messaging::{MintQuoteRequest, MintQuoteResponse};
 use roles_logic_sv2::{

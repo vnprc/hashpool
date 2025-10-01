@@ -53,6 +53,7 @@ web_assets = { path = "../roles-utils/web-assets" }
 bip39 = "2.0"
 anyhow = "1.0"
 hex = "0.4"
+ehash = { path = "../../protocols/ehash" }
 
 cdk = { git = "https://github.com/vnprc/cdk.git", package = "cdk", rev = "48502f8c" }
 cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", package = "cdk-sqlite", rev = "48502f8c" }

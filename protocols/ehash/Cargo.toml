@@ -1,0 +1,11 @@
+[package]
+name = "ehash"
+version = "0.1.0"
+edition = "2021"
+description = "Hashpool ehash utility functions"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+
+[dev-dependencies]
+rand = "0.8"
