@@ -30,11 +30,12 @@ Prepare the existing hashpool codebase (built on an older SRI commit) for a smoo
 3. Confirm there are no lingering “big” diffs outside the documented list.
 
 ## Phase 3 – Harden with Automation (ongoing)
-1. Add a regression script (can be a `just` target) that spins up translator + pool + mock miner, submits a share, and verifies:
-   - Share hash captured correctly.
-   - Mint quote created and stored.
-   - Translator sweep loop processes the quote.
-2. Integrate this smoke test into CI so future changes can be validated quickly.
+1. Use the existing `devenv` stack (`devenv shell` → `devenv up`) as the canonical ehash flow harness. Let it boot the pool, mint, translator, job declarator, and mock miner.
+2. Document the manual verification steps while the stack runs:
+   - Monitor `logs/` for translator share submissions and mint quote creation.
+   - Hit `http://127.0.0.1:3030/api/miners` (translator) and `http://127.0.0.1:8081/api/connections` (pool) to confirm share counts and quote totals advance.
+   - Optional: query the Cashu wallet (`just balance`) or SQLite databases to confirm issued quotes.
+3. When we’re ready, script the above devenv interactions (curl checks) into CI-friendly probes, but treat the full stack as the single source of truth.
 
 ## Phase 4 – Rebase onto Latest SRI (after Phase 1–3 complete)
 1. Fetch latest SRI (`git fetch upstream`) and create a rebase branch.
