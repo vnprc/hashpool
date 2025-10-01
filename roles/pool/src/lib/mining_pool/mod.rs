@@ -27,6 +27,7 @@ use shared_config::Sv2MessagingConfig;
 use std::{
     collections::HashMap,
     convert::{TryFrom, TryInto},
+    sync::RwLock,
     net::SocketAddr,
     sync::Arc,
 };
@@ -46,6 +47,18 @@ pub mod pending_shares;
 pub type Message = PoolMessages<'static>;
 pub type StdFrame = StandardSv2Frame<Message>;
 pub type EitherFrame = StandardEitherFrame<Message>;
+
+// PHASE 1: Global storage for extracted TLV data
+use std::sync::OnceLock;
+static EXTRACTED_LOCKING_PUBKEY: OnceLock<Vec<u8>> = OnceLock::new();
+
+pub fn set_extracted_locking_pubkey(pubkey: Vec<u8>) {
+    let _ = EXTRACTED_LOCKING_PUBKEY.set(pubkey);
+}
+
+pub fn get_extracted_locking_pubkey() -> Option<Vec<u8>> {
+    EXTRACTED_LOCKING_PUBKEY.get().cloned()
+}
 
 pub fn get_coinbase_output(config: &Configuration) -> Result<Vec<TxOut>, Error> {
     let mut result = Vec::new();
@@ -321,6 +334,54 @@ impl Downstream {
     }
 
     pub async fn next(self_mutex: Arc<Mutex<Self>>, mut incoming: StdFrame) -> PoolResult<()> {
+        // PHASE 1: Add external extension hook for incoming message interception
+        #[cfg(feature = "extension_hooks")]
+        {
+            if let Some(interceptor) = super::get_message_interceptor() {
+                tracing::debug!("Extension interceptor available - implementing TLV extraction");
+                
+                // Serialize frame to bytes to extract TLV fields (clone because serialize takes ownership)
+                let frame_length = incoming.encoded_length();
+                let mut frame_bytes = vec![0u8; frame_length];
+                
+                if let Err(e) = incoming.clone().serialize(&mut frame_bytes) {
+                    tracing::error!("Failed to serialize frame: {:?}", e);
+                } else {
+                    tracing::debug!("Pool received frame with {} bytes, attempting TLV extraction", frame_bytes.len());
+                    
+                    // Call interceptor to extract TLV fields
+                    match interceptor.intercept_incoming(&frame_bytes) {
+                        Ok((core_msg_bytes, extension_data)) => {
+                            tracing::debug!("Successfully extracted TLV fields from incoming message");
+                            // Store the extracted locking_pubkey globally
+                            if let Some(ref locking_pubkey) = extension_data.ehash_fields.locking_pubkey {
+                                tracing::info!("Extracted locking pubkey from TLV: {} bytes, storing globally", locking_pubkey.len());
+                                set_extracted_locking_pubkey(locking_pubkey.clone());
+                            }
+                            
+                            // The core_msg_bytes already contains the complete frame (header + payload) without TLV
+                            // We need to parse it as a new frame
+                            if core_msg_bytes.len() < frame_bytes.len() {
+                                tracing::debug!("Reconstructing frame: original {} bytes, core {} bytes", frame_bytes.len(), core_msg_bytes.len());
+                                match codec_sv2::StandardSv2Frame::from_bytes(core_msg_bytes.into()) {
+                                    Ok(reconstructed_frame) => {
+                                        tracing::debug!("✅ Successfully reconstructed frame without TLV data");
+                                        incoming = reconstructed_frame;
+                                    }
+                                    Err(e) => {
+                                        tracing::error!("Failed to reconstruct frame: {:?}, using original", e);
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!("Extension TLV extraction failed: {}", e);
+                        }
+                    }
+                }
+            }
+        }
+        
         let message_type = incoming
             .get_header()
             .ok_or_else(|| PoolError::Custom(String::from("No header set")))?

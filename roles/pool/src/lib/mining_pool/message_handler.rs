@@ -19,6 +19,55 @@ use shared_config::Sv2MessagingConfig;
 use std::{convert::TryInto, sync::Arc};
 use tokio::time::Instant as TokioInstant;
 use tracing::{error, info, debug};
+use cashu_extension_sv2::{CashuTlvParser, CashuExtensionFields};
+
+// Helper functions for extracting Cashu fields from SubmitSharesExtended messages
+// These replace the removed `hash` and `locking_pubkey` struct fields
+
+fn get_share_hash(m: &SubmitSharesExtended<'_>) -> Vec<u8> {
+    // PHASE 1: Use hash computation from share fields (eliminating duplicate data)
+    use cashu_extension_sv2::compute_share_hash;
+    let hash = compute_share_hash(
+        m.job_id,
+        m.nonce,
+        m.ntime,
+        m.version,
+        m.extranonce.inner_as_ref(),
+    );
+    hash.to_vec()
+}
+
+fn get_share_hash_as_array(m: &SubmitSharesExtended<'_>) -> [u8; 32] {
+    // PHASE 1: Use hash computation from share fields
+    use cashu_extension_sv2::compute_share_hash;
+    compute_share_hash(
+        m.job_id,
+        m.nonce,
+        m.ntime,
+        m.version,
+        m.extranonce.inner_as_ref(),
+    )
+}
+
+fn get_locking_pubkey(_m: &SubmitSharesExtended<'_>) -> Vec<u8> {
+    // PHASE 1: Get from extracted TLV data
+    super::get_extracted_locking_pubkey()
+        .unwrap_or_else(|| {
+            tracing::error!("No locking pubkey extracted from TLV, using placeholder");
+            vec![0x02u8; 33]
+        })
+}
+
+fn get_locking_pubkey_as_compressed(_m: &SubmitSharesExtended<'_>) -> CompressedPubKey<'static> {
+    // PHASE 1: Get from extracted TLV data
+    let pubkey_bytes = super::get_extracted_locking_pubkey()
+        .unwrap_or_else(|| {
+            tracing::error!("No locking pubkey extracted from TLV, using placeholder");
+            vec![0x02u8; 33]
+        });
+    
+    pubkey_bytes.try_into().expect("Valid 33-byte compressed pubkey")
+}
 
 /// Creates a mint quote request and sends it via TCP and Redis
 fn submit_quote(
@@ -27,7 +76,10 @@ fn submit_quote(
     pool: Arc<Mutex<super::Pool>>,
     minimum_difficulty: u32,
 ) -> Result<(), roles_logic_sv2::Error> {
-    let header_hash = Hash::from_slice(m.hash.inner_as_ref())
+    // PHASE 1: Compute hash from share fields (eliminating duplicate data) 
+    // Use the same hash computation that would be in TLV fields
+    let hash = get_share_hash_as_array(&m);
+    let header_hash = Hash::from_slice(&hash)
         .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid header hash: {e}")))?;
     
     let amount = calculate_ehash_amount(header_hash.to_byte_array(), minimum_difficulty);
@@ -137,11 +189,11 @@ fn create_mint_quote_request(
     let unit: Str0255 = unit_str.try_into()
         .map_err(|e| format!("Failed to create unit string: {:?}", e))?;
     
-    let header_hash_bytes = m.hash.inner_as_ref().to_vec();
+    let header_hash_bytes = get_share_hash(&m);
     let header_hash: U256 = header_hash_bytes.try_into()
         .map_err(|e| format!("Failed to create header hash: {:?}", e))?;
     
-    let locking_key: CompressedPubKey = m.locking_pubkey.clone();
+    let locking_key: CompressedPubKey = get_locking_pubkey_as_compressed(&m);
     
     // Create optional description (empty for now)
     let description: Sv2Option<Str0255> = Sv2Option::new(None);
@@ -183,11 +235,11 @@ async fn send_sv2_mint_quote_tcp(
     let unit: Str0255 = unit_str.try_into()
         .map_err(|e| format!("Failed to create unit string: {:?}", e))?;
     
-    let header_hash_bytes = m.hash.inner_as_ref().to_vec();
+    let header_hash_bytes = get_share_hash(&m);
     let header_hash: U256 = header_hash_bytes.try_into()
         .map_err(|e| format!("Failed to create header hash: {:?}", e))?;
     
-    let locking_key: CompressedPubKey = m.locking_pubkey.clone();
+    let locking_key: CompressedPubKey = get_locking_pubkey_as_compressed(&m);
     
     // Create optional description (empty for now)
     let description: Sv2Option<Str0255> = Sv2Option::new(None);
@@ -399,7 +451,6 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         new_submits_accepted_count: 1,
                         new_shares_sum: 0,
                         // initialize to all zeros, will be updated later
-                        hash: [0u8; 32].into(),
                     };
 
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
@@ -412,7 +463,6 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         new_submits_accepted_count: 1,
                         new_shares_sum: 0,
                         // initialize to all zeros, will be updated later
-                        hash: [0u8; 32].into(),
                     };
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
                 },
@@ -457,8 +507,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                     }
 
                     // Calculate work amount
-                    let hash_bytes: [u8; 32] = m.hash.inner_as_ref().try_into()
-                        .map_err(|_| Error::ExpectedLen32(m.hash.inner_as_ref().len()))?;
+                    let hash_bytes: [u8; 32] = get_share_hash_as_array(&m);
                     let minimum_difficulty = self.pool.safe_lock(|p| p.minimum_difficulty)
                         .map_err(|_| Error::PoisonLock(format!("Failed to lock pool")))?;
                     let amount = calculate_ehash_amount(hash_bytes, minimum_difficulty);
@@ -467,8 +516,8 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                     let pending_share = PendingShare {
                         channel_id: m.channel_id,
                         sequence_number: m.sequence_number,
-                        share_hash: m.hash.inner_as_ref().to_vec(),
-                        locking_pubkey: m.locking_pubkey.inner_as_ref().to_vec(),
+                        share_hash: get_share_hash(&m),
+                        locking_pubkey: get_locking_pubkey(&m),
                         amount,
                         created_at: TokioInstant::now(),
                     };
@@ -495,7 +544,6 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         new_submits_accepted_count: 1,
                         new_shares_sum: 0,
                         // TODO is this ownership hack fixable?
-                        hash: m.hash.inner_as_ref().to_owned().try_into()?,
                     };
 
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
@@ -510,8 +558,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                     }
                     
                     // Calculate ehash units
-                    let hash_bytes: [u8; 32] = m.hash.inner_as_ref().try_into()
-                        .map_err(|_| Error::ExpectedLen32(m.hash.inner_as_ref().len()))?;
+                    let hash_bytes: [u8; 32] = get_share_hash_as_array(&m);
                     let minimum_difficulty = self.pool.safe_lock(|p| p.minimum_difficulty)
                         .map_err(|_| Error::PoisonLock(format!("Failed to lock pool")))?;
                     let amount = calculate_ehash_amount(hash_bytes, minimum_difficulty);
@@ -520,8 +567,8 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                     let pending_share = PendingShare {
                         channel_id: m.channel_id,
                         sequence_number: m.sequence_number,
-                        share_hash: m.hash.inner_as_ref().to_vec(),
-                        locking_pubkey: m.locking_pubkey.inner_as_ref().to_vec(),
+                        share_hash: get_share_hash(&m),
+                        locking_pubkey: get_locking_pubkey(&m),
                         amount,
                         created_at: TokioInstant::now(),
                     };
@@ -548,7 +595,6 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         new_submits_accepted_count: 1,
                         new_shares_sum: 0,
                         // TODO is this ownership hack fixable?
-                        hash: m.hash.inner_as_ref().to_owned().try_into()?,
                     };
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
                 },

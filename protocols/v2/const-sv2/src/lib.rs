@@ -135,7 +135,7 @@ pub const SV2_MINING_PROTOCOL_DISCRIMINANT: u8 = 0;
 pub const SV2_JOB_DECLARATION_PROTOCOL_DISCRIMINANT: u8 = 1;
 // Refactoring: rename this into SV2_TEMPLATE_DISTRIBUTION_PROTOCOL_DISCRIMINANT
 pub const SV2_TEMPLATE_DISTR_PROTOCOL_DISCRIMINANT: u8 = 2;
-pub const SV2_MINT_QUOTE_PROTOCOL_DISCRIMINANT: u8 = 3;
+// Note: Mint quote functionality moved to Cashu extension (0x0003) using message types 0xC0-0xC1
 
 // Common message types used across all Stratum V2 (sub)protocols.
 pub const MESSAGE_TYPE_SETUP_CONNECTION: u8 = 0x0;

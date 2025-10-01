@@ -1,0 +1,27 @@
+[package]
+name = "ehash-extension"
+version = "0.1.0"
+edition = "2021"
+description = "External ehash extension for Hashpool mining pool"
+authors = ["Hashpool Developers"]
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# Core dependencies for TLV and extension logic
+serde = { version = "1.0", features = ["derive"] }
+tracing = "0.1"
+thiserror = "1.0"
+
+# Use existing TLV infrastructure from internal crate
+cashu-extension-sv2 = { path = "../protocols/v2/extensions/cashu" }
+
+# SRI dependencies - use same versions as main project
+binary_sv2 = { path = "../protocols/v2/binary-sv2/binary-sv2" }
+const_sv2 = { path = "../protocols/v2/const-sv2" }
+framing_sv2 = { path = "../protocols/v2/framing-sv2" }
+mining_sv2 = { path = "../protocols/v2/subprotocols/mining" }
+
+[features]
+default = []
+# Feature to enable extension in SRI binaries
+extension_hooks = []

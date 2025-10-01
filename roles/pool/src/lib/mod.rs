@@ -38,6 +38,14 @@ impl std::fmt::Debug for PoolSv2 {
 
 impl PoolSv2 {
     pub fn new(config: Configuration, sv2_messaging_config: Option<Sv2MessagingConfig>, ehash_config: Option<EhashConfig>) -> PoolSv2 {
+        // PHASE 1: Initialize message interceptor for TLV extraction
+        #[cfg(feature = "extension_hooks")]
+        {
+            let interceptor = ehash_extension::EhashMessageInterceptor::new();
+            set_message_interceptor(Box::new(interceptor));
+            tracing::info!("Initialized ehash extension interceptor for TLV extraction");
+        }
+        
         PoolSv2 {
             config,
             sv2_messaging_config,
@@ -146,4 +154,40 @@ impl PoolSv2 {
             }
         }
     }
+}
+
+// PHASE 1: External extension support infrastructure
+#[cfg(feature = "extension_hooks")]
+use std::sync::OnceLock;
+
+#[cfg(feature = "extension_hooks")]
+static MESSAGE_INTERCEPTOR: OnceLock<Box<dyn ehash_extension::MessageInterceptor + Send + Sync>> = OnceLock::new();
+
+#[cfg(feature = "extension_hooks")]
+pub fn set_message_interceptor(interceptor: Box<dyn ehash_extension::MessageInterceptor + Send + Sync>) {
+    tracing::info!("🔧 set_message_interceptor called with extension_hooks feature enabled");
+    match MESSAGE_INTERCEPTOR.set(interceptor) {
+        Ok(()) => {
+            tracing::info!("✅ Message interceptor set successfully");
+            // Immediately test if we can retrieve it
+            if MESSAGE_INTERCEPTOR.get().is_some() {
+                tracing::info!("✅ Immediate retrieval test: interceptor found");
+            } else {
+                tracing::error!("❌ Immediate retrieval test: interceptor NOT found");
+            }
+        }
+        Err(_) => tracing::error!("❌ Failed to set message interceptor - already set"),
+    }
+}
+
+#[cfg(feature = "extension_hooks")]
+pub fn get_message_interceptor() -> Option<&'static Box<dyn ehash_extension::MessageInterceptor + Send + Sync>> {
+    let result = MESSAGE_INTERCEPTOR.get();
+    tracing::debug!("🔍 get_message_interceptor called, result: {}", if result.is_some() { "Some(interceptor)" } else { "None" });
+    result
+}
+
+#[cfg(not(feature = "extension_hooks"))]
+pub fn get_message_interceptor() -> Option<&'static ()> {
+    None
 }

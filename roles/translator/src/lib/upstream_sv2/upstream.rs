@@ -14,6 +14,7 @@ use tokio::sync::broadcast;
 use binary_sv2::u256_from_int;
 use cdk::wallet::Wallet;
 use codec_sv2::{HandshakeRole, Initiator};
+use cashu_extension_sv2::{ExtensionState, CASHU_EXTENSION_ID};
 use error_handling::handle_result;
 use key_utils::Secp256k1PublicKey;
 use mining_sv2::cashu::calculate_ehash_amount;
@@ -109,6 +110,8 @@ pub struct Upstream {
     keyset_sender: broadcast::Sender<Vec<u8>>,
     /// Minimum difficulty for calculating ehash units
     minimum_difficulty: u32,
+    /// Extension state for tracking negotiated extensions
+    extension_state: ExtensionState,
 }
 
 impl PartialEq for Upstream {
@@ -191,6 +194,7 @@ impl Upstream {
             wallet,
             keyset_sender,
             minimum_difficulty,
+            extension_state: ExtensionState::new(),
         })))
     }
 
@@ -241,6 +245,13 @@ impl Upstream {
             payload,
             CommonRoutingLogic::None,
         )?;
+
+        // TODO: For now, hardcode Cashu extension as always supported
+        // In the future, this should negotiate with the pool
+        info!("Hardcoding Cashu extension support (Extension ID: 0x{:04x})", CASHU_EXTENSION_ID);
+        self_.safe_lock(|s| {
+            s.extension_state.complete_negotiation(vec![CASHU_EXTENSION_ID]);
+        }).map_err(|_| PoisonLock)?;
 
         // Send open channel request before returning
         let nominal_hash_rate = self_
@@ -548,8 +559,79 @@ impl Upstream {
                     roles_logic_sv2::parsers::Mining::SubmitSharesExtended(sv2_submit),
                 );
 
-                let frame: StdFrame = handle_result!(tx_status, message.try_into());
-                // Doesnt actually send because of Braiins Pool issue that needs to be fixed
+                // PHASE 1 TLV IMPLEMENTATION: TODO - Add Cashu extension TLV fields
+                // For now, disabled to prevent frame serialization panic
+                // Need to implement TLV addition during message serialization, not after frame creation
+                let mut frame: StdFrame = handle_result!(tx_status, message.try_into());
+                
+                // PHASE 1: Add external extension hook for message interception
+                #[cfg(feature = "extension_hooks")]
+                {
+                    if let Some(interceptor) = super::super::get_message_interceptor() {
+                        tracing::debug!("Extension interceptor available - implementing TLV appending");
+                        
+                        // Calculate TLV size properly
+                        // TLV format: [extension_id:2][field_type:2][length:2][data:N]
+                        // For locking_pubkey: 2 + 2 + 2 + 33 = 39 bytes
+                        let tlv_size = 39; // Exact TLV size for locking_pubkey
+                        
+                        // Serialize frame to bytes (need to clone because serialize takes ownership)
+                        let frame_length = frame.encoded_length();
+                        let mut frame_bytes = vec![0u8; frame_length + tlv_size];
+                        
+                        if let Err(e) = frame.clone().serialize(&mut frame_bytes[..frame_length]) {
+                            tracing::error!("Failed to serialize frame: {:?}", e);
+                        } else {
+                            // Resize to actual frame length
+                            frame_bytes.truncate(frame_length);
+                            let original_len = frame_bytes.len();
+                            
+                            // Call interceptor to append TLV fields
+                            tracing::debug!("Calling interceptor.intercept_outgoing with {} bytes", frame_bytes.len());
+                            if let Err(e) = interceptor.intercept_outgoing(&mut frame_bytes) {
+                                tracing::error!("Extension interception failed: {}", e);
+                            } else {
+                                let new_len = frame_bytes.len();
+                                if new_len > original_len {
+                                    tracing::info!("✅ Successfully appended {} bytes of TLV data to SubmitSharesExtended ({}→{})", 
+                                                   new_len - original_len, original_len, new_len);
+                                    
+                                    // Log the TLV bytes for debugging
+                                    let tlv_bytes = &frame_bytes[original_len..];
+                                    tracing::debug!("TLV bytes appended: {:02x?}", tlv_bytes);
+                                    
+                                    // Update the frame header with new length
+                                    // Header format: [extension_type:2][msg_type:1][msg_length:3]
+                                    // The msg_length is 24-bit little-endian at bytes 3-5
+                                    let new_payload_len = (new_len - 6) as u32; // Subtract header size
+                                    frame_bytes[3] = (new_payload_len & 0xFF) as u8;
+                                    frame_bytes[4] = ((new_payload_len >> 8) & 0xFF) as u8;
+                                    frame_bytes[5] = ((new_payload_len >> 16) & 0xFF) as u8;
+                                    
+                                    // Create a new frame from the modified bytes
+                                    // We need to send the modified frame_bytes directly
+                                    // Convert to EitherFrame and send
+                                    use framing_sv2::framing::Sv2Frame;
+                                    let either_frame = EitherFrame::Sv2(Sv2Frame::from_bytes_unchecked(
+                                        frame_bytes.into()
+                                    ));
+                                    
+                                    handle_result!(
+                                        tx_status,
+                                        tx_frame.send(either_frame).await.map_err(|e| {
+                                            super::super::error::Error::ChannelErrorSender(
+                                                super::super::error::ChannelSendError::General(e.to_string()),
+                                            )
+                                        })
+                                    );
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                tracing::debug!("SubmitSharesExtended message created with external extension support");
 
                 let frame: EitherFrame = frame.into();
                 handle_result!(
@@ -770,17 +852,11 @@ impl ParseUpstreamMiningMessages<Downstream, NullDownstreamMiningSelector, NoRou
     /// Handles the SV2 `SubmitSharesSuccess` message.
     fn handle_submit_shares_success(
         &mut self,
-        m: roles_logic_sv2::mining_sv2::SubmitSharesSuccess,
+        _m: roles_logic_sv2::mining_sv2::SubmitSharesSuccess,
     ) -> Result<roles_logic_sv2::handlers::mining::SendTo<Downstream>, RolesLogicError> {
-        // TODO is it better to recalculate this value from the share or to pass it over the wire?
-        let share_hash = m.hash.to_vec().to_hex();
-        let amount = calculate_ehash_amount(m.hash.inner_as_ref().try_into().expect("not 32 bytes"), self.minimum_difficulty);
-        
-        info!(
-            "Successfully created a quote for share {} worth {} ehash",
-            share_hash,
-            amount,
-        );
+        // TODO: Extract hash from TLV fields once TLV parsing is implemented
+        // For now, we can't access the hash field
+        info!("Share submission accepted by pool");
 
         Ok(SendTo::None(None))
     }

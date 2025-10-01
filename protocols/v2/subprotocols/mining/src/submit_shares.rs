@@ -2,7 +2,7 @@
 use alloc::vec::Vec;
 #[cfg(not(feature = "with_serde"))]
 use binary_sv2::binary_codec_sv2;
-use binary_sv2::{Deserialize, PubKey, CompressedPubKey, Serialize, Str0255, B032, B0255};
+use binary_sv2::{Deserialize, Serialize, Str0255, B032, B0255};
 #[cfg(not(feature = "with_serde"))]
 use core::convert::TryInto;
 
@@ -65,10 +65,6 @@ pub struct SubmitSharesExtended<'decoder> {
     /// channel opening flow.
     #[cfg_attr(feature = "with_serde", serde(borrow))]
     pub extranonce: B032<'decoder>,
-    // block template header hash, used to index the blinded secret
-    pub hash: PubKey<'decoder>,
-    // Locking pubkey for mint quote
-    pub locking_pubkey: CompressedPubKey<'decoder>,
 }
 
 /// Message used by upstream to accept [`SubmitSharesStandard`] or [`SubmitSharesExtended`].
@@ -80,7 +76,7 @@ pub struct SubmitSharesExtended<'decoder> {
 /// actually increasing. It can use the last one received when sending a response. It is the
 /// downstream’s responsibility to keep the sequence numbers correct/useful.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SubmitSharesSuccess<'decoder> {
+pub struct SubmitSharesSuccess {
     /// Channel identifier.
     pub channel_id: u32,
     /// Most recent sequence number with a correct result.
@@ -89,8 +85,6 @@ pub struct SubmitSharesSuccess<'decoder> {
     pub new_submits_accepted_count: u32,
     /// Sum of shares acknowledged within this batch.
     pub new_shares_sum: u64,
-    // block template header hash, used to index the blinded secret
-    pub hash: PubKey<'decoder>,
 }
 
 /// Message used by upstream to reject [`SubmitSharesStandard`] or [`SubmitSharesExtended`].
@@ -153,8 +147,6 @@ impl<'d> GetSize for SubmitSharesExtended<'d> {
             + self.ntime.get_size()
             + self.version.get_size()
             + self.extranonce.get_size()
-            + self.hash.get_size()
-            + self.locking_pubkey.get_size()
     }
 }
 #[cfg(feature = "with_serde")]
@@ -164,7 +156,6 @@ impl GetSize for SubmitSharesSuccess {
             + self.last_sequence_number.get_size()
             + self.new_submits_accepted_count.get_size()
             + self.new_shares_sum.get_size()
-            + self.hash.get_size()
     }
 }
 #[cfg(feature = "with_serde")]

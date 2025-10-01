@@ -185,7 +185,7 @@ pub enum Mining<'a> {
     #[cfg_attr(feature = "with_serde", serde(borrow))]
     SubmitSharesExtended(SubmitSharesExtended<'a>),
     SubmitSharesStandard(SubmitSharesStandard),
-    SubmitSharesSuccess(SubmitSharesSuccess<'a>),
+    SubmitSharesSuccess(SubmitSharesSuccess),
     #[cfg_attr(feature = "with_serde", serde(borrow))]
     UpdateChannel(UpdateChannel<'a>),
     #[cfg_attr(feature = "with_serde", serde(borrow))]

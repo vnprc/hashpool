@@ -1,0 +1,13 @@
+[package]
+name = "cashu-extension-sv2"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+binary_sv2 = { path = "../../binary-sv2/binary-sv2" }
+const_sv2 = { path = "../../const-sv2" }
+derive_more = { version = "1.0.0", default-features = false, features = ["display"] }
+
+[features]
+default = []
+with_serde = ["binary_sv2/with_serde"]

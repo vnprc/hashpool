@@ -27,6 +27,7 @@ network_helpers_sv2 = { version = "2.0.0", path = "../roles-utils/network-helper
 noise_sv2 = { version = "1.1.0", path = "../../protocols/v2/noise-sv2" }
 rand = "0.8.4"
 roles_logic_sv2 = { version = "^1.0.0", path = "../../protocols/v2/roles-logic-sv2" }
+cashu-extension-sv2 = { path = "../../protocols/v2/extensions/cashu" }
 serde = { version = "1.0.89", features = ["derive", "alloc"], default-features = false }
 tokio = { version = "1", features = ["full"] }
 ext-config = { version = "0.14.0", features = ["toml"], package = "config" }
@@ -59,3 +60,8 @@ hex = "0.4.3"
 [features]
 test_only_allow_unencrypted = []
 MG_reject_auth = []
+extension_hooks = ["ehash-extension/extension_hooks"]
+
+[dependencies.ehash-extension]
+path = "../../ehash"
+optional = true

@@ -64,7 +64,7 @@ in {
   env.IN_DEVENV = "1";
   env.TRANSLATOR_WALLET_DB = translatorWalletDb;
   env.MINT_DB = mintDb;
-  env.RUST_LOG = "info";
+  env.RUST_LOG = "debug,ehash_extension=debug,pool_sv2::lib::mining_pool=debug,translator_sv2::lib::upstream_sv2=debug";
 
   # Ensure log and db directories exists before processes run
   tasks.create-dirs = {
@@ -129,7 +129,7 @@ in {
     pool = {
       exec = withLogging ''
         ${waitForPort poolConfig.mint.port "Mint"}
-        cargo -C roles/pool -Z unstable-options run -- \
+        cargo -C roles/pool -Z unstable-options run --features extension_hooks -- \
           -c ${config.devenv.root}/config/pool.config.toml \
           -g ${config.devenv.root}/config/shared/pool.toml
       '' "pool.log";
@@ -157,7 +157,7 @@ in {
       exec = withLogging ''
         export CDK_WALLET_DB_PATH=${config.env.TRANSLATOR_WALLET_DB}
         ${waitForPort minerConfig.pool.port "Pool"}
-        cargo -C roles/translator -Z unstable-options run -- \
+        cargo -C roles/translator -Z unstable-options run --features extension_hooks -- \
           -c ${config.devenv.root}/config/tproxy.config.toml \
           -g ${config.devenv.root}/config/shared/miner.toml
       '' "proxy.log";

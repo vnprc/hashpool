@@ -24,7 +24,7 @@ use super::super::{
 use error_handling::handle_result;
 use roles_logic_sv2::{channel_logic::channel_factory::OnNewShare, Error as RolesLogicError};
 use tracing::{debug, error, info, warn};
-use mining_sv2::{Deserialize, CompressedPubKey};
+use mining_sv2::Deserialize;
 
 /// Bridge between the SV2 `Upstream` and SV1 `Downstream` responsible for the following messaging
 /// translation:
@@ -330,21 +330,16 @@ impl Bridge {
         tracing::debug!("Computed version: {}", version);
         let mining_device_extranonce: Vec<u8> = sv1_submit.extra_nonce2.into();
         let extranonce2 = mining_device_extranonce;
-        // Parse locking pubkey from hex string
-        tracing::debug!("Parsing locking pubkey: {}", self.locking_pubkey);
-        let mut pubkey_bytes = hex::decode(&self.locking_pubkey)
+        // TODO: Store locking pubkey for TLV encoding later
+        // Parse locking pubkey from hex string for future TLV use
+        tracing::debug!("Storing locking pubkey for TLV: {}", self.locking_pubkey);
+        let _pubkey_bytes = hex::decode(&self.locking_pubkey)
             .map_err(|e| {
                 tracing::error!("Failed to decode locking pubkey hex '{}': {}", self.locking_pubkey, e);
                 Error::V1Protocol(v1::error::Error::InvalidSubmission)
             })?;
-        tracing::debug!("Decoded pubkey bytes ({} bytes)", pubkey_bytes.len());
-        let locking_pubkey = CompressedPubKey::from_bytes(&mut pubkey_bytes)
-            .map_err(|e| {
-                tracing::error!("Failed to parse pubkey from bytes: {:?}", e);
-                Error::V1Protocol(v1::error::Error::InvalidSubmission)
-            })?
-            .into_static();
-        tracing::debug!("Successfully created locking pubkey");
+        tracing::debug!("Decoded pubkey bytes ({} bytes)", _pubkey_bytes.len());
+        // Will be added as TLV field during serialization
 
             
         // Check for new keyset updates and store the latest one
@@ -366,6 +361,8 @@ impl Bridge {
             // Keep the placeholder buffer (already initialized to zeros)
         }
         
+        // TODO: Add hash and locking_pubkey as TLV fields during serialization
+        // For now, store them separately to be added when message is sent
         Ok(SubmitSharesExtended {
             channel_id,
             // I put 0 below cause sequence_number is not what should be TODO
@@ -375,9 +372,6 @@ impl Bridge {
             ntime: sv1_submit.time.0,
             version,
             extranonce: extranonce2.try_into()?,
-            // initialize to all zeros, will be updated later
-            hash: [0u8; 32].into(),
-            locking_pubkey,
         })
     }
 

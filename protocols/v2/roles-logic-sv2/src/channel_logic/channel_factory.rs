@@ -86,9 +86,6 @@ impl OnNewShare {
                         ntime: share.ntime,
                         version: share.version,
                         extranonce: extranonce.try_into().unwrap(),
-                        // initialize to all zeros, will be updated later
-                        hash: [0u8; 32].into(),
-                        locking_pubkey: [0u8; 33].into(), // Placeholder, will be updated later
                     };
                     *self = Self::SendSubmitShareUpstream((Share::Extended(share), *template_id));
                 }
@@ -105,9 +102,6 @@ impl OnNewShare {
                         ntime: share.ntime,
                         version: share.version,
                         extranonce: extranonce.try_into().unwrap(),
-                        // initialize to all zeros, will be updated later
-                        hash: [0u8; 32].into(),
-                        locking_pubkey: [0u8; 33].into(), // Placeholder, will be updated later
                     };
                     *self = Self::ShareMeetBitcoinTarget((
                         Share::Extended(share),
@@ -832,13 +826,8 @@ impl ChannelFactory {
         let mut hash = hash_.as_hash().into_inner();
         hash.reverse();
 
-        // Hashpool: set hash on the share for use in indexing the blinded secret
-        match &mut m {
-            Share::Extended(extended_share) => {
-                extended_share.hash = hash.into();
-            }
-            Share::Standard(_) => (),
-        };
+        // TODO: Hashpool - store hash for TLV encoding later
+        // The hash will be added as a TLV field during serialization
 
         if tracing::level_enabled!(tracing::Level::DEBUG)
             || tracing::level_enabled!(tracing::Level::TRACE)

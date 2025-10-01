@@ -423,6 +423,27 @@ impl TranslatorSv2 {
                 proxy_config.wallet.locking_pubkey.as_ref().unwrap().clone(),
                 keyset_receiver,
             );
+            
+            // PHASE 1: Initialize message interceptor with locking pubkey
+            #[cfg(feature = "extension_hooks")]
+            {
+                let locking_pubkey_hex = proxy_config.wallet.locking_pubkey.as_ref().unwrap();
+                if let Ok(locking_pubkey_bytes) = hex::decode(locking_pubkey_hex) {
+                    if locking_pubkey_bytes.len() == 33 {
+                        let mut interceptor = ehash_extension::EhashMessageInterceptor::new();
+                        let locking_pubkey: [u8; 33] = locking_pubkey_bytes.try_into().unwrap();
+                        interceptor.set_locking_pubkey(locking_pubkey);
+                        
+                        set_message_interceptor(Box::new(interceptor));
+                        tracing::info!("Initialized ehash extension interceptor with locking pubkey: {}", locking_pubkey_hex);
+                    } else {
+                        tracing::error!("Invalid locking pubkey length: expected 33 bytes, got {}", locking_pubkey_bytes.len());
+                    }
+                } else {
+                    tracing::error!("Failed to decode locking pubkey hex: {}", locking_pubkey_hex);
+                }
+            }
+            
             proxy::Bridge::start(b.clone());
 
             // Format `Downstream` connection address
@@ -612,4 +633,26 @@ fn kill_tasks(task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>) {
             warn!("Killed task: {:?}", handle.1);
         }
     });
+}
+
+// PHASE 1: External extension support infrastructure
+#[cfg(feature = "extension_hooks")]
+use std::sync::OnceLock;
+
+#[cfg(feature = "extension_hooks")]
+static MESSAGE_INTERCEPTOR: OnceLock<Box<dyn ehash_extension::MessageInterceptor + Send + Sync>> = OnceLock::new();
+
+#[cfg(feature = "extension_hooks")]
+pub fn set_message_interceptor(interceptor: Box<dyn ehash_extension::MessageInterceptor + Send + Sync>) {
+    let _ = MESSAGE_INTERCEPTOR.set(interceptor);
+}
+
+#[cfg(feature = "extension_hooks")]
+pub fn get_message_interceptor() -> Option<&'static Box<dyn ehash_extension::MessageInterceptor + Send + Sync>> {
+    MESSAGE_INTERCEPTOR.get()
+}
+
+#[cfg(not(feature = "extension_hooks"))]
+pub fn get_message_interceptor() -> Option<&'static ()> {
+    None
 }
