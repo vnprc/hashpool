@@ -88,6 +88,39 @@ Everything else is intentionally Hashpool-specific and should stay local unless 
 ### Scope Check
 Command used: `git diff --name-status e8d76d68642ea28aa48a2da7e41fb4470bbe2681`. No additional tracked changes exist outside the paths enumerated above.
 
+## Phase 4 – Rebase onto SRI v1.2.1 Complete ✓ (2025-10-02)
+
+Successfully rebased hashpool from fork point `e8d76d68` (Dec 19, 2024) onto SRI `v1.2.1` (Jan 8, 2025).
+
+### Rebase Statistics
+- **Commits rebased**: 376
+- **Conflicts resolved**: 4 files
+  - `protocols/v2/subprotocols/mining/src/lib.rs` – upstream docs vs our imports (kept both)
+  - `roles/Cargo.lock` – delete/modify conflict (accepted deletion)
+  - `protocols/v2/roles-logic-sv2/Cargo.toml` – version numbers (accepted v1.2.1 versions)
+  - `protocols/v2/binary-sv2/serde-sv2/Cargo.toml` – feature flags (merged both)
+- **Post-rebase fixups**: 3 Cargo.toml files (dependency version alignment)
+- **Build status**: ✅ Passing with warnings only
+- **Smoke test**: ✅ pool_sv2, mint, translator all run
+
+### Version Updates from Upstream
+- `mining_sv2`: 1.0.0 → 2.0.0
+- `common_messages_sv2`: 2.0.0 → 3.0.0
+- `template_distribution_sv2`: 1.0.0 → 2.0.0
+- `job_declaration_sv2`: 1.0.0 → 2.0.0
+
+### Key Outcome
+Phase 1 isolation work paid off: only 4 files had rebase conflicts, all trivial. The Cashu logic living in `protocols/ehash` + `roles-utils/mint-pool-messaging` meant the rebase was purely mechanical version/import updates. No business logic conflicts.
+
+### New Fork Point
+Hashpool master now tracks `v1.2.1` (tag: `v1.2.1`, commit: upstream SRI Jan 8, 2025 release).
+
+### Next Steps
+- Incremental rebase to v1.3.0, then v1.4.0, then v1.5.0 (current)
+- Each increment should be similarly clean given isolation is complete
+
+---
+
 ## Phase 1 Progress – 2025-10-02
 
 ### Cashu Logic Isolation Summary
