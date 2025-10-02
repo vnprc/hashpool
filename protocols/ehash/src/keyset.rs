@@ -1,8 +1,13 @@
-use std::collections::BTreeMap;
-use std::convert::{TryFrom, TryInto};
+use std::{
+    collections::BTreeMap,
+    convert::{TryFrom, TryInto},
+};
 
-use binary_sv2::{PubKey, Deserialize};
-use cdk::{amount::Amount, nuts::{CurrencyUnit, KeySet, Keys, PublicKey}};
+use binary_sv2::{Deserialize, PubKey};
+use cdk::{
+    amount::Amount,
+    nuts::{CurrencyUnit, KeySet, Keys, PublicKey},
+};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -124,7 +129,9 @@ pub fn build_cdk_keyset(
     })
 }
 
-pub fn keyset_from_sv2_bytes(bytes: &[u8]) -> Result<cdk::nuts::nut02::Id, cdk::nuts::nut02::Error> {
+pub fn keyset_from_sv2_bytes(
+    bytes: &[u8],
+) -> Result<cdk::nuts::nut02::Id, cdk::nuts::nut02::Error> {
     if bytes.is_empty() {
         return cdk::nuts::nut02::Id::from_bytes(&[0u8; 8]);
     }
@@ -153,7 +160,7 @@ pub fn keyset_from_sv2_bytes(bytes: &[u8]) -> Result<cdk::nuts::nut02::Id, cdk::
 mod tests {
     use super::*;
     use rand::{Rng, RngCore};
-    use secp256k1::{Secp256k1, SecretKey, PublicKey as SecpPublicKey};
+    use secp256k1::{PublicKey as SecpPublicKey, Secp256k1, SecretKey};
 
     fn fresh_secret_key(rng: &mut impl RngCore) -> SecretKey {
         loop {
@@ -215,8 +222,8 @@ mod tests {
         assert_eq!(keyset.to_bytes(), [0u8; 8]);
 
         let mut padded = [0u8; 12];
-        padded[8..].copy_from_slice(&[1,2,3,4]);
+        padded[8..].copy_from_slice(&[1, 2, 3, 4]);
         let id = keyset_from_sv2_bytes(&padded).unwrap();
-        assert_eq!(&id.to_bytes(), &[0,0,0,0,1,2,3,4]);
+        assert_eq!(&id.to_bytes(), &[0, 0, 0, 0, 1, 2, 3, 4]);
     }
 }

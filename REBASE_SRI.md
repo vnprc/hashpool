@@ -10,8 +10,9 @@ Prepare the existing hashpool codebase (built on an older SRI commit) for a smoo
 
 ## Status – 2025-10-01
 - Phase 0 snapshot/baseline tasks are complete and captured in `REBASE_NOTES.md`.
-- Phase 1 is in progress. Latest commits (`5d78302f`, `115c1f89`, `b73a3985`) carved out `protocols/ehash` and moved quote/keyset helpers out of the legacy `mining_sv2::cashu` module.
-- Next chunk: finish relocating the Sv2 keyset wire types into `protocols/ehash`, then update pool/translator call sites to depend on the new module surface before trimming the old helpers.
+- Phase 1 keeps rolling. Recent commits (`b4b3ca4e`, `5d78302f`, `115c1f89`, `b73a3985`) now centralize share-hash math, quote builders, and keyset parsing inside `protocols/ehash`; pool + translator call sites consume those helpers end-to-end.
+- Outstanding cleanup: wire the mint-side quote pipeline through `ShareHash`, replace the two `todo!()` guards in `roles/pool::message_handler`, and retire any dead Cashu adapters left under `mining_sv2` once every caller moves across.
+- Next chunk: refactor the mint SV2 bridge (`roles/mint/src/lib/sv2_connection/quote_processing.rs`) to depend on the shared helpers, then audit `mint_pool_messaging` / integration harnesses for lingering raw-byte conversions before trimming legacy code.
 
 ## Phase 0 – Snapshot & Baseline (1 day)
 1. Create a dedicated worktree rooted at `e8d76d68642ea28aa48a2da7e41fb4470bbe2681` (e.g., `git worktree add ../sri-baseline e8d76d6`) to make comparisons easy while keeping master untouched.

@@ -4,8 +4,7 @@
 /// `n = leading_zero_bits - min_leading_zeros`.
 ///
 /// * `hash` - 32-byte header hash produced by the miner.
-/// * `min_leading_zeros` - Minimum required leading zero bits that earns one
-///   unit of ehash.
+/// * `min_leading_zeros` - Minimum required leading zero bits that earns one unit of ehash.
 ///
 /// Returns the work value as `2^(leading_zeros - min_leading_zeros)` and caps at
 /// `2^63` to stay within `u64`.
@@ -82,7 +81,10 @@ mod tests {
         hash[12] = 1; // 96 leading zeros
         assert_eq!(calculate_ehash_amount(hash, MIN_DIFFICULTY), 1u64 << 63);
 
-        assert_eq!(calculate_ehash_amount([0u8; 32], MIN_DIFFICULTY), 1u64 << 63);
+        assert_eq!(
+            calculate_ehash_amount([0u8; 32], MIN_DIFFICULTY),
+            1u64 << 63
+        );
     }
 
     #[test]
