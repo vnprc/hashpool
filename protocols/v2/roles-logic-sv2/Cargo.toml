@@ -18,6 +18,7 @@ serde = { version = "1.0.89", features = ["derive", "alloc"], default-features =
 binary_sv2 = {version = "^1.0.0", path = "../../../protocols/v2/binary-sv2/binary-sv2", default-features = true }
 common_messages_sv2 = { path = "../../../protocols/v2/subprotocols/common-messages", version = "^3.0.0" }
 mining_sv2 = { path = "../../../protocols/v2/subprotocols/mining", version = "^2.0.0" }
+mint_quote_sv2 = { path = "../../../protocols/v2/subprotocols/mint-quote", version = "^1.0.0" }
 template_distribution_sv2 = { path = "../../../protocols/v2/subprotocols/template-distribution", version = "^2.0.0" }
 job_declaration_sv2 = { path = "../../../protocols/v2/subprotocols/job-declaration", version = "^2.0.0" }
 const_sv2 = { version = "^3.0.0", path = "../../../protocols/v2/const-sv2"}
