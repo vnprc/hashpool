@@ -46,6 +46,9 @@ impl de::Error for Error {
     }
 }
 
+#[cfg(feature = "std")]
+impl std::error::Error for Error {}
+
 impl Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         match self {
