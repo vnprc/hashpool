@@ -853,7 +853,7 @@ impl ChannelFactory {
             debug!("Upstream target: {:?}", upstream_target.to_vec().to_hex());
             debug!("Hash           : {:?}", hash.to_vec().to_hex());
         }
-        let hash: Target = hash.into();
+        let _hash: Target = hash.into();
 
         // Convert to bytes for manual big-endian comparison (fixes endianness bug)
         let hash_bytes = {

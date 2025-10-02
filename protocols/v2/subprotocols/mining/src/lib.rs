@@ -158,7 +158,6 @@ mod set_new_prev_hash;
 mod set_target;
 mod submit_shares;
 mod update_channel;
-pub mod cashu;
 mod mint_quote_notification;
 
 pub use close_channel::CloseChannel;

@@ -12,11 +12,20 @@ Prepare the existing hashpool codebase (built on an older SRI commit) for a smoo
 - Keep the hashpool diff surface shrinking. No new unit tests (or other long-lived code) should land inside SRI crates unless they directly replace legacy logic. Prefer exercising new behaviour through the existing Hashpool smoke/integration tests.
 - When additional validation is required temporarily, stage it in Hashpool-specific harnesses and plan its removal after the cleanup lands.
 
-## Status – 2025-10-01
-- Phase 0 snapshot/baseline tasks are complete and captured in `REBASE_NOTES.md`.
-- Phase 1 keeps rolling. Recent commits (`b4b3ca4e`, `5d78302f`, `115c1f89`, `b73a3985`, `d23880b9`, `cf871e9b`) now centralize share-hash math, quote builders, and keyset parsing inside `protocols/ehash`; pool + translator call sites consume those helpers end-to-end, the mint bridge reuses the same helpers, and `roles-utils/mint-pool-messaging` broadcasts parsed quote requests/responses rather than raw SV2 payloads while tracking pending share hashes.
-- Outstanding cleanup: replace the two `todo!()` guards in `roles/pool::message_handler`, retire any dead Cashu adapters left under `mining_sv2` once every caller moves across, and hook the hub into the existing pool/mint connection plumbing so the shared pending-state replaces ad-hoc caches.
-- Next chunk: drive the pool-side sender/receiver through the new hub API (dropping the bespoke frame builders), follow with an integration smoke that asserts pending-quote accounting across TCP + broadcast, then circle back to the pool `todo!()` cases before cutting the regression test.
+## Status – 2025-10-02
+
+### Phase 1 Complete ✓
+All extractable Cashu logic has been isolated into `protocols/ehash` with test coverage. The remaining SRI changes (+1617/-58 lines in protocols/) are the **minimal protocol extension** required for mint quote support and cannot be further reduced without losing functionality. See REBASE_NOTES.md Phase 1 Progress section for detailed breakdown.
+
+Key achievements:
+- `ehash` crate owns all Cashu primitives (share hashing, keyset management, quote building, work math)
+- Pool & translator roles use `ehash` helpers + `MintPoolMessageHub` abstraction
+- SRI changes limited to: protocol message definitions, message routing, share field capture, 2 error variants
+- All workspaces build successfully
+- Smoke test passing
+
+### Moving to Phase 2 – Document Rebase Surface
+Next: produce the final rebase guide documenting exactly which SRI files we modify, why each change is necessary, and what the rebase strategy should be for each file.
 
 ## Phase 0 – Snapshot & Baseline (1 day)
 1. Create a dedicated worktree rooted at `e8d76d68642ea28aa48a2da7e41fb4470bbe2681` (e.g., `git worktree add ../sri-baseline e8d76d6`) to make comparisons easy while keeping master untouched.

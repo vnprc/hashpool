@@ -2,7 +2,7 @@
 use alloc::vec::Vec;
 #[cfg(not(feature = "with_serde"))]
 use binary_sv2::binary_codec_sv2;
-use binary_sv2::{Deserialize, PubKey, CompressedPubKey, Serialize, Str0255, B032, B0255};
+use binary_sv2::{Deserialize, PubKey, CompressedPubKey, Serialize, Str0255, B032};
 #[cfg(not(feature = "with_serde"))]
 use core::convert::TryInto;
 

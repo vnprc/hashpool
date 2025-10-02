@@ -88,7 +88,48 @@ Everything else is intentionally Hashpool-specific and should stay local unless 
 ### Scope Check
 Command used: `git diff --name-status e8d76d68642ea28aa48a2da7e41fb4470bbe2681`. No additional tracked changes exist outside the paths enumerated above.
 
-## Phase 1 Progress – 2025-10-01
-- Established the `protocols/ehash` crate to centralize Cashu helpers and moved the quote builder plus keyset conversion routines out of `mining_sv2::cashu` (`b73a3985`, `115c1f89`, `5d78302f`).
-- Next chunk moves the remaining Sv2 keyset wire types (`Sv2SigningKey`, `Sv2KeySet`, `Sv2KeySetWire`) into `protocols/ehash` so downstream roles import them from the shared crate instead of duplicating conversions.
-- Guardrail: avoid adding new SRI-local unit tests or instrumentation unless they replace legacy code. Lean on the existing Hashpool smoke/integration harnesses for regression coverage so the rebase surface continues to contract.
+## Phase 1 Progress – 2025-10-02
+
+### Cashu Logic Isolation Summary
+The `protocols/ehash` crate now centralizes all Cashu business logic outside SRI:
+- **Share hash calculation** (`ShareHash`, `calculate_ehash_amount`) – deterministic PoW→ecash conversion
+- **Keyset management** (`Sv2KeySet`, `Sv2SigningKey`, keyset ID derivation, CDK↔SV2 conversions)
+- **Quote building** (`build_mint_quote_request`, `build_parsed_quote_request`) – constructs MintQuoteRequest from share data
+- **Work math** (`calculate_pool_share_worth`) – economic primitives for share valuation
+- **SV2 wire types** (`Sv2KeySetWire`) – protocol serialization helpers
+
+All of the above have unit test coverage in `protocols/ehash/src/{quote,keyset,work,sv2}.rs`.
+
+### Remaining SRI Surface (Necessary for Protocol Extension)
+1. **Protocol message definitions** (`protocols/v2/subprotocols/mining/src/`)
+   - `SubmitSharesExtended` with `hash` + `locking_pubkey` fields
+   - `MintQuoteNotification` message type
+   - Cannot be moved; these define the wire protocol
+
+2. **Message routing** (`protocols/v2/roles-logic-sv2/src/parsers.rs`)
+   - `Minting` enum and parser for MintQuoteRequest/Response/Error
+   - `Mining::MintQuoteNotification` routing
+   - ~90 lines; necessary for SV2 frame dispatch
+
+3. **Channel factory** (`protocols/v2/roles-logic-sv2/src/channel_logic/channel_factory.rs`)
+   - Captures `hash` + `locking_pubkey` from submitted shares
+   - Passes these to `OnNewShare::SendSubmitShareUpstream`
+   - ~30 net lines; tightly coupled to share validation flow
+
+4. **Error variants** (`protocols/v2/roles-logic-sv2/src/errors.rs`)
+   - `Error::MissingPremintSecret`, `Error::KeysetError`
+   - Used by pool message handler for quote failures
+   - 2 variants; minimal
+
+### What Moved Out of Roles
+- Pool now uses `ehash::build_parsed_quote_request` + `MintPoolMessageHub` abstraction instead of inline quote construction
+- Translator uses `ehash::keyset_from_sv2_bytes` instead of local conversion logic
+- Mint bridge lives entirely in `roles-utils/mint-pool-messaging` with pending-state tracking
+
+### Diff Statistics (vs e8d76d6)
+- **SRI protocols/**: +1617/-58 lines (mostly protocol definitions + routing, not business logic)
+- **ehash crate**: ~600 lines of tested Cashu primitives extracted from inline code
+- **Roles**: mint integration via hub abstraction, no Cashu logic inline
+
+### Conclusion
+Phase 1 isolation is **complete**. The SRI diff surface cannot shrink further without losing protocol functionality. All extractable Cashu logic now lives in `ehash` with test coverage. The remaining SRI changes are the minimal protocol extension required to support mint quotes over SV2.
