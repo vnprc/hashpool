@@ -1520,7 +1520,7 @@ checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
 name = "common_messages_sv2"
-version = "2.0.1"
+version = "3.0.0"
 dependencies = [
  "binary_sv2",
  "const_sv2",
@@ -2872,7 +2872,7 @@ dependencies = [
 
 [[package]]
 name = "job_declaration_sv2"
-version = "1.0.1"
+version = "2.0.0"
 dependencies = [
  "binary_sv2",
  "const_sv2",
@@ -3242,7 +3242,7 @@ dependencies = [
 
 [[package]]
 name = "mining_sv2"
-version = "1.0.1"
+version = "2.0.0"
 dependencies = [
  "binary_sv2",
  "bitcoin_hashes 0.16.0",
@@ -4224,7 +4224,7 @@ dependencies = [
 
 [[package]]
 name = "roles_logic_sv2"
-version = "1.2.2"
+version = "1.2.3"
 dependencies = [
  "binary_sv2",
  "chacha20poly1305",
@@ -5065,7 +5065,7 @@ dependencies = [
 
 [[package]]
 name = "template_distribution_sv2"
-version = "1.0.3"
+version = "2.0.0"
 dependencies = [
  "binary_sv2",
  "const_sv2",
