@@ -30,6 +30,7 @@
 | `protocols/v2/subprotocols/mining/Cargo.toml` | enable optional mint features & CDK deps | `mint-quote-sv2` dependency | No | Cashu only. |
 | `protocols/v2/subprotocols/mining/src/{cashu.rs,lib.rs,mint_quote_notification.rs,open_channel.rs,submit_shares.rs}` | add Cashu keyset/amount helpers, extend submit messages with `hash` + `locking_pubkey`, emit mint quote notifications, surface `OpenMiningChannelError::no_mint_keyset` | `mining_sv2::cashu::*`, `SubmitSharesExtended::hash` | No | Defines the Cashu-facing message surface. |
 | `protocols/v2/subprotocols/mint-quote/{Cargo.toml,README.md,src/*}` | new protocol crate describing MintQuoteRequest/Response/Error | `mint_quote_sv2::MintQuoteRequest` | No | Entirely Cashu specific. |
+| `protocols/ehash/**/*` | centralized helpers for share hashes, keysets, quotes, and work math | `ehash::ShareHash`, `ehash::build_mint_quote_request` | No | Fork-specific shim crate that isolates Cashu logic from SRI roles. |
 
 ### Pool Role (`roles/pool/`)
 | File(s) | Purpose | Shim / Entry Point | Upstream? | Notes |

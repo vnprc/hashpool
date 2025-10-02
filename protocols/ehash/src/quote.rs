@@ -56,7 +56,9 @@ mod tests {
         let mut bytes = [0u8; 33];
         bytes[0] = 0x02;
         // remaining bytes stay zero which is fine for serialization tests
-        CompressedPubKey::from_bytes(&mut bytes).unwrap().into_static()
+        CompressedPubKey::from_bytes(&mut bytes)
+            .unwrap()
+            .into_static()
     }
 
     #[test]
