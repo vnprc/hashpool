@@ -1,5 +1,8 @@
 use super::*;
-use const_sv2::{MESSAGE_TYPE_MINT_QUOTE_REQUEST, MESSAGE_TYPE_MINT_QUOTE_RESPONSE, MESSAGE_TYPE_MINT_QUOTE_ERROR};
+use const_sv2::{
+    MESSAGE_TYPE_MINT_QUOTE_ERROR, MESSAGE_TYPE_MINT_QUOTE_REQUEST,
+    MESSAGE_TYPE_MINT_QUOTE_RESPONSE,
+};
 
 /// Message types for the mint-quote protocol
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,7 +21,7 @@ impl MessageType {
             _ => Err(MessagingError::InvalidMessageType(value)),
         }
     }
-    
+
     pub fn as_u8(&self) -> u8 {
         *self as u8
     }
@@ -33,12 +36,12 @@ impl MessageCodec {
     pub fn get_request_type() -> MessageType {
         MessageType::MintQuoteRequest
     }
-    
+
     /// Get the message type for a response
     pub fn get_response_type() -> MessageType {
         MessageType::MintQuoteResponse
     }
-    
+
     /// Get the message type for an error
     pub fn get_error_type() -> MessageType {
         MessageType::MintQuoteError

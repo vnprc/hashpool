@@ -33,36 +33,58 @@ struct ConnectionInfo {
 }
 
 #[derive(Debug, Clone)]
+pub struct PendingQuoteContext {
+    pub channel_id: u32,
+    pub sequence_number: u32,
+    pub amount: u64,
+}
+
+#[derive(Debug, Clone)]
 struct PendingQuote {
     parsed: ParsedMintQuoteRequest,
     created_at: Instant,
+    context: PendingQuoteContext,
 }
 
 #[derive(Debug, Clone)]
 pub struct MintQuoteResponseEvent {
     pub response: MintQuoteResponse<'static>,
     pub share_hash: ShareHash,
+    pub context: Option<PendingQuoteContext>,
 }
 
 impl MintQuoteResponseEvent {
-    pub fn new(response: MintQuoteResponse<'static>) -> Result<Self, QuoteConversionError> {
+    pub fn new(
+        response: MintQuoteResponse<'static>,
+        context: Option<PendingQuoteContext>,
+    ) -> Result<Self, QuoteConversionError> {
         let share_hash =
             ShareHash::from_u256(&response.header_hash).map_err(QuoteConversionError::ShareHash)?;
         Ok(Self {
             response,
             share_hash,
+            context,
         })
     }
 
-    pub fn from_parts(response: MintQuoteResponse<'static>, share_hash: ShareHash) -> Self {
+    pub fn from_parts(
+        response: MintQuoteResponse<'static>,
+        share_hash: ShareHash,
+        context: Option<PendingQuoteContext>,
+    ) -> Self {
         Self {
             response,
             share_hash,
+            context,
         }
     }
 
     pub fn response(&self) -> &MintQuoteResponse<'static> {
         &self.response
+    }
+
+    pub fn context(&self) -> Option<&PendingQuoteContext> {
+        self.context.as_ref()
     }
 }
 
@@ -115,7 +137,11 @@ impl MintPoolMessageHub {
 
     /// Track a pending quote request so responses can be correlated back to the originating share.
     /// Send a mint quote request (from pool to mint)
-    pub async fn send_quote_request(&self, request: ParsedMintQuoteRequest) -> MessagingResult<()> {
+    pub async fn send_quote_request(
+        &self,
+        request: ParsedMintQuoteRequest,
+        context: PendingQuoteContext,
+    ) -> MessagingResult<()> {
         debug!(
             "Sending mint quote request: amount={} share_hash={}",
             request.request.amount, request.share_hash
@@ -128,6 +154,7 @@ impl MintPoolMessageHub {
                 PendingQuote {
                     parsed: request.clone(),
                     created_at: Instant::now(),
+                    context,
                 },
             );
         }
@@ -139,32 +166,43 @@ impl MintPoolMessageHub {
         Ok(())
     }
 
-    /// Send a mint quote response (from mint to pool)
-    pub async fn send_quote_response_event(
+    /// Send a mint quote response (from mint to pool) and return the dispatched event
+    pub async fn send_quote_response(
         &self,
-        event: MintQuoteResponseEvent,
-    ) -> MessagingResult<()> {
+        response: MintQuoteResponse<'static>,
+    ) -> MessagingResult<MintQuoteResponseEvent> {
+        let share_hash = ShareHash::from_u256(&response.header_hash)
+            .map_err(|e| MessagingError::Decoding(format!("invalid share hash: {e}")))?;
+
+        let context = {
+            let mut guard = self.pending_quotes.write().await;
+            guard.remove(&share_hash).map(|pending| pending.context)
+        };
+
+        if context.is_none() {
+            warn!(
+                "Received mint quote response with no pending context for share hash {}",
+                share_hash
+            );
+        }
+
+        let event = MintQuoteResponseEvent {
+            share_hash,
+            context,
+            response,
+        };
+
         debug!(
             "Sending mint quote response: quote_id={} share_hash={}",
             std::str::from_utf8(event.response.quote_id.inner_as_ref()).unwrap_or("invalid"),
             event.share_hash
         );
 
-        {
-            let mut guard = self.pending_quotes.write().await;
-            if guard.remove(&event.share_hash).is_none() {
-                warn!(
-                    "Received response for unknown share hash {}",
-                    event.share_hash
-                );
-            }
-        }
-
         self.quote_response_tx
-            .send(event)
+            .send(event.clone())
             .map_err(|_| MessagingError::ChannelClosed("quote_response".to_string()))?;
 
-        Ok(())
+        Ok(event)
     }
 
     /// Send a mint quote error (from mint to pool)
@@ -303,8 +341,15 @@ mod tests {
 
         let hash = [0xAAu8; 32];
         let parsed = crate::build_parsed_quote_request(7, &hash, locking_key()).unwrap();
+        let context = PendingQuoteContext {
+            channel_id: 1,
+            sequence_number: 42,
+            amount: 7,
+        };
 
-        hub.send_quote_request(parsed.clone()).await.unwrap();
+        hub.send_quote_request(parsed.clone(), context.clone())
+            .await
+            .unwrap();
         assert!(hub.pending_quote(parsed.share_hash).await.is_some());
 
         let received = req_rx.recv().await.unwrap();
@@ -316,12 +361,15 @@ mod tests {
             quote_id,
             header_hash,
         };
-        let event = MintQuoteResponseEvent::new(response).unwrap();
-
-        hub.send_quote_response_event(event.clone()).await.unwrap();
+        let event = hub.send_quote_response(response).await.unwrap();
 
         let received_event = resp_rx.recv().await.unwrap();
         assert_eq!(received_event.share_hash, parsed.share_hash);
+        assert!(received_event.context.is_some());
+        let received_context = received_event.context.unwrap();
+        assert_eq!(received_context.channel_id, context.channel_id);
+        assert_eq!(received_context.sequence_number, context.sequence_number);
+        assert_eq!(received_context.amount, context.amount);
         assert!(hub.pending_quote(parsed.share_hash).await.is_none());
 
         let stats = hub.get_stats().await;

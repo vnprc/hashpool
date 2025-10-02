@@ -1,12 +1,11 @@
-use super::{
-    super::{mining_pool::Downstream, stats::StatsMessage},
-    pending_shares::PendingShare,
-};
+use super::super::{mining_pool::Downstream, stats::StatsMessage};
 use binary_sv2::Str0255;
 use bitcoin_hashes::sha256::Hash;
 use ehash::calculate_ehash_amount;
 use mining_sv2::MintQuoteNotification;
-use mint_pool_messaging::{build_parsed_quote_request, MintQuoteResponse};
+use mint_pool_messaging::{
+    build_parsed_quote_request, MintQuoteResponseEvent, PendingQuoteContext,
+};
 use roles_logic_sv2::{
     errors::Error,
     handlers::mining::{ParseDownstreamMiningMessages, SendTo, SupportedChannelTypes},
@@ -22,7 +21,6 @@ use std::{
     convert::{TryFrom, TryInto},
     sync::Arc,
 };
-use tokio::time::Instant as TokioInstant;
 use tracing::{debug, error, info, warn};
 
 /// Creates a mint quote request and sends it via TCP and Redis
@@ -50,43 +48,45 @@ fn submit_quote(
         }
     }
 
-    // Send via TCP if SV2 messaging is enabled
-    if let Some(config) = sv2_config {
-        if config.enabled {
-            // Convert to static lifetime for the async task
-            let m_static = m.into_static();
-            let share_hash = m_static.hash.inner_as_ref().to_vec();
-            let locking_key = m_static.locking_pubkey.clone();
-
-            match pool.safe_lock(|p| p.mint_message_hub.clone()) {
-                Ok(Some(hub)) => {
-                    tokio::spawn(async move {
-                        match build_parsed_quote_request(amount, &share_hash, locking_key) {
-                            Ok(parsed) => {
-                                if let Err(e) = hub.send_quote_request(parsed).await {
-                                    error!("Failed to dispatch mint quote request via hub: {}", e);
-                                } else {
-                                    info!(
-                                        "Queued mint quote request via hub: share_hash={}",
-                                        hex::encode(share_hash)
-                                    );
-                                }
-                            }
-                            Err(e) => {
-                                error!("Failed to build mint quote request: {}", e);
-                            }
-                        }
-                    });
-                }
-                Ok(None) => {
-                    warn!("SV2 messaging enabled but mint message hub unavailable; skipping quote dispatch");
-                }
-                Err(e) => {
-                    error!("Failed to access pool for mint hub: {}", e);
-                }
-            }
+    let hub = match pool.safe_lock(|p| p.mint_message_hub.clone()) {
+        Ok(hub) => hub,
+        Err(e) => {
+            error!("Failed to access mint message hub: {}", e);
+            return Ok(());
         }
+    };
+
+    let locking_key = m.locking_pubkey.clone().into_static();
+    let parsed = build_parsed_quote_request(amount, m.hash.inner_as_ref(), locking_key)
+        .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Failed to build quote: {e}")))?;
+
+    let context = PendingQuoteContext {
+        channel_id: m.channel_id,
+        sequence_number: m.sequence_number,
+        amount,
+    };
+
+    let messaging_enabled = sv2_config.map(|cfg| cfg.enabled).unwrap_or(true);
+    if !messaging_enabled {
+        debug!(
+            "SV2 messaging disabled; skipping mint quote dispatch for channel {}",
+            m.channel_id
+        );
+        return Ok(());
     }
+
+    let share_hash_hex = hex::encode(parsed.share_hash.as_bytes());
+
+    tokio::spawn(async move {
+        if let Err(e) = hub.send_quote_request(parsed, context).await {
+            error!("Failed to dispatch mint quote request via hub: {}", e);
+        } else {
+            info!(
+                "Queued mint quote request via hub: share_hash={}",
+                share_hash_hex
+            );
+        }
+    });
 
     Ok(())
 }
@@ -135,57 +135,45 @@ fn build_submit_share_error(
 /// This function sends an extension message to the downstream with the quote
 pub async fn handle_mint_quote_response(
     pool: Arc<Mutex<super::Pool>>,
-    response: MintQuoteResponse<'static>,
+    event: MintQuoteResponseEvent,
 ) {
-    // Extract quote_id as string for logging
     let quote_id_str =
-        std::str::from_utf8(response.quote_id.inner_as_ref()).unwrap_or("invalid_utf8");
+        std::str::from_utf8(event.response.quote_id.inner_as_ref()).unwrap_or("invalid_utf8");
 
-    info!("✅ Received mint quote response: quote_id={}", quote_id_str);
+    info!(
+        "✅ Received mint quote response: quote_id={} share_hash={}",
+        quote_id_str, event.share_hash
+    );
 
-    // Get the pending share manager and find the share by hash
-    let header_hash = response.header_hash.inner_as_ref().to_vec();
-
-    // Get the manager outside of the lock to avoid Send issues
-    let manager = match pool.safe_lock(|p| p.pending_share_manager.clone()) {
-        Ok(manager) => manager,
-        Err(e) => {
-            error!("Failed to access pending share manager: {}", e);
-            return;
-        }
+    let Some(context) = event.context.clone() else {
+        warn!(
+            "No pending context available for mint quote response share_hash={}",
+            event.share_hash
+        );
+        return;
     };
 
-    let pending_share = manager.remove_pending_share(&header_hash).await;
+    let notification = MintQuoteNotification {
+        channel_id: context.channel_id,
+        sequence_number: context.sequence_number,
+        share_hash: event.response.header_hash.clone(),
+        quote_id: event.response.quote_id.clone(),
+        amount: context.amount,
+    };
 
-    if let Some(share) = pending_share {
-        // Create the extension message
-        let notification = MintQuoteNotification {
-            channel_id: share.channel_id,
-            sequence_number: share.sequence_number,
-            share_hash: response.header_hash.clone(),
-            quote_id: response.quote_id.clone(),
-            amount: share.amount,
-        };
-
-        // Send extension message to the downstream
-        if let Err(e) = super::Pool::send_extension_message_to_downstream(
-            pool.clone(),
-            share.channel_id,
-            notification,
-        )
-        .await
-        {
-            error!("Failed to send mint quote notification: {}", e);
-        } else {
-            info!(
-                "Sent mint quote notification for channel {} seq {}",
-                share.channel_id, share.sequence_number
-            );
-            // NOTE: quotes_redeemed should only be incremented when the translator's proof sweeper
-            // actually mints tokens (changes quote state to ISSUED), not when quote is created
-        }
+    if let Err(e) = super::Pool::send_extension_message_to_downstream(
+        pool.clone(),
+        context.channel_id,
+        notification,
+    )
+    .await
+    {
+        error!("Failed to send mint quote notification: {}", e);
     } else {
-        debug!("No pending share found for hash: {:?}", header_hash);
+        info!(
+            "Sent mint quote notification for channel {} seq {}",
+            context.channel_id, context.sequence_number
+        );
     }
 }
 
@@ -451,37 +439,16 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         while self.solution_sender.try_send(solution.clone()).is_err() {};
                     }
 
-                    // Calculate work amount
-                    let hash_bytes: [u8; 32] = m.hash.inner_as_ref().try_into()
-                        .map_err(|_| Error::ExpectedLen32(m.hash.inner_as_ref().len()))?;
-                    let minimum_difficulty = self.pool.safe_lock(|p| p.minimum_difficulty)
-                        .map_err(|_| Error::PoisonLock(format!("Failed to lock pool")))?;
-                    let amount = calculate_ehash_amount(hash_bytes, minimum_difficulty);
-
-                    // Track this share as pending for mint quote
-                    let pending_share = PendingShare {
-                        channel_id: m.channel_id,
-                        sequence_number: m.sequence_number,
-                        share_hash: m.hash.inner_as_ref().to_vec(),
-                        locking_pubkey: m.locking_pubkey.inner_as_ref().to_vec(),
-                        amount,
-                        created_at: TokioInstant::now(),
-                    };
-
-                    // Add to pending shares
-                    if let Ok(manager) = self.pool.safe_lock(|p| p.pending_share_manager.clone()) {
-                        let manager_clone = manager.clone();
-                        let share_clone = pending_share.clone();
-                        tokio::spawn(async move {
-                            manager_clone.add_pending_share(share_clone).await;
-                        });
-                    }
+                    let minimum_difficulty = self
+                        .pool
+                        .safe_lock(|p| p.minimum_difficulty)
+                        .map_err(|_| Error::PoisonLock("Failed to lock pool".to_string()))?;
 
                     submit_quote(
                         m.clone(),
                         self.sv2_config.as_ref(),
                         self.pool.clone(),
-                        minimum_difficulty
+                        minimum_difficulty,
                     )?;
 
                     let success = SubmitSharesSuccess {
@@ -504,37 +471,16 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         });
                     }
 
-                    // Calculate ehash units
-                    let hash_bytes: [u8; 32] = m.hash.inner_as_ref().try_into()
-                        .map_err(|_| Error::ExpectedLen32(m.hash.inner_as_ref().len()))?;
-                    let minimum_difficulty = self.pool.safe_lock(|p| p.minimum_difficulty)
-                        .map_err(|_| Error::PoisonLock(format!("Failed to lock pool")))?;
-                    let amount = calculate_ehash_amount(hash_bytes, minimum_difficulty);
-
-                    // Track this share as pending for mint quote
-                    let pending_share = PendingShare {
-                        channel_id: m.channel_id,
-                        sequence_number: m.sequence_number,
-                        share_hash: m.hash.inner_as_ref().to_vec(),
-                        locking_pubkey: m.locking_pubkey.inner_as_ref().to_vec(),
-                        amount,
-                        created_at: TokioInstant::now(),
-                    };
-
-                    // Add to pending shares
-                    if let Ok(manager) = self.pool.safe_lock(|p| p.pending_share_manager.clone()) {
-                        let manager_clone = manager.clone();
-                        let share_clone = pending_share.clone();
-                        tokio::spawn(async move {
-                            manager_clone.add_pending_share(share_clone).await;
-                        });
-                    }
+                    let minimum_difficulty = self
+                        .pool
+                        .safe_lock(|p| p.minimum_difficulty)
+                        .map_err(|_| Error::PoisonLock("Failed to lock pool".to_string()))?;
 
                     submit_quote(
                         m.clone(),
                         self.sv2_config.as_ref(),
                         self.pool.clone(),
-                        minimum_difficulty
+                        minimum_difficulty,
                     )?;
 
                     let success = SubmitSharesSuccess {

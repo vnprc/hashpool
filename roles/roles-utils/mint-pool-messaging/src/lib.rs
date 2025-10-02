@@ -31,7 +31,9 @@ mod message_hub;
 
 pub use channel_manager::{ChannelError, ChannelManager};
 pub use message_codec::{MessageCodec, MessageType};
-pub use message_hub::{MessageHubStats, MintPoolMessageHub, MintQuoteResponseEvent};
+pub use message_hub::{
+    MessageHubStats, MintPoolMessageHub, MintQuoteResponseEvent, PendingQuoteContext,
+};
 
 /// Configuration for the messaging system
 #[derive(Debug, Clone)]
