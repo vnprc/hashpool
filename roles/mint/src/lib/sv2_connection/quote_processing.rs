@@ -3,7 +3,7 @@ use binary_sv2::Str0255;
 use cdk::mint::Mint;
 use codec_sv2::{StandardEitherFrame, StandardSv2Frame};
 use const_sv2::MESSAGE_TYPE_MINT_QUOTE_REQUEST;
-use ehash::{mint_quote_response_from_cdk, parse_mint_quote_request};
+use mint_pool_messaging::{mint_quote_response_from_cdk, parse_mint_quote_request};
 use mint_quote_sv2::MintQuoteResponse;
 use roles_logic_sv2::parsers::PoolMessages;
 use std::sync::Arc;
