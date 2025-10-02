@@ -36,7 +36,7 @@
 | File(s) | Purpose | Shim / Entry Point | Upstream? | Notes |
 | --- | --- | --- | --- | --- |
 | `roles/pool/Cargo.toml` | add `roles-utils` crates, mint quote protocol, Cashu deps | `ehash` helper crate | No | Pool-only wiring. |
-| `roles/pool/src/lib/mining_pool/{message_handler.rs,mod.rs,setup_connection.rs}` | hook submit-share path to mint quote pipeline, track mint connection, register SV2 mint frames | `Pool::send_extension_message_to_downstream`, `handle_mint_quote_response` | No | Core Cashu integration. |
+| `roles/pool/src/lib/mining_pool/{message_handler.rs,mod.rs,setup_connection.rs}` | hook submit-share path to mint quote pipeline, track mint connection, register SV2 mint frames | `Pool::send_extension_message_to_downstream`, `handle_mint_quote_response` | No | Core Cashu integration; share handler now maps channel-factory errors to `SubmitSharesError` instead of panicking. |
 | `roles/pool/src/lib/mining_pool/pending_shares.rs` | manage share ↔ quote state until mint responds | `PendingShareManager::add/remove` | No | Cashu shim. |
 | `roles/pool/src/lib/{stats.rs,web.rs}` | track quote metrics, expose status UI | `StatsHandle::send_stats`, `web::spawn_server` | No | Hashpool diagnostics. |
 | `roles/pool/src/main.rs` | CLI wiring for mint connection + web server | `PoolCliArgs` | No | Cashu runtime glue. |
