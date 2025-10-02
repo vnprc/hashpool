@@ -8,8 +8,8 @@ use codec_sv2::{HandshakeRole, Responder, StandardEitherFrame, StandardSv2Frame}
 use error_handling::handle_result;
 use key_utils::{Secp256k1PublicKey, Secp256k1SecretKey, SignatureService};
 use mint_pool_messaging::{
-    MessagingConfig, MintPoolMessageHub, MintQuoteError, MintQuoteResponse, MintQuoteResponseEvent,
-    ParsedMintQuoteRequest, Role,
+    MessagingConfig, MintPoolMessageHub, MintQuoteError, MintQuoteResponse, ParsedMintQuoteRequest,
+    Role,
 };
 use network_helpers_sv2::noise_connection_tokio::Connection;
 use nohash_hasher::BuildNoHashHasher;
@@ -44,8 +44,6 @@ pub mod setup_connection;
 use setup_connection::SetupConnectionHandler;
 
 pub mod message_handler;
-pub mod pending_shares;
-
 pub type Message = PoolMessages<'static>;
 pub type StdFrame = StandardSv2Frame<Message>;
 pub type EitherFrame = StandardEitherFrame<Message>;
@@ -219,13 +217,12 @@ pub struct Pool {
     status_tx: status::Sender,
     sv2_config: Option<Sv2MessagingConfig>,
     mint_connections: HashMap<SocketAddr, Sender<EitherFrame>>,
-    pending_share_manager: Arc<pending_shares::PendingShareManager>,
     /// Maps channel_id (from mining protocol) to downstream_id (connection identifier)
     channel_to_downstream: HashMap<u32, u32, BuildNoHashHasher<u32>>,
     pub listen_address: String,
     pub minimum_difficulty: u32,
     pub stats_handle: super::stats::StatsHandle,
-    mint_message_hub: Option<Arc<MintPoolMessageHub>>,
+    mint_message_hub: Arc<MintPoolMessageHub>,
 }
 
 impl Downstream {
@@ -559,28 +556,24 @@ impl Pool {
         .map_err(|e| format!("Failed to lock pool: {}", e))?;
 
         let connection_id = address.to_string();
-        let hub_option = pool.safe_lock(|p| p.mint_message_hub.clone())?;
+        let hub = pool
+            .safe_lock(|p| p.mint_message_hub.clone())
+            .map_err(|e| format!("Failed to lock pool: {}", e))?;
 
-        if let Some(hub) = hub_option.clone() {
-            hub.register_connection(connection_id.clone(), Role::Mint)
-                .await;
+        hub.register_connection(connection_id.clone(), Role::Mint)
+            .await;
 
-            let hub_clone = hub.clone();
-            let sender_clone = sender.clone();
-            let connection_for_forwarding = connection_id.clone();
-            tokio::spawn(async move {
-                Self::forward_hub_requests_to_mint(
-                    hub_clone,
-                    sender_clone,
-                    connection_for_forwarding,
-                )
+        let hub_clone = hub.clone();
+        let sender_clone = sender.clone();
+        let connection_for_forwarding = connection_id.clone();
+        tokio::spawn(async move {
+            Self::forward_hub_requests_to_mint(hub_clone, sender_clone, connection_for_forwarding)
                 .await;
-            });
-        }
+        });
 
         // Listen for incoming messages from mint (responses to quote requests)
         let pool_clone = pool.clone();
-        let hub_for_cleanup = hub_option.clone();
+        let hub_for_cleanup = hub.clone();
         tokio::spawn(async move {
             loop {
                 match receiver.recv().await {
@@ -608,9 +601,7 @@ impl Pool {
                 .is_ok()
             {}
 
-            if let Some(hub) = hub_for_cleanup {
-                hub.unregister_connection(&connection_id).await;
-            }
+            hub_for_cleanup.unregister_connection(&connection_id).await;
         });
 
         Ok(())
@@ -731,24 +722,8 @@ impl Pool {
                     .safe_lock(|p| p.mint_message_hub.clone())
                     .map_err(|e| PoolError::PoisonLock(e.to_string()))?;
 
-                if let Some(hub) = hub {
-                    match MintQuoteResponseEvent::new(response.clone()) {
-                        Ok(event) => {
-                            let share_hash = event.share_hash.to_string();
-                            if let Err(e) = hub.send_quote_response_event(event).await {
-                                error!(
-                                    "Failed to broadcast mint quote response for hash {}: {}",
-                                    share_hash, e
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            error!("Failed to build response event: {}", e);
-                        }
-                    }
-                } else {
-                    message_handler::handle_mint_quote_response(pool.clone(), response.clone())
-                        .await;
+                if let Err(e) = hub.send_quote_response(response).await {
+                    error!("Failed to broadcast mint quote response: {}", e);
                 }
 
                 Ok(())
@@ -766,13 +741,12 @@ impl Pool {
                     error_message: error.error_message.into_static(),
                 };
 
-                if let Some(hub) = pool
+                let hub = pool
                     .safe_lock(|p| p.mint_message_hub.clone())
-                    .map_err(|e| PoolError::PoisonLock(e.to_string()))?
-                {
-                    if let Err(e) = hub.send_quote_error(error_static.clone()).await {
-                        error!("Failed to broadcast mint quote error: {}", e);
-                    }
+                    .map_err(|e| PoolError::PoisonLock(e.to_string()))?;
+
+                if let Err(e) = hub.send_quote_error(error_static.clone()).await {
+                    error!("Failed to broadcast mint quote error: {}", e);
                 }
 
                 let error_msg = std::str::from_utf8(error_static.error_message.inner_as_ref())
@@ -994,14 +968,18 @@ impl Pool {
             .map(|c| c.minimum_difficulty)
             .unwrap_or(32); // Default to 32 if not configured
 
-        let mint_message_hub = sv2_config.as_ref().map(|cfg| {
-            MintPoolMessageHub::new(MessagingConfig {
+        let messaging_config = if let Some(cfg) = sv2_config.as_ref() {
+            MessagingConfig {
                 broadcast_buffer_size: cfg.broadcast_buffer_size,
                 mpsc_buffer_size: cfg.mpsc_buffer_size,
                 max_retries: cfg.max_retries,
                 timeout_ms: cfg.timeout_ms,
-            })
-        });
+            }
+        } else {
+            MessagingConfig::default()
+        };
+
+        let mint_message_hub = MintPoolMessageHub::new(messaging_config);
 
         // Create stats manager and handle
         let (mut stats_manager, stats_handle) = super::stats::StatsManager::new();
@@ -1020,7 +998,6 @@ impl Pool {
             status_tx: status_tx.clone(),
             sv2_config: sv2_config.clone(),
             mint_connections: HashMap::new(),
-            pending_share_manager: Arc::new(pending_shares::PendingShareManager::new()),
             channel_to_downstream: HashMap::with_hasher(BuildNoHashHasher::default()),
             listen_address: config.listen_address.clone(),
             minimum_difficulty,
@@ -1032,46 +1009,43 @@ impl Pool {
         let cloned2 = pool.clone();
         let cloned3 = pool.clone();
 
-        if let Some(hub) = mint_message_hub.clone() {
-            let pool_for_responses = pool.clone();
-            let response_hub = hub.clone();
-            tokio::spawn(async move {
-                match response_hub.subscribe_quote_responses().await {
-                    Ok(mut rx) => {
-                        while let Ok(event) = rx.recv().await {
-                            let response = event.response.clone();
-                            super::mining_pool::message_handler::handle_mint_quote_response(
-                                pool_for_responses.clone(),
-                                response,
-                            )
-                            .await;
-                        }
-                    }
-                    Err(e) => {
-                        error!("Failed to subscribe to mint quote responses: {}", e);
+        let pool_for_responses = pool.clone();
+        let response_hub = mint_message_hub.clone();
+        tokio::spawn(async move {
+            match response_hub.subscribe_quote_responses().await {
+                Ok(mut rx) => {
+                    while let Ok(event) = rx.recv().await {
+                        super::mining_pool::message_handler::handle_mint_quote_response(
+                            pool_for_responses.clone(),
+                            event,
+                        )
+                        .await;
                     }
                 }
-            });
+                Err(e) => {
+                    error!("Failed to subscribe to mint quote responses: {}", e);
+                }
+            }
+        });
 
-            let error_hub = hub.clone();
-            tokio::spawn(async move {
-                match error_hub.subscribe_quote_errors().await {
-                    Ok(mut rx) => {
-                        while let Ok(error) = rx.recv().await {
-                            let message = std::str::from_utf8(error.error_message.inner_as_ref())
-                                .unwrap_or("invalid_utf8");
-                            warn!(
-                                "Mint quote error received via hub: code={} message={}",
-                                error.error_code, message
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        error!("Failed to subscribe to mint quote errors: {}", e);
+        let error_hub = mint_message_hub.clone();
+        tokio::spawn(async move {
+            match error_hub.subscribe_quote_errors().await {
+                Ok(mut rx) => {
+                    while let Ok(error) = rx.recv().await {
+                        let message = std::str::from_utf8(error.error_message.inner_as_ref())
+                            .unwrap_or("invalid_utf8");
+                        warn!(
+                            "Mint quote error received via hub: code={} message={}",
+                            error.error_code, message
+                        );
                     }
                 }
-            });
-        }
+                Err(e) => {
+                    error!("Failed to subscribe to mint quote errors: {}", e);
+                }
+            }
+        });
 
         #[cfg(feature = "test_only_allow_unencrypted")]
         {
