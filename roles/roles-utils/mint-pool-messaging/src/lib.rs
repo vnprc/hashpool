@@ -1,14 +1,22 @@
 //! # Mint-Pool Messaging Infrastructure
-//! 
+//!
 //! This crate provides the core messaging infrastructure for communication
 //! between mining pools and mint services using SV2 messages over MPSC channels.
 
 use std::sync::Arc;
+
+use binary_sv2::{self, CompressedPubKey};
+use std::convert::TryFrom;
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
-pub use mint_quote_sv2::{MintQuoteRequest, MintQuoteResponse, MintQuoteError};
+pub use ehash::{
+    build_mint_quote_request, mint_quote_response_from_cdk, parse_mint_quote_request,
+    ParsedMintQuoteRequest, QuoteBuildError, QuoteConversionError, QuoteParseError, ShareHash,
+    ShareHashError,
+};
+pub use mint_quote_sv2::{MintQuoteError, MintQuoteRequest, MintQuoteResponse};
 
 /// Role identifier for connections
 #[derive(Debug, Clone, PartialEq)]
@@ -17,13 +25,13 @@ pub enum Role {
     Mint,
 }
 
-mod message_hub;
-mod message_codec;
 mod channel_manager;
+mod message_codec;
+mod message_hub;
 
-pub use message_hub::MintPoolMessageHub;
+pub use channel_manager::{ChannelError, ChannelManager};
 pub use message_codec::{MessageCodec, MessageType};
-pub use channel_manager::{ChannelManager, ChannelError};
+pub use message_hub::{MessageHubStats, MintPoolMessageHub, MintQuoteResponseEvent};
 
 /// Configuration for the messaging system
 #[derive(Debug, Clone)]
@@ -68,3 +76,28 @@ pub enum MessagingError {
 
 /// Result type for messaging operations
 pub type MessagingResult<T> = Result<T, MessagingError>;
+
+fn map_share_hash_error(err: ShareHashError) -> QuoteBuildError {
+    match err {
+        ShareHashError::InvalidLength { actual } => {
+            QuoteBuildError::InvalidHeaderHashLength(actual)
+        }
+        ShareHashError::InvalidEncoding => {
+            QuoteBuildError::InvalidHeaderHash(binary_sv2::Error::DecodableConversionError)
+        }
+    }
+}
+
+/// Build a fully-parsed mint quote request ready for broadcast through the message hub.
+pub fn build_parsed_quote_request(
+    amount: u64,
+    header_hash: &[u8],
+    locking_key: CompressedPubKey<'static>,
+) -> Result<ParsedMintQuoteRequest, QuoteBuildError> {
+    let share_hash = ShareHash::try_from(header_hash).map_err(map_share_hash_error)?;
+    let request = build_mint_quote_request(amount, share_hash.as_bytes(), locking_key)?;
+    Ok(ParsedMintQuoteRequest {
+        request,
+        share_hash,
+    })
+}

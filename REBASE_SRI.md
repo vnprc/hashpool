@@ -10,9 +10,9 @@ Prepare the existing hashpool codebase (built on an older SRI commit) for a smoo
 
 ## Status – 2025-10-01
 - Phase 0 snapshot/baseline tasks are complete and captured in `REBASE_NOTES.md`.
-- Phase 1 keeps rolling. Recent commits (`b4b3ca4e`, `5d78302f`, `115c1f89`, `b73a3985`, `d23880b9`, `cf871e9b`) now centralize share-hash math, quote builders, and keyset parsing inside `protocols/ehash`; pool + translator call sites consume those helpers end-to-end, and the mint bridge now reuses the same helpers.
-- Outstanding cleanup: replace the two `todo!()` guards in `roles/pool::message_handler`, retire any dead Cashu adapters left under `mining_sv2` once every caller moves across, and fan out the new quote helpers to `mint_pool_messaging` so TCP + channel paths stay in sync.
-- Next chunk: audit `mint_pool_messaging` / integration harnesses for lingering raw-byte conversions, delete the redundant quote conversion code under `roles/mint` tests, then address the pool-side `todo!()` cases and close the loop with a regression test.
+- Phase 1 keeps rolling. Recent commits (`b4b3ca4e`, `5d78302f`, `115c1f89`, `b73a3985`, `d23880b9`, `cf871e9b`) now centralize share-hash math, quote builders, and keyset parsing inside `protocols/ehash`; pool + translator call sites consume those helpers end-to-end, the mint bridge reuses the same helpers, and `roles-utils/mint-pool-messaging` broadcasts parsed quote requests/responses rather than raw SV2 payloads while tracking pending share hashes.
+- Outstanding cleanup: replace the two `todo!()` guards in `roles/pool::message_handler`, retire any dead Cashu adapters left under `mining_sv2` once every caller moves across, and hook the hub into the existing pool/mint connection plumbing so the shared pending-state replaces ad-hoc caches.
+- Next chunk: drive the pool-side sender/receiver through the new hub API (dropping the bespoke frame builders), follow with an integration smoke that asserts pending-quote accounting across TCP + broadcast, then circle back to the pool `todo!()` cases before cutting the regression test.
 
 ## Phase 0 – Snapshot & Baseline (1 day)
 1. Create a dedicated worktree rooted at `e8d76d68642ea28aa48a2da7e41fb4470bbe2681` (e.g., `git worktree add ../sri-baseline e8d76d6`) to make comparisons easy while keeping master untouched.

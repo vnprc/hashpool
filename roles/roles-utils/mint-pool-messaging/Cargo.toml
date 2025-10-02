@@ -12,3 +12,4 @@ mint_quote_sv2 = { path = "../../../protocols/v2/subprotocols/mint-quote" }
 const_sv2 = { path = "../../../protocols/v2/const-sv2" }
 binary_sv2 = { path = "../../../protocols/v2/binary-sv2/binary-sv2" }
 framing_sv2 = { path = "../../../protocols/v2/framing-sv2" }
+ehash = { path = "../../../protocols/ehash" }
