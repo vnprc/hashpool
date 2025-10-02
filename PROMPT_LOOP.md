@@ -6,6 +6,7 @@
 4. Continue executing the rebase plan.
 5. After each logical chunk of work:
    - Keep the change set substantial (hundreds of lines when reasonable).
+   - Confirm the edits shrink (or at minimum do not expand) the SRI diff surface; prefer exercising behaviour via existing smoke/integration tests instead of adding new unit tests inside upstream crates.
    - Run `cargo build` for the impacted workspace.
    - Pause so the user can run the devenv smoke test.
    - Update the task plan to reflect the completed chunk.
