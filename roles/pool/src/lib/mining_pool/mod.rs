@@ -111,9 +111,7 @@ pub struct Configuration {
     pub test_only_listen_adress_plain: String,
 }
 
-impl Configuration {
-
-}
+impl Configuration {}
 
 pub struct TemplateProviderConfig {
     address: String,
@@ -263,14 +261,16 @@ impl Downstream {
             sv2_config,
             address,
         }));
-        
+
         // Notify stats manager about new downstream connection
         pool.safe_lock(|p| {
-            p.stats_handle.send_stats(super::stats::StatsMessage::DownstreamConnected { 
-                downstream_id: id, 
-                is_work_selection_enabled: downstream_data.work_selection 
-            });
-        }).unwrap_or(());
+            p.stats_handle
+                .send_stats(super::stats::StatsMessage::DownstreamConnected {
+                    downstream_id: id,
+                    is_work_selection_enabled: downstream_data.work_selection,
+                });
+        })
+        .unwrap_or(());
 
         let cloned = self_.clone();
 
@@ -378,10 +378,13 @@ impl Downstream {
                 error!("Unexpected SendTo: {:?}", m);
                 panic!();
             }
-            Err(Error::UnexpectedMessage(_message_type)) => todo!(),
+            Err(e @ Error::UnexpectedMessage(_)) => {
+                error!(?e, "Unexpected mining message from downstream");
+                return Err(PoolError::RolesLogic(e));
+            }
             Err(e) => {
-                error!("Error: {:?}", e);
-                todo!()
+                error!(?e, "Failed to handle downstream mining message");
+                return Err(PoolError::RolesLogic(e));
             }
         }
         Ok(())
@@ -500,8 +503,12 @@ impl Pool {
                         );
                     }
                 }
-                Err(_e) => {
-                    todo!()
+                Err(e) => {
+                    error!(
+                        ?e,
+                        "Failed to create Noise responder for downstream {address}"
+                    );
+                    continue;
                 }
             }
         }
@@ -516,7 +523,7 @@ impl Pool {
         let status_tx = self_.safe_lock(|s| s.status_tx.clone())?;
         let listener = TcpListener::bind(&mint_listen_address).await?;
         info!("Listening for mint connections on: {}", mint_listen_address);
-        
+
         while let Ok((stream, _)) = listener.accept().await {
             let address = stream.peer_addr().unwrap();
             info!("New mint connection from {:?}", address);
@@ -548,20 +555,26 @@ impl Pool {
         pool.safe_lock(|p| {
             p.mint_connections.insert(address, sender.clone());
             info!("Stored mint connection sender for {}", address);
-        }).map_err(|e| format!("Failed to lock pool: {}", e))?;
+        })
+        .map_err(|e| format!("Failed to lock pool: {}", e))?;
 
         let connection_id = address.to_string();
         let hub_option = pool.safe_lock(|p| p.mint_message_hub.clone())?;
 
         if let Some(hub) = hub_option.clone() {
-            hub.register_connection(connection_id.clone(), Role::Mint).await;
+            hub.register_connection(connection_id.clone(), Role::Mint)
+                .await;
 
             let hub_clone = hub.clone();
             let sender_clone = sender.clone();
             let connection_for_forwarding = connection_id.clone();
             tokio::spawn(async move {
-                Self::forward_hub_requests_to_mint(hub_clone, sender_clone, connection_for_forwarding)
-                    .await;
+                Self::forward_hub_requests_to_mint(
+                    hub_clone,
+                    sender_clone,
+                    connection_for_forwarding,
+                )
+                .await;
             });
         }
 
@@ -587,10 +600,13 @@ impl Pool {
             }
 
             // Clean up connection when closed
-            if pool_clone.safe_lock(|p| {
-                p.mint_connections.remove(&address);
-                info!("Removed mint connection {}", address);
-            }).is_ok() {}
+            if pool_clone
+                .safe_lock(|p| {
+                    p.mint_connections.remove(&address);
+                    info!("Removed mint connection {}", address);
+                })
+                .is_ok()
+            {}
 
             if let Some(hub) = hub_for_cleanup {
                 hub.unregister_connection(&connection_id).await;
@@ -612,14 +628,21 @@ impl Pool {
                     .ok_or_else(|| PoolError::Custom("No header in SV2 frame".to_string()))?
                     .msg_type();
                 let payload = sv2_frame.payload();
-                
-                debug!("Received mint message type: 0x{:02x}, payload length: {}", message_type, payload.len());
-                
+
+                debug!(
+                    "Received mint message type: 0x{:02x}, payload length: {}",
+                    message_type,
+                    payload.len()
+                );
+
                 // Check if this is a mint quote message
                 if Self::is_mint_quote_message(message_type) {
                     Self::process_mint_quote_frame(pool, message_type, payload).await?;
                 } else {
-                    debug!("Received non-mint-quote message from mint: 0x{:02x}", message_type);
+                    debug!(
+                        "Received non-mint-quote message from mint: 0x{:02x}",
+                        message_type
+                    );
                 }
             }
             StandardEitherFrame::HandShake(_) => {
@@ -643,7 +666,8 @@ impl Pool {
                 while let Ok(parsed) = rx.recv().await {
                     let share_hash_hex = parsed.share_hash.to_string();
                     let request_clone = parsed.clone();
-                    if let Err(e) = Self::send_quote_request_over_connection(&sender, request_clone).await
+                    if let Err(e) =
+                        Self::send_quote_request_over_connection(&sender, request_clone).await
                     {
                         error!(
                             "Failed to forward quote {} to mint {}: {}",
@@ -671,10 +695,11 @@ impl Pool {
         sender: &Sender<EitherFrame>,
         request: ParsedMintQuoteRequest,
     ) -> PoolResult<()> {
-        let pool_message = PoolMessages::Minting(Minting::MintQuoteRequest(request.request.clone()));
-        let sv2_frame: StdFrame = pool_message
-            .try_into()
-            .map_err(|e| PoolError::Custom(format!("Failed to encode mint quote request: {:?}", e)))?;
+        let pool_message =
+            PoolMessages::Minting(Minting::MintQuoteRequest(request.request.clone()));
+        let sv2_frame: StdFrame = pool_message.try_into().map_err(|e| {
+            PoolError::Custom(format!("Failed to encode mint quote request: {:?}", e))
+        })?;
 
         sender
             .send(sv2_frame.into())
@@ -690,14 +715,16 @@ impl Pool {
         message_type: u8,
         payload: &[u8],
     ) -> PoolResult<()> {
-        use const_sv2::{MESSAGE_TYPE_MINT_QUOTE_RESPONSE, MESSAGE_TYPE_MINT_QUOTE_ERROR};
-        
+        use const_sv2::{MESSAGE_TYPE_MINT_QUOTE_ERROR, MESSAGE_TYPE_MINT_QUOTE_RESPONSE};
+
         match message_type {
             MESSAGE_TYPE_MINT_QUOTE_RESPONSE => {
                 // Parse the response
                 let mut payload_copy = payload.to_vec();
                 let response: MintQuoteResponse = binary_sv2::from_bytes(&mut payload_copy)
-                    .map_err(|e| PoolError::Custom(format!("Failed to parse MintQuoteResponse: {:?}", e)))?;
+                    .map_err(|e| {
+                        PoolError::Custom(format!("Failed to parse MintQuoteResponse: {:?}", e))
+                    })?;
 
                 let response = response.into_static();
                 let hub = pool
@@ -711,8 +738,7 @@ impl Pool {
                             if let Err(e) = hub.send_quote_response_event(event).await {
                                 error!(
                                     "Failed to broadcast mint quote response for hash {}: {}",
-                                    share_hash,
-                                    e
+                                    share_hash, e
                                 );
                             }
                         }
@@ -721,7 +747,8 @@ impl Pool {
                         }
                     }
                 } else {
-                    message_handler::handle_mint_quote_response(pool.clone(), response.clone()).await;
+                    message_handler::handle_mint_quote_response(pool.clone(), response.clone())
+                        .await;
                 }
 
                 Ok(())
@@ -729,8 +756,10 @@ impl Pool {
             MESSAGE_TYPE_MINT_QUOTE_ERROR => {
                 // Parse the error
                 let mut payload_copy = payload.to_vec();
-                let error: MintQuoteError = binary_sv2::from_bytes(&mut payload_copy)
-                    .map_err(|e| PoolError::Custom(format!("Failed to parse MintQuoteError: {:?}", e)))?;
+                let error: MintQuoteError =
+                    binary_sv2::from_bytes(&mut payload_copy).map_err(|e| {
+                        PoolError::Custom(format!("Failed to parse MintQuoteError: {:?}", e))
+                    })?;
 
                 let error_static = MintQuoteError {
                     error_code: error.error_code,
@@ -750,24 +779,35 @@ impl Pool {
                     .unwrap_or("invalid_utf8");
                 error!(
                     "Received mint quote error: code={}, message={}",
-                    error_static.error_code,
-                    error_msg
+                    error_static.error_code, error_msg
                 );
 
                 Ok(())
             }
             _ => {
-                warn!("Received unknown mint quote message type: 0x{:02x}", message_type);
+                warn!(
+                    "Received unknown mint quote message type: 0x{:02x}",
+                    message_type
+                );
                 Ok(())
             }
         }
     }
 
     /// Check if a message type is a mint quote message
-    // TODO remove duplicate function, also defined in roles/mint/src/lib/sv2_connection/message_handler.rs
+    // TODO remove duplicate function, also defined in
+    // roles/mint/src/lib/sv2_connection/message_handler.rs
     fn is_mint_quote_message(message_type: u8) -> bool {
-        use const_sv2::{MESSAGE_TYPE_MINT_QUOTE_REQUEST, MESSAGE_TYPE_MINT_QUOTE_RESPONSE, MESSAGE_TYPE_MINT_QUOTE_ERROR};
-        matches!(message_type, MESSAGE_TYPE_MINT_QUOTE_REQUEST | MESSAGE_TYPE_MINT_QUOTE_RESPONSE | MESSAGE_TYPE_MINT_QUOTE_ERROR)
+        use const_sv2::{
+            MESSAGE_TYPE_MINT_QUOTE_ERROR, MESSAGE_TYPE_MINT_QUOTE_REQUEST,
+            MESSAGE_TYPE_MINT_QUOTE_RESPONSE,
+        };
+        matches!(
+            message_type,
+            MESSAGE_TYPE_MINT_QUOTE_REQUEST
+                | MESSAGE_TYPE_MINT_QUOTE_RESPONSE
+                | MESSAGE_TYPE_MINT_QUOTE_ERROR
+        )
     }
 
     /// Get an active mint connection sender for sending messages
@@ -801,7 +841,7 @@ impl Pool {
             // convert Listener variant to Downstream variant
             status_tx.listener_to_connection(),
             address,
-            sv2_config, 
+            sv2_config,
         )
         .await?;
 
@@ -839,32 +879,33 @@ impl Pool {
                 .map_err(|e| PoolError::PoisonLock(e.to_string()));
             let job_id = handle_result!(status_tx, handle_result!(status_tx, job_id_res));
 
-            match job_id {
-                Ok(job_id) => {
-                    let downstreams = self_
-                        .safe_lock(|s| s.downstreams.clone())
-                        .map_err(|e| PoolError::PoisonLock(e.to_string()));
-                    let downstreams = handle_result!(status_tx, downstreams);
-
-                    for (channel_id, downtream) in downstreams {
-                        let message = Mining::SetNewPrevHash(SetNPH {
-                            channel_id,
-                            job_id,
-                            prev_hash: new_prev_hash.prev_hash.clone(),
-                            min_ntime: new_prev_hash.header_timestamp,
-                            nbits: new_prev_hash.n_bits,
-                        });
-                        let res = Downstream::match_send_to(
-                            downtream.clone(),
-                            Ok(SendTo::Respond(message)),
-                        )
-                        .await;
-                        handle_result!(status_tx, res);
-                    }
-                    handle_result!(status_tx, sender_message_received_signal.send(()).await);
+            let job_id = match job_id {
+                Ok(job_id) => job_id,
+                Err(err) => {
+                    error!(?err, "Failed to generate job id for new prev hash update");
+                    continue;
                 }
-                Err(_) => todo!(),
+            };
+
+            let downstreams = self_
+                .safe_lock(|s| s.downstreams.clone())
+                .map_err(|e| PoolError::PoisonLock(e.to_string()));
+            let downstreams = handle_result!(status_tx, downstreams);
+
+            for (channel_id, downtream) in downstreams {
+                let message = Mining::SetNewPrevHash(SetNPH {
+                    channel_id,
+                    job_id,
+                    prev_hash: new_prev_hash.prev_hash.clone(),
+                    min_ntime: new_prev_hash.header_timestamp,
+                    nbits: new_prev_hash.n_bits,
+                });
+                let res =
+                    Downstream::match_send_to(downtream.clone(), Ok(SendTo::Respond(message)))
+                        .await;
+                handle_result!(status_tx, res);
             }
+            handle_result!(status_tx, sender_message_received_signal.send(()).await);
         }
         Ok(())
     }
@@ -947,7 +988,7 @@ impl Pool {
             pool_coinbase_outputs.expect("Invalid coinbase output in config"),
             config.pool_signature.clone(),
         )));
-        
+
         let minimum_difficulty = ehash_config
             .as_ref()
             .map(|c| c.minimum_difficulty)
@@ -964,7 +1005,7 @@ impl Pool {
 
         // Create stats manager and handle
         let (mut stats_manager, stats_handle) = super::stats::StatsManager::new();
-        
+
         // Spawn stats manager task
         tokio::spawn(async move {
             stats_manager.run().await;
@@ -1021,8 +1062,7 @@ impl Pool {
                                 .unwrap_or("invalid_utf8");
                             warn!(
                                 "Mint quote error received via hub: code={} message={}",
-                                error.error_code,
-                                message
+                                error.error_code, message
                             );
                         }
                     }
@@ -1083,10 +1123,12 @@ impl Pool {
                 let cloned_mint = pool.clone();
                 let mint_address = sv2_config.mint_listen_address.clone();
                 let status_tx_mint = status_tx.clone();
-                
+
                 info!("Starting mint listener on {}", mint_address);
                 task::spawn(async move {
-                    if let Err(e) = Self::accept_incoming_mint_connection(cloned_mint, mint_address).await {
+                    if let Err(e) =
+                        Self::accept_incoming_mint_connection(cloned_mint, mint_address).await
+                    {
                         error!("Mint listener error: {}", e);
                     }
                     if status_tx_mint
@@ -1148,7 +1190,6 @@ impl Pool {
         cloned3
     }
 
-
     /// This removes the downstream from the list of downstreams
     /// due to a race condition it's possible for downstreams to have been cloned right before
     /// this remove happens which will cause the cloning task to still attempt to communicate with
@@ -1157,7 +1198,8 @@ impl Pool {
     pub fn remove_downstream(&mut self, downstream_id: u32) {
         self.downstreams.remove(&downstream_id);
         // Notify stats manager about downstream disconnection
-        self.stats_handle.send_stats(super::stats::StatsMessage::DownstreamDisconnected { downstream_id });
+        self.stats_handle
+            .send_stats(super::stats::StatsMessage::DownstreamDisconnected { downstream_id });
     }
 
     /// Send extension message to specific downstream
@@ -1167,38 +1209,48 @@ impl Pool {
         notification: mining_sv2::MintQuoteNotification<'static>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let quote_id_str = String::from_utf8_lossy(notification.quote_id.inner_as_ref());
-        info!("Sending MintQuoteNotification to channel {}: quote_id={}, amount={}", 
-              channel_id, quote_id_str, notification.amount);
-        
+        info!(
+            "Sending MintQuoteNotification to channel {}: quote_id={}, amount={}",
+            channel_id, quote_id_str, notification.amount
+        );
+
         // Create Mining message wrapper
         let mining_message = Mining::MintQuoteNotification(notification);
-        
+
         // Get the downstream ID from channel ID mapping
-        let (downstreams, downstream_id) = self_.safe_lock(|p| {
-            let downstream_id = p.channel_to_downstream.get(&channel_id).copied();
-            (p.downstreams.clone(), downstream_id)
-        }).map_err(|e| format!("Failed to lock pool: {}", e))?;
-        
+        let (downstreams, downstream_id) = self_
+            .safe_lock(|p| {
+                let downstream_id = p.channel_to_downstream.get(&channel_id).copied();
+                (p.downstreams.clone(), downstream_id)
+            })
+            .map_err(|e| format!("Failed to lock pool: {}", e))?;
+
         // Debug: log available mappings
         let available_ids: Vec<u32> = downstreams.keys().cloned().collect();
-        debug!("Available downstream IDs: {:?}, looking for channel_id: {}, mapped to downstream_id: {:?}", 
+        debug!("Available downstream IDs: {:?}, looking for channel_id: {}, mapped to downstream_id: {:?}",
                available_ids, channel_id, downstream_id);
-        
+
         if let Some(downstream_id) = downstream_id {
             if let Some(downstream) = downstreams.get(&downstream_id) {
                 // Use the existing infrastructure to send the message
-                Downstream::match_send_to(
-                    downstream.clone(),
-                    Ok(SendTo::Respond(mining_message))
-                ).await.map_err(|e| format!("Failed to send extension message: {:?}", e))?;
+                Downstream::match_send_to(downstream.clone(), Ok(SendTo::Respond(mining_message)))
+                    .await
+                    .map_err(|e| format!("Failed to send extension message: {:?}", e))?;
             } else {
-                return Err(format!("Downstream not found for downstream_id: {}", downstream_id).into());
+                return Err(
+                    format!("Downstream not found for downstream_id: {}", downstream_id).into(),
+                );
             }
         } else {
-            return Err(format!("No downstream mapping found for channel_id: {}", channel_id).into());
+            return Err(
+                format!("No downstream mapping found for channel_id: {}", channel_id).into(),
+            );
         }
-        
-        info!("✅ Successfully sent MintQuoteNotification to channel {}", channel_id);
+
+        info!(
+            "✅ Successfully sent MintQuoteNotification to channel {}",
+            channel_id
+        );
         Ok(())
     }
 }

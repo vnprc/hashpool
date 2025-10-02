@@ -1,6 +1,8 @@
-use super::super::mining_pool::Downstream;
-use super::pending_shares::PendingShare;
-use super::super::stats::StatsMessage;
+use super::{
+    super::{mining_pool::Downstream, stats::StatsMessage},
+    pending_shares::PendingShare,
+};
+use binary_sv2::Str0255;
 use bitcoin_hashes::sha256::Hash;
 use ehash::calculate_ehash_amount;
 use mining_sv2::MintQuoteNotification;
@@ -16,7 +18,10 @@ use roles_logic_sv2::{
     utils::Mutex,
 };
 use shared_config::Sv2MessagingConfig;
-use std::{convert::TryInto, sync::Arc};
+use std::{
+    convert::{TryFrom, TryInto},
+    sync::Arc,
+};
 use tokio::time::Instant as TokioInstant;
 use tracing::{debug, error, info, warn};
 
@@ -38,9 +43,9 @@ fn submit_quote(
         (p.stats_handle.clone(), downstream_id)
     }) {
         if let Some(id) = downstream_id {
-            stats_handle.send_stats(StatsMessage::QuoteCreated { 
-                downstream_id: id, 
-                amount 
+            stats_handle.send_stats(StatsMessage::QuoteCreated {
+                downstream_id: id,
+                amount,
             });
         }
     }
@@ -61,7 +66,10 @@ fn submit_quote(
                                 if let Err(e) = hub.send_quote_request(parsed).await {
                                     error!("Failed to dispatch mint quote request via hub: {}", e);
                                 } else {
-                                    info!("Queued mint quote request via hub: share_hash={}", hex::encode(share_hash));
+                                    info!(
+                                        "Queued mint quote request via hub: share_hash={}",
+                                        hex::encode(share_hash)
+                                    );
                                 }
                             }
                             Err(e) => {
@@ -83,6 +91,45 @@ fn submit_quote(
     Ok(())
 }
 
+fn share_error_code(err: &roles_logic_sv2::Error) -> &'static str {
+    use roles_logic_sv2::Error;
+
+    match err {
+        Error::ShareDoNotMatchAnyChannel
+        | Error::NotFoundChannelId
+        | Error::NoGroupIdOnExtendedChannel => SubmitSharesError::invalid_channel_error_code(),
+        Error::ShareDoNotMatchAnyJob
+        | Error::PrevHashRequireNonExistentJobId(_)
+        | Error::JobNotUpdated(_, _)
+        | Error::NoValidJob
+        | Error::NoValidTranslatorJob
+        | Error::NoTemplateForId
+        | Error::NoValidTemplate(_)
+        | Error::JDSMissingTransactions => SubmitSharesError::invalid_job_id_error_code(),
+        Error::TargetError(_)
+        | Error::HashrateError(_)
+        | Error::ValueRemainingNotUpdated
+        | Error::ImpossibleToCalculateMerkleRoot
+        | Error::InvalidCoinbase => SubmitSharesError::difficulty_too_low_error_code(),
+        _ => SubmitSharesError::stale_share_error_code(),
+    }
+}
+
+fn build_submit_share_error(
+    channel_id: u32,
+    sequence_number: u32,
+    err: &roles_logic_sv2::Error,
+) -> SubmitSharesError<'static> {
+    let code = share_error_code(err);
+    let error_code =
+        Str0255::try_from(String::from(code)).expect("predefined error codes must fit in Str0255");
+
+    SubmitSharesError {
+        channel_id,
+        sequence_number,
+        error_code,
+    }
+}
 
 /// Handle mint quote response received from mint
 /// This function sends an extension message to the downstream with the quote
@@ -91,14 +138,14 @@ pub async fn handle_mint_quote_response(
     response: MintQuoteResponse<'static>,
 ) {
     // Extract quote_id as string for logging
-    let quote_id_str = std::str::from_utf8(response.quote_id.inner_as_ref())
-        .unwrap_or("invalid_utf8");
-    
+    let quote_id_str =
+        std::str::from_utf8(response.quote_id.inner_as_ref()).unwrap_or("invalid_utf8");
+
     info!("✅ Received mint quote response: quote_id={}", quote_id_str);
-    
+
     // Get the pending share manager and find the share by hash
     let header_hash = response.header_hash.inner_as_ref().to_vec();
-    
+
     // Get the manager outside of the lock to avoid Send issues
     let manager = match pool.safe_lock(|p| p.pending_share_manager.clone()) {
         Ok(manager) => manager,
@@ -107,9 +154,9 @@ pub async fn handle_mint_quote_response(
             return;
         }
     };
-    
+
     let pending_share = manager.remove_pending_share(&header_hash).await;
-    
+
     if let Some(share) = pending_share {
         // Create the extension message
         let notification = MintQuoteNotification {
@@ -119,17 +166,21 @@ pub async fn handle_mint_quote_response(
             quote_id: response.quote_id.clone(),
             amount: share.amount,
         };
-        
+
         // Send extension message to the downstream
         if let Err(e) = super::Pool::send_extension_message_to_downstream(
             pool.clone(),
             share.channel_id,
             notification,
-        ).await {
+        )
+        .await
+        {
             error!("Failed to send mint quote notification: {}", e);
         } else {
-            info!("Sent mint quote notification for channel {} seq {}",
-                  share.channel_id, share.sequence_number);
+            info!(
+                "Sent mint quote notification for channel {} seq {}",
+                share.channel_id, share.sequence_number
+            );
             // NOTE: quotes_redeemed should only be incremented when the translator's proof sweeper
             // actually mints tokens (changes quote state to ISSUED), not when quote is created
         }
@@ -161,11 +212,11 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
         _m: Option<Arc<Mutex<()>>>,
     ) -> Result<SendTo<()>, Error> {
         let header_only = self.downstream_data.header_only;
-        
+
         // Use a fixed hashrate to prevent DOS and ensure consistent difficulty
         // TODO: Move this to pool config file as 'fixed_minimum_hashrate'
         let fixed_low_hashrate = 10_000_000_000_000.0; // 10 TH/s - ~30 leading zeros
-        
+
         let reposnses = self
             .channel_factory
             .safe_lock(|factory| {
@@ -186,7 +237,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                 }
             })
             .map_err(|e| roles_logic_sv2::Error::PoisonLock(e.to_string()))??;
-        
+
         // Extract channel_id from the OpenStandardMiningChannelSuccess response and add to mapping
         let mut result = vec![];
         for response in reposnses {
@@ -194,17 +245,23 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                 // Add mapping from channel_id to downstream_id
                 if let Ok(_) = self.pool.safe_lock(|p| {
                     p.channel_to_downstream.insert(success.channel_id, self.id);
-                    debug!("Added channel mapping: channel_id {} -> downstream_id {}", success.channel_id, self.id);
+                    debug!(
+                        "Added channel mapping: channel_id {} -> downstream_id {}",
+                        success.channel_id, self.id
+                    );
                 }) {
                     // Send stats update for new channel
                     if let Ok(stats_handle) = self.pool.safe_lock(|p| p.stats_handle.clone()) {
-                        stats_handle.send_stats(StatsMessage::ChannelAdded { 
-                            downstream_id: self.id, 
-                            channel_id: success.channel_id 
+                        stats_handle.send_stats(StatsMessage::ChannelAdded {
+                            downstream_id: self.id,
+                            channel_id: success.channel_id,
                         });
                     }
                 } else {
-                    error!("Failed to add channel mapping for channel_id: {}", success.channel_id);
+                    error!(
+                        "Failed to add channel mapping for channel_id: {}",
+                        success.channel_id
+                    );
                 }
             }
             result.push(SendTo::Respond(response.into_static()))
@@ -218,7 +275,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
     ) -> Result<SendTo<()>, Error> {
         let request_id = m.request_id;
         // Use fixed hashrate for extended channels too
-        // TODO: Move this to pool config file as 'fixed_minimum_hashrate'  
+        // TODO: Move this to pool config file as 'fixed_minimum_hashrate'
         let hash_rate = 10_000_000_000_000.0; // 10 TH/s - consistent with standard channels
         let min_extranonce_size = m.min_extranonce_size;
         let messages_res = self
@@ -234,17 +291,25 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         // Add mapping from channel_id to downstream_id
                         if let Ok(_) = self.pool.safe_lock(|p| {
                             p.channel_to_downstream.insert(success.channel_id, self.id);
-                            debug!("Added extended channel mapping: channel_id {} -> downstream_id {}", success.channel_id, self.id);
+                            debug!(
+                                "Added extended channel mapping: channel_id {} -> downstream_id {}",
+                                success.channel_id, self.id
+                            );
                         }) {
                             // Send stats update for new extended channel
-                            if let Ok(stats_handle) = self.pool.safe_lock(|p| p.stats_handle.clone()) {
-                                stats_handle.send_stats(StatsMessage::ChannelAdded { 
-                                    downstream_id: self.id, 
-                                    channel_id: success.channel_id 
+                            if let Ok(stats_handle) =
+                                self.pool.safe_lock(|p| p.stats_handle.clone())
+                            {
+                                stats_handle.send_stats(StatsMessage::ChannelAdded {
+                                    downstream_id: self.id,
+                                    channel_id: success.channel_id,
                                 });
                             }
                         } else {
-                            error!("Failed to add extended channel mapping for channel_id: {}", success.channel_id);
+                            error!(
+                                "Failed to add extended channel mapping for channel_id: {}",
+                                success.channel_id
+                            );
                         }
                     }
                     result.push(SendTo::Respond(message));
@@ -264,21 +329,22 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
             .unwrap_or_else(|_| {
                 std::process::exit(1);
             });
-        
+
         // TODO: Implement progressive fee structure based on share difficulty
-        // Higher difficulty shares should receive lower fees to incentivize 
+        // Higher difficulty shares should receive lower fees to incentivize
         // miners to submit fewer, higher-quality shares. This reduces network
         // overhead and allows for better pool scalability.
-        // 
+        //
         // Example fee structure:
         // - Difficulty < 1K: 3% fee
-        // - Difficulty 1K-10K: 2% fee  
+        // - Difficulty 1K-10K: 2% fee
         // - Difficulty 10K-100K: 1% fee
         // - Difficulty > 100K: 0.5% fee
-        
+
         // Use a fixed higher difficulty to prevent DOS - approximately 30 leading zeros
         // TODO: Move this to pool config file as 'fixed_minimum_hashrate'
-        let fixed_low_target = roles_logic_sv2::utils::hash_rate_to_target(10_000_000_000_000.0, 10.0)?;
+        let fixed_low_target =
+            roles_logic_sv2::utils::hash_rate_to_target(10_000_000_000_000.0, 10.0)?;
         let set_target = SetTarget {
             channel_id: m.channel_id,
             maximum_target: fixed_low_target,
@@ -337,7 +403,16 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
                 },
             },
-            Err(_) => todo!(),
+            Err(err) => {
+                warn!(
+                    ?err,
+                    channel_id = m.channel_id,
+                    sequence_number = m.sequence_number,
+                    "Rejecting submit_shares_standard due to channel factory error"
+                );
+                let submit_error = build_submit_share_error(m.channel_id, m.sequence_number, &err);
+                Ok(SendTo::Respond(Mining::SubmitSharesError(submit_error)))
+            }
         }
     }
 
@@ -359,11 +434,11 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetBitcoinTarget((share,t_id,coinbase,_)) => {
                     // Send share submitted stats - never blocks
                     if let Ok(stats_handle) = self.pool.safe_lock(|p| p.stats_handle.clone()) {
-                        stats_handle.send_stats(StatsMessage::ShareSubmitted { 
-                            downstream_id: self.id 
+                        stats_handle.send_stats(StatsMessage::ShareSubmitted {
+                            downstream_id: self.id
                         });
                     }
-                    
+
                     if let Some(template_id) = t_id {
                         let solution = SubmitSolution {
                             template_id,
@@ -382,7 +457,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                     let minimum_difficulty = self.pool.safe_lock(|p| p.minimum_difficulty)
                         .map_err(|_| Error::PoisonLock(format!("Failed to lock pool")))?;
                     let amount = calculate_ehash_amount(hash_bytes, minimum_difficulty);
-                    
+
                     // Track this share as pending for mint quote
                     let pending_share = PendingShare {
                         channel_id: m.channel_id,
@@ -392,7 +467,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         amount,
                         created_at: TokioInstant::now(),
                     };
-                    
+
                     // Add to pending shares
                     if let Ok(manager) = self.pool.safe_lock(|p| p.pending_share_manager.clone()) {
                         let manager_clone = manager.clone();
@@ -403,7 +478,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                     }
 
                     submit_quote(
-                        m.clone(), 
+                        m.clone(),
                         self.sv2_config.as_ref(),
                         self.pool.clone(),
                         minimum_difficulty
@@ -424,18 +499,18 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetDownstreamTarget => {
                     // Send share submitted stats - never blocks
                     if let Ok(stats_handle) = self.pool.safe_lock(|p| p.stats_handle.clone()) {
-                        stats_handle.send_stats(StatsMessage::ShareSubmitted { 
-                            downstream_id: self.id 
+                        stats_handle.send_stats(StatsMessage::ShareSubmitted {
+                            downstream_id: self.id
                         });
                     }
-                    
+
                     // Calculate ehash units
                     let hash_bytes: [u8; 32] = m.hash.inner_as_ref().try_into()
                         .map_err(|_| Error::ExpectedLen32(m.hash.inner_as_ref().len()))?;
                     let minimum_difficulty = self.pool.safe_lock(|p| p.minimum_difficulty)
                         .map_err(|_| Error::PoisonLock(format!("Failed to lock pool")))?;
                     let amount = calculate_ehash_amount(hash_bytes, minimum_difficulty);
-                    
+
                     // Track this share as pending for mint quote
                     let pending_share = PendingShare {
                         channel_id: m.channel_id,
@@ -445,7 +520,7 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         amount,
                         created_at: TokioInstant::now(),
                     };
-                    
+
                     // Add to pending shares
                     if let Ok(manager) = self.pool.safe_lock(|p| p.pending_share_manager.clone()) {
                         let manager_clone = manager.clone();
@@ -454,9 +529,9 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                             manager_clone.add_pending_share(share_clone).await;
                         });
                     }
-                    
+
                     submit_quote(
-                        m.clone(), 
+                        m.clone(),
                         self.sv2_config.as_ref(),
                         self.pool.clone(),
                         minimum_difficulty
@@ -473,9 +548,16 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                     Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
                 },
             },
-            Err(e) => {
-                error!("{:?}",e);
-                todo!();
+            Err(err) => {
+                warn!(
+                    ?err,
+                    channel_id = m.channel_id,
+                    sequence_number = m.sequence_number,
+                    "Rejecting submit_shares_extended due to channel factory error"
+                );
+                let submit_error =
+                    build_submit_share_error(m.channel_id, m.sequence_number, &err);
+                Ok(SendTo::Respond(Mining::SubmitSharesError(submit_error)))
             }
         }
     }
