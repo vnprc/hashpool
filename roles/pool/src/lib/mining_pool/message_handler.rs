@@ -2,9 +2,9 @@ use super::super::mining_pool::Downstream;
 use super::pending_shares::PendingShare;
 use super::super::stats::StatsMessage;
 use bitcoin_hashes::sha256::Hash;
-use ehash::{build_mint_quote_request, calculate_ehash_amount};
+use ehash::calculate_ehash_amount;
 use mining_sv2::MintQuoteNotification;
-use mint_pool_messaging::MintQuoteResponse;
+use mint_pool_messaging::{build_parsed_quote_request, MintQuoteResponse};
 use roles_logic_sv2::{
     errors::Error,
     handlers::mining::{ParseDownstreamMiningMessages, SendTo, SupportedChannelTypes},
@@ -18,7 +18,7 @@ use roles_logic_sv2::{
 use shared_config::Sv2MessagingConfig;
 use std::{convert::TryInto, sync::Arc};
 use tokio::time::Instant as TokioInstant;
-use tracing::{error, info, debug};
+use tracing::{debug, error, info, warn};
 
 /// Creates a mint quote request and sends it via TCP and Redis
 fn submit_quote(
@@ -29,9 +29,9 @@ fn submit_quote(
 ) -> Result<(), roles_logic_sv2::Error> {
     let header_hash = Hash::from_slice(m.hash.inner_as_ref())
         .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid header hash: {e}")))?;
-    
+
     let amount = calculate_ehash_amount(header_hash.to_byte_array(), minimum_difficulty);
-    
+
     // Send stats update via channel - never blocks
     if let Ok((stats_handle, downstream_id)) = pool.safe_lock(|p| {
         let downstream_id = p.channel_to_downstream.get(&m.channel_id).copied();
@@ -44,27 +44,42 @@ fn submit_quote(
             });
         }
     }
-    
+
     // Send via TCP if SV2 messaging is enabled
     if let Some(config) = sv2_config {
         if config.enabled {
             // Convert to static lifetime for the async task
             let m_static = m.into_static();
-            let pool_clone = pool.clone();
-            
-            tokio::spawn(async move {
-                match send_sv2_mint_quote_tcp(pool_clone, m_static, amount).await {
-                    Ok(_) => {
-                        info!("Successfully sent mint quote via SV2 TCP");
-                    }
-                    Err(e) => {
-                        error!("Failed to send mint quote via SV2 TCP: {}", e);
-                    }
+            let share_hash = m_static.hash.inner_as_ref().to_vec();
+            let locking_key = m_static.locking_pubkey.clone();
+
+            match pool.safe_lock(|p| p.mint_message_hub.clone()) {
+                Ok(Some(hub)) => {
+                    tokio::spawn(async move {
+                        match build_parsed_quote_request(amount, &share_hash, locking_key) {
+                            Ok(parsed) => {
+                                if let Err(e) = hub.send_quote_request(parsed).await {
+                                    error!("Failed to dispatch mint quote request via hub: {}", e);
+                                } else {
+                                    info!("Queued mint quote request via hub: share_hash={}", hex::encode(share_hash));
+                                }
+                            }
+                            Err(e) => {
+                                error!("Failed to build mint quote request: {}", e);
+                            }
+                        }
+                    });
                 }
-            });
+                Ok(None) => {
+                    warn!("SV2 messaging enabled but mint message hub unavailable; skipping quote dispatch");
+                }
+                Err(e) => {
+                    error!("Failed to access pool for mint hub: {}", e);
+                }
+            }
         }
     }
-    
+
     Ok(())
 }
 
@@ -121,45 +136,6 @@ pub async fn handle_mint_quote_response(
     } else {
         debug!("No pending share found for hash: {:?}", header_hash);
     }
-}
-
-/// Send mint quote request via TCP connection to mint
-async fn send_sv2_mint_quote_tcp(
-    pool: Arc<Mutex<super::Pool>>,
-    m: SubmitSharesExtended<'static>,
-    amount: u64,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Get mint connection sender
-    let mint_sender = {
-        let mint_connection = pool.safe_lock(|p| p.get_mint_connection())
-            .map_err(|e| format!("Failed to lock pool: {}", e))?;
-        match mint_connection {
-            Some(sender) => sender,
-            None => {
-                return Err("No active mint connection available".into());
-            }
-        }
-    };
-    
-    let request = build_mint_quote_request(amount, m.hash.inner_as_ref(), m.locking_pubkey.clone())
-        .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))?;
-    
-    // Send over TCP connection using the standard SV2 message pattern
-    debug!("Sending SV2 mint quote request over TCP: amount={}", amount);
-    
-    // Create PoolMessages::MintQuote and convert to frame
-    let pool_message = roles_logic_sv2::parsers::PoolMessages::Minting(
-        roles_logic_sv2::parsers::Minting::MintQuoteRequest(request.into_static())
-    );
-    let sv2_frame: super::StdFrame = pool_message.try_into()
-        .map_err(|e| format!("Failed to convert to SV2 frame: {:?}", e))?;
-    let either_frame = sv2_frame.into();
-    
-    mint_sender.send(either_frame).await
-        .map_err(|e| format!("Failed to send SV2 frame: {:?}", e))?;
-    
-    info!("📤 Successfully sent SV2 mint quote request via TCP");
-    Ok(())
 }
 
 impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> for Downstream {
