@@ -779,14 +779,49 @@ async fn handle_request(
                 .body(Full::new(Bytes::from(stats.to_string())))
         }
         (&Method::POST, "/mint/tokens") => {
-            let json_response = json!({
-                "success": false,
-                "error": "Minting not available in stats service"
-            });
-            Response::builder()
-                .status(StatusCode::SERVICE_UNAVAILABLE)
-                .header("content-type", "application/json")
-                .body(Full::new(Bytes::from(json_response.to_string())))
+            // Proxy mint request to translator's faucet API
+            let translator_faucet_url = "http://127.0.0.1:8083/mint/tokens";
+
+            match reqwest::Client::new()
+                .post(translator_faucet_url)
+                .timeout(std::time::Duration::from_secs(10))
+                .send()
+                .await
+            {
+                Ok(response) => {
+                    let status = response.status();
+                    match response.text().await {
+                        Ok(body) => {
+                            Response::builder()
+                                .status(status)
+                                .header("content-type", "application/json")
+                                .body(Full::new(Bytes::from(body)))
+                        }
+                        Err(e) => {
+                            error!("Failed to read response from translator: {}", e);
+                            let json_response = json!({
+                                "success": false,
+                                "error": "Failed to read mint response"
+                            });
+                            Response::builder()
+                                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                                .header("content-type", "application/json")
+                                .body(Full::new(Bytes::from(json_response.to_string())))
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to proxy mint request to translator: {}", e);
+                    let json_response = json!({
+                        "success": false,
+                        "error": format!("Faucet unavailable: {}", e)
+                    });
+                    Response::builder()
+                        .status(StatusCode::SERVICE_UNAVAILABLE)
+                        .header("content-type", "application/json")
+                        .body(Full::new(Bytes::from(json_response.to_string())))
+                }
+            }
         }
         (&Method::GET, "/balance") => {
             // Return translator wallet balance

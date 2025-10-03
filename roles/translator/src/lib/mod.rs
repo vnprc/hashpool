@@ -31,6 +31,7 @@ use crate::status::State;
 
 pub mod downstream_sv1;
 pub mod error;
+pub mod faucet_api;
 pub mod miner_stats;
 pub mod proxy;
 pub mod proxy_config;
@@ -50,7 +51,7 @@ pub struct TranslatorSv2 {
     mint_client: HttpClient,
     miner_tracker: Arc<miner_stats::MinerTracker>,
     stats_handle: Option<stats_client::StatsHandle>,
-    ehash_config: Option<shared_config::EhashConfig>,
+    global_config: shared_config::MinerGlobalConfig,
 }
 
 // Manual Debug implementation since StatsHandle doesn't derive Debug
@@ -62,7 +63,7 @@ impl std::fmt::Debug for TranslatorSv2 {
             .field("wallet", &self.wallet.is_some())
             .field("miner_tracker", &"MinerTracker")
             .field("stats_handle", &self.stats_handle.is_some())
-            .field("ehash_config", &self.ehash_config)
+            .field("ehash_config", &self.global_config.ehash)
             .finish()
     }
 }
@@ -135,7 +136,7 @@ fn extract_mint_url(config: &ProxyConfig) -> String {
 }
 
 impl TranslatorSv2 {
-    pub fn new(config: ProxyConfig, ehash_config: Option<shared_config::EhashConfig>) -> Self {
+    pub fn new(config: ProxyConfig, global_config: shared_config::MinerGlobalConfig) -> Self {
         let mut rng = rand::thread_rng();
         let mint_url = extract_mint_url(&config);
         let wait_time = rng.gen_range(0..=3000);
@@ -157,7 +158,7 @@ impl TranslatorSv2 {
             mint_client: mint_client,
             miner_tracker: Arc::new(miner_stats::MinerTracker::new()),
             stats_handle,
-            ehash_config,
+            global_config,
         }
     }
 
@@ -188,6 +189,17 @@ impl TranslatorSv2 {
         }
 
         self.wallet = Some(wallet.clone());
+
+        // Start faucet API if enabled in global config
+        if let Some(ref faucet_config) = self.global_config.faucet {
+            if faucet_config.enabled {
+                let faucet_wallet = wallet.clone();
+                let faucet_port = faucet_config.port;
+                tokio::spawn(async move {
+                    faucet_api::run_faucet_api(faucet_port, faucet_wallet).await;
+                });
+            }
+        }
 
         // Start background task to send balance updates to stats service
         if let Some(stats_handle) = &self.stats_handle {
@@ -350,7 +362,7 @@ impl TranslatorSv2 {
         let (keyset_sender, keyset_receiver) = broadcast::channel(16);
         
         // Get minimum difficulty from config or use default
-        let minimum_difficulty = self.ehash_config
+        let minimum_difficulty = self.global_config.ehash
             .as_ref()
             .map(|c| c.minimum_difficulty)
             .unwrap_or(32);

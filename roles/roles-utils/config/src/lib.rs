@@ -81,11 +81,18 @@ pub struct EhashConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+pub struct FaucetConfig {
+    pub enabled: bool,
+    pub port: u16,
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct MinerGlobalConfig {
     pub mint: MintConfig,
     pub pool: PoolConfig,
     pub proxy: ProxyConfig,
     pub ehash: Option<EhashConfig>,
+    pub faucet: Option<FaucetConfig>,
 }
 
 impl MinerGlobalConfig {

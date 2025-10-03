@@ -65,9 +65,9 @@ async fn main() {
         proxy_config.wallet.db_path = db_path_override;
     }
 
-    proxy_config.mint = Some(global_config.mint);
+    proxy_config.mint = Some(global_config.mint.clone());
 
     tracing::info!("Proxy Config: {:?}", &proxy_config);
 
-    lib::TranslatorSv2::new(proxy_config, global_config.ehash).start().await;
+    lib::TranslatorSv2::new(proxy_config, global_config).start().await;
 }
