@@ -18,6 +18,7 @@ members = [
     "v2/subprotocols/mining",
     "v2/subprotocols/job-declaration",
     "v2/subprotocols/mint-quote",
+    "v2/subprotocols/stats-sv2",
     "v2/sv2-ffi",
     "v2/roles-logic-sv2",
 ]
