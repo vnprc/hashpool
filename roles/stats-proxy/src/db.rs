@@ -61,14 +61,44 @@ impl StatsDatabase {
         conn.execute(
             "CREATE TABLE IF NOT EXISTS current_stats (
                 downstream_id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL DEFAULT '',
                 shares_submitted INTEGER NOT NULL,
                 quotes_created INTEGER NOT NULL,
                 ehash_mined INTEGER NOT NULL,
                 channels TEXT NOT NULL,
                 last_share_time INTEGER,
                 connected_at INTEGER NOT NULL,
-                is_work_selection_enabled INTEGER NOT NULL
+                is_work_selection_enabled INTEGER NOT NULL,
+                current_hashrate REAL NOT NULL DEFAULT 0.0
             )",
+            [],
+        )?;
+
+        // Add name column if it doesn't exist (for existing databases)
+        conn.execute(
+            "ALTER TABLE current_stats ADD COLUMN name TEXT NOT NULL DEFAULT ''",
+            [],
+        ).ok(); // Ignore error if column already exists
+
+        // Add current_hashrate column if it doesn't exist
+        conn.execute(
+            "ALTER TABLE current_stats ADD COLUMN current_hashrate REAL NOT NULL DEFAULT 0.0",
+            [],
+        ).ok(); // Ignore error if column already exists
+
+        // Global balance table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS balance (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                amount INTEGER NOT NULL DEFAULT 0,
+                last_updated INTEGER NOT NULL
+            )",
+            [],
+        )?;
+
+        // Initialize balance row if it doesn't exist
+        conn.execute(
+            "INSERT OR IGNORE INTO balance (id, amount, last_updated) VALUES (1, 0, 0)",
             [],
         )?;
 
@@ -176,7 +206,7 @@ impl StatsDatabase {
         Ok(())
     }
 
-    pub fn record_downstream_connected(&self, downstream_id: u32, flags: u32) -> Result<()> {
+    pub fn record_downstream_connected(&self, downstream_id: u32, flags: u32, name: String) -> Result<()> {
         let conn = self.conn.lock().unwrap();
 
         let is_work_selection = (flags & 1) != 0;
@@ -186,15 +216,56 @@ impl StatsDatabase {
             .as_secs() as i64;
 
         conn.execute(
-            "INSERT INTO current_stats (downstream_id, shares_submitted, quotes_created, ehash_mined, channels, connected_at, is_work_selection_enabled)
-             VALUES (?1, 0, 0, 0, '[]', ?2, ?3)
+            "INSERT INTO current_stats (downstream_id, name, shares_submitted, quotes_created, ehash_mined, channels, connected_at, is_work_selection_enabled, current_hashrate)
+             VALUES (?1, ?2, 0, 0, 0, '[]', ?3, ?4, 0.0)
              ON CONFLICT(downstream_id) DO UPDATE SET
-                connected_at = ?2,
-                is_work_selection_enabled = ?3",
-            rusqlite::params![downstream_id, now, is_work_selection as i64],
+                name = ?2,
+                connected_at = ?3,
+                is_work_selection_enabled = ?4",
+            rusqlite::params![downstream_id, name, now, is_work_selection as i64],
         )?;
 
         Ok(())
+    }
+
+    pub fn record_hashrate(&self, downstream_id: u32, hashrate: f64, timestamp: u64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+
+        // Update current hashrate
+        conn.execute(
+            "UPDATE current_stats SET current_hashrate = ?1 WHERE downstream_id = ?2",
+            rusqlite::params![hashrate, downstream_id],
+        )?;
+
+        // Also insert into hashrate_samples for historical tracking
+        conn.execute(
+            "INSERT INTO hashrate_samples (timestamp, downstream_id, shares_5min, estimated_hashrate)
+             VALUES (?1, ?2, 0, ?3)",
+            rusqlite::params![timestamp as i64, downstream_id, hashrate],
+        )?;
+
+        Ok(())
+    }
+
+    pub fn update_balance(&self, balance: u64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+
+        conn.execute(
+            "UPDATE balance SET amount = ?1, last_updated = ?2 WHERE id = 1",
+            rusqlite::params![balance as i64, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_balance(&self) -> Result<u64> {
+        let conn = self.conn.lock().unwrap();
+        let balance: i64 = conn.query_row(
+            "SELECT amount FROM balance WHERE id = 1",
+            [],
+            |row| row.get(0)
+        )?;
+        Ok(balance as u64)
     }
 
     pub fn record_downstream_disconnected(&self, downstream_id: u32) -> Result<()> {
@@ -212,7 +283,7 @@ impl StatsDatabase {
     pub fn get_current_stats(&self) -> Result<Vec<DownstreamStats>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT downstream_id, shares_submitted, quotes_created, ehash_mined, channels, last_share_time, connected_at, is_work_selection_enabled
+            "SELECT downstream_id, name, shares_submitted, quotes_created, ehash_mined, channels, last_share_time, connected_at, is_work_selection_enabled, current_hashrate
              FROM current_stats"
         )?;
 
@@ -220,13 +291,15 @@ impl StatsDatabase {
             .query_map([], |row| {
                 Ok(DownstreamStats {
                     downstream_id: row.get(0)?,
-                    shares_submitted: row.get(1)?,
-                    quotes_created: row.get(2)?,
-                    ehash_mined: row.get(3)?,
-                    channels: serde_json::from_str(&row.get::<_, String>(4)?).unwrap_or_default(),
-                    last_share_time: row.get(5)?,
-                    connected_at: row.get(6)?,
-                    is_work_selection_enabled: row.get::<_, i64>(7)? != 0,
+                    name: row.get(1)?,
+                    shares_submitted: row.get(2)?,
+                    quotes_created: row.get(3)?,
+                    ehash_mined: row.get(4)?,
+                    channels: serde_json::from_str(&row.get::<_, String>(5)?).unwrap_or_default(),
+                    last_share_time: row.get(6)?,
+                    connected_at: row.get(7)?,
+                    is_work_selection_enabled: row.get::<_, i64>(8)? != 0,
+                    current_hashrate: row.get(9)?,
                 })
             })?
             .filter_map(|r| r.ok())
@@ -268,6 +341,7 @@ impl StatsDatabase {
 #[derive(Debug, serde::Serialize)]
 pub struct DownstreamStats {
     pub downstream_id: u32,
+    pub name: String,
     pub shares_submitted: u64,
     pub quotes_created: u64,
     pub ehash_mined: u64,
@@ -275,6 +349,7 @@ pub struct DownstreamStats {
     pub last_share_time: Option<i64>,
     pub connected_at: i64,
     pub is_work_selection_enabled: bool,
+    pub current_hashrate: f64,
 }
 
 #[derive(Debug, serde::Serialize)]

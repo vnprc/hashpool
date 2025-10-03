@@ -3758,6 +3758,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "roles_logic_sv2",
  "rusqlite",
  "serde",
  "serde_json",

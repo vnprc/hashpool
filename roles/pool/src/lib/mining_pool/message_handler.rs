@@ -1,4 +1,4 @@
-use super::super::{mining_pool::Downstream, stats::StatsMessage};
+use super::super::{mining_pool::Downstream, stats_client::StatsMessage};
 use binary_sv2::Str0255;
 use mining_sv2::MintQuoteNotification;
 use mint_pool_messaging::MintQuoteResponseEvent;
@@ -166,8 +166,8 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                     );
                 }) {
                     // Send stats update for new channel
-                    if let Ok(stats_handle) = self.pool.safe_lock(|p| p.stats_handle.clone()) {
-                        stats_handle.send_stats(StatsMessage::ChannelAdded {
+                    if let Ok(Some(stats_handle)) = self.pool.safe_lock(|p| p.stats_handle.clone()) {
+                        stats_handle.send_stats(StatsMessage::ChannelOpened {
                             downstream_id: self.id,
                             channel_id: success.channel_id,
                         });
@@ -212,10 +212,10 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                             );
                         }) {
                             // Send stats update for new extended channel
-                            if let Ok(stats_handle) =
+                            if let Ok(Some(stats_handle)) =
                                 self.pool.safe_lock(|p| p.stats_handle.clone())
                             {
-                                stats_handle.send_stats(StatsMessage::ChannelAdded {
+                                stats_handle.send_stats(StatsMessage::ChannelOpened {
                                     downstream_id: self.id,
                                     channel_id: success.channel_id,
                                 });
@@ -348,9 +348,13 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::RelaySubmitShareUpstream => unreachable!(),
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetBitcoinTarget((share,t_id,coinbase,_)) => {
                     // Send share submitted stats - never blocks
-                    if let Ok(stats_handle) = self.pool.safe_lock(|p| p.stats_handle.clone()) {
+                    if let Ok(Some(stats_handle)) = self.pool.safe_lock(|p| p.stats_handle.clone()) {
                         stats_handle.send_stats(StatsMessage::ShareSubmitted {
-                            downstream_id: self.id
+                            downstream_id: self.id,
+                            timestamp: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap()
+                                .as_millis() as u64,
                         });
                     }
 
@@ -388,9 +392,13 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                 },
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetDownstreamTarget => {
                     // Send share submitted stats - never blocks
-                    if let Ok(stats_handle) = self.pool.safe_lock(|p| p.stats_handle.clone()) {
+                    if let Ok(Some(stats_handle)) = self.pool.safe_lock(|p| p.stats_handle.clone()) {
                         stats_handle.send_stats(StatsMessage::ShareSubmitted {
-                            downstream_id: self.id
+                            downstream_id: self.id,
+                            timestamp: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap()
+                                .as_millis() as u64,
                         });
                     }
 

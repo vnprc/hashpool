@@ -15,8 +15,9 @@ pub enum StatsMessage {
     QuoteCreated { downstream_id: u32, amount: u64, timestamp: u64 },
     ChannelOpened { downstream_id: u32, channel_id: u32 },
     ChannelClosed { downstream_id: u32, channel_id: u32 },
-    DownstreamConnected { downstream_id: u32, flags: u32 },
+    DownstreamConnected { downstream_id: u32, flags: u32, address: String, service_type: Option<String> },
     DownstreamDisconnected { downstream_id: u32 },
+    PoolInfo { listen_address: String },
 }
 
 impl StatsHandler {
@@ -45,13 +46,17 @@ impl StatsHandler {
                 debug!("Channel closed: downstream_id={}, channel_id={}", downstream_id, channel_id);
                 self.db.record_channel_closed(downstream_id, channel_id)?;
             }
-            StatsMessage::DownstreamConnected { downstream_id, flags } => {
-                debug!("Downstream connected: downstream_id={}, flags={}", downstream_id, flags);
-                self.db.record_downstream_connected(downstream_id, flags)?;
+            StatsMessage::DownstreamConnected { downstream_id, flags, address, service_type } => {
+                debug!("Downstream connected: downstream_id={}, flags={}, address={}, service_type={:?}", downstream_id, flags, address, service_type);
+                self.db.record_downstream_connected(downstream_id, flags, &address, service_type.as_deref())?;
             }
             StatsMessage::DownstreamDisconnected { downstream_id } => {
                 debug!("Downstream disconnected: downstream_id={}", downstream_id);
                 self.db.record_downstream_disconnected(downstream_id)?;
+            }
+            StatsMessage::PoolInfo { listen_address } => {
+                debug!("Pool info: listen_address={}", listen_address);
+                self.db.record_pool_info(&listen_address)?;
             }
         }
 
@@ -163,15 +168,19 @@ mod tests {
         let msg = StatsMessage::DownstreamConnected {
             downstream_id: 20,
             flags: 1,
+            address: "127.0.0.1:1234".to_string(),
+            service_type: Some("mint".to_string()),
         };
 
         let json = serde_json::to_string(&msg).unwrap();
         let decoded: StatsMessage = serde_json::from_str(&json).unwrap();
 
         match decoded {
-            StatsMessage::DownstreamConnected { downstream_id, flags } => {
+            StatsMessage::DownstreamConnected { downstream_id, flags, address, service_type } => {
                 assert_eq!(downstream_id, 20);
                 assert_eq!(flags, 1);
+                assert_eq!(address, "127.0.0.1:1234");
+                assert_eq!(service_type, Some("mint".to_string()));
             }
             _ => panic!("Expected DownstreamConnected variant"),
         }
@@ -241,7 +250,7 @@ mod tests {
             StatsMessage::QuoteCreated { downstream_id: 1, amount: 100, timestamp: 1000 },
             StatsMessage::ChannelOpened { downstream_id: 1, channel_id: 10 },
             StatsMessage::ChannelClosed { downstream_id: 1, channel_id: 10 },
-            StatsMessage::DownstreamConnected { downstream_id: 1, flags: 0 },
+            StatsMessage::DownstreamConnected { downstream_id: 1, flags: 0, address: "127.0.0.1:1234".to_string(), service_type: None },
             StatsMessage::DownstreamDisconnected { downstream_id: 1 },
         ];
 

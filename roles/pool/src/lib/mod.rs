@@ -1,9 +1,8 @@
 pub mod error;
 pub mod mining_pool;
 pub mod status;
-pub mod stats;
+pub mod stats_client;
 pub mod template_receiver;
-pub mod web;
 
 use std::net::SocketAddr;
 
@@ -87,16 +86,6 @@ impl PoolSv2 {
             self.sv2_messaging_config.clone(),
             self.ehash_config.clone(),
         );
-
-        // Start web server on port 8081 (different from proxy's 3030 and any 8080 services)
-        info!("Initializing pool web server...");
-        let web_server = web::WebServer::new(pool.clone(), 8081);
-        tokio::spawn(async move {
-            info!("Starting pool web server task...");
-            if let Err(e) = web_server.start().await {
-                error!("Pool web server error: {}", e);
-            }
-        });
 
         // Start the error handling loop
         // See `./status.rs` and `utils/error_handling` for information on how this operates

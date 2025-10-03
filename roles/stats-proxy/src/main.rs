@@ -5,12 +5,11 @@ use tokio::io::AsyncReadExt;
 use tracing::{error, info};
 
 mod config;
-mod stats_handler;
 mod web;
 
 use config::Config;
-use pool_stats::db::StatsDatabase;
-use stats_handler::StatsHandler;
+use proxy_stats::db::StatsDatabase;
+use proxy_stats::stats_handler::StatsHandler;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -24,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Load configuration
     let config = Config::from_args()?;
-    info!("Starting pool-stats service");
+    info!("Starting proxy-stats service");
     info!("TCP server: {}", config.tcp_address);
     info!("HTTP server: {}", config.http_address);
     info!("Database: {}", config.db_path.display());
@@ -72,6 +71,7 @@ async fn handle_pool_connection(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let handler = StatsHandler::new(db);
     let mut buffer = vec![0u8; 8192];
+    let mut leftover = Vec::new();
 
     loop {
         match stream.read(&mut buffer).await {
@@ -80,9 +80,24 @@ async fn handle_pool_connection(
                 break;
             }
             Ok(n) => {
-                let data = &buffer[..n];
-                if let Err(e) = handler.handle_message(data).await {
-                    error!("Error processing message from {}: {}", addr, e);
+                // Append new data to leftover from previous read
+                leftover.extend_from_slice(&buffer[..n]);
+
+                // Process newline-delimited JSON messages
+                while let Some(newline_pos) = leftover.iter().position(|&b| b == b'\n') {
+                    let line = &leftover[..newline_pos];
+
+                    if !line.is_empty() {
+                        info!("Received message from {}: {}", addr, String::from_utf8_lossy(line));
+                        if let Err(e) = handler.handle_message(line).await {
+                            error!("Error processing message from {}: {}", addr, e);
+                        } else {
+                            info!("Successfully processed message from {}", addr);
+                        }
+                    }
+
+                    // Remove processed line including newline
+                    leftover.drain(..=newline_pos);
                 }
             }
             Err(e) => {

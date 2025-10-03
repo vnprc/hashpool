@@ -105,6 +105,7 @@ pub struct Configuration {
     pub cert_validity_sec: u64,
     pub coinbase_outputs: Vec<CoinbaseOutput>,
     pub pool_signature: String,
+    pub stats_server_address: Option<String>,
     #[cfg(feature = "test_only_allow_unencrypted")]
     pub test_only_listen_adress_plain: String,
 }
@@ -172,6 +173,7 @@ impl Configuration {
             cert_validity_sec: pool_connection.cert_validity_sec,
             coinbase_outputs,
             pool_signature: pool_connection.signature,
+            stats_server_address: None,
             #[cfg(feature = "test_only_allow_unencrypted")]
             test_only_listen_adress_plain,
         }
@@ -222,7 +224,7 @@ pub struct Pool {
     channel_to_downstream: HashMap<u32, u32, BuildNoHashHasher<u32>>,
     pub listen_address: String,
     pub minimum_difficulty: u32,
-    pub stats_handle: super::stats::StatsHandle,
+    pub stats_handle: Option<super::stats_client::StatsHandle>,
     mint_message_hub: Arc<MintPoolMessageHub>,
 }
 
@@ -238,10 +240,14 @@ impl quote_dispatcher::QuoteEventCallback for PoolStatsCallback {
             let downstream_id = p.channel_to_downstream.get(&channel_id).copied();
             (p.stats_handle.clone(), downstream_id)
         }) {
-            if let Some(id) = downstream_id {
-                stats_handle.send_stats(super::stats::StatsMessage::QuoteCreated {
+            if let (Some(handle), Some(id)) = (stats_handle, downstream_id) {
+                handle.send_stats(super::stats_client::StatsMessage::QuoteCreated {
                     downstream_id: id,
                     amount,
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis() as u64,
                 });
             }
         }
@@ -261,7 +267,7 @@ impl Downstream {
         sv2_config: Option<Sv2MessagingConfig>,
     ) -> PoolResult<Arc<Mutex<Self>>> {
         let setup_connection = Arc::new(Mutex::new(SetupConnectionHandler::new()));
-        let downstream_data =
+        let (downstream_data, flags) =
             SetupConnectionHandler::setup(setup_connection, &mut receiver, &mut sender, address)
                 .await?;
 
@@ -301,11 +307,14 @@ impl Downstream {
 
         // Notify stats manager about new downstream connection
         pool.safe_lock(|p| {
-            p.stats_handle
-                .send_stats(super::stats::StatsMessage::DownstreamConnected {
+            if let Some(ref handle) = p.stats_handle {
+                handle.send_stats(super::stats_client::StatsMessage::DownstreamConnected {
                     downstream_id: id,
-                    is_work_selection_enabled: downstream_data.work_selection,
+                    flags,
+                    address: address.to_string(),
+                    service_type: None, // Will be inferred from flags
                 });
+            }
         })
         .unwrap_or(());
 
@@ -589,11 +598,23 @@ impl Pool {
         info!("Mint connected from {}", address);
 
         // Store the mint connection sender for message routing
-        pool.safe_lock(|p| {
+        let stats_handle = pool.safe_lock(|p| {
             p.mint_connections.insert(address, sender.clone());
             info!("Stored mint connection sender for {}", address);
+            p.stats_handle.clone()
         })
         .map_err(|e| format!("Failed to lock pool: {}", e))?;
+
+        // Notify stats about mint connection (use hash of address as ID)
+        if let Some(ref handle) = stats_handle {
+            let mint_id = address.port() as u32; // Use port as simple ID
+            handle.send_stats(super::stats_client::StatsMessage::DownstreamConnected {
+                downstream_id: mint_id,
+                flags: 0, // Mint doesn't use SetupConnection flags
+                address: address.to_string(),
+                service_type: Some("mint".to_string()),
+            });
+        }
 
         let connection_id = address.to_string();
         let hub = pool
@@ -1021,13 +1042,19 @@ impl Pool {
 
         let mint_message_hub = MintPoolMessageHub::new(messaging_config);
 
-        // Create stats manager and handle
-        let (mut stats_manager, stats_handle) = super::stats::StatsManager::new();
-
-        // Spawn stats manager task
-        tokio::spawn(async move {
-            stats_manager.run().await;
-        });
+        // Create stats handle that connects to external pool-stats service
+        let stats_handle = if let Some(ref stats_addr) = config.stats_server_address {
+            info!("Using external pool-stats service at {}", stats_addr);
+            let handle = super::stats_client::StatsHandle::new(stats_addr.clone());
+            // Send pool info immediately
+            handle.send_stats(super::stats_client::StatsMessage::PoolInfo {
+                listen_address: config.listen_address.clone(),
+            });
+            Some(handle)
+        } else {
+            warn!("No stats_server_address configured - stats will be disabled");
+            None
+        };
 
         let pool = Arc::new(Mutex::new(Pool {
             downstreams: HashMap::with_hasher(BuildNoHashHasher::default()),
@@ -1212,8 +1239,9 @@ impl Pool {
     pub fn remove_downstream(&mut self, downstream_id: u32) {
         self.downstreams.remove(&downstream_id);
         // Notify stats manager about downstream disconnection
-        self.stats_handle
-            .send_stats(super::stats::StatsMessage::DownstreamDisconnected { downstream_id });
+        if let Some(ref handle) = self.stats_handle {
+            handle.send_stats(super::stats_client::StatsMessage::DownstreamDisconnected { downstream_id });
+        }
     }
 
     /// Send extension message to specific downstream

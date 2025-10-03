@@ -34,22 +34,37 @@ pub mod error;
 pub mod miner_stats;
 pub mod proxy;
 pub mod proxy_config;
+pub mod stats_client;
 pub mod status;
 pub mod upstream_sv2;
 pub mod utils;
-pub mod web;
 
 use std::{time::Duration, env};
 use anyhow::{Result, Context};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct TranslatorSv2 {
     config: ProxyConfig,
     reconnect_wait_time: u64,
     wallet: Option<Arc<Wallet>>,
     mint_client: HttpClient,
     miner_tracker: Arc<miner_stats::MinerTracker>,
+    stats_handle: Option<stats_client::StatsHandle>,
     ehash_config: Option<shared_config::EhashConfig>,
+}
+
+// Manual Debug implementation since StatsHandle doesn't derive Debug
+impl std::fmt::Debug for TranslatorSv2 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TranslatorSv2")
+            .field("config", &self.config)
+            .field("reconnect_wait_time", &self.reconnect_wait_time)
+            .field("wallet", &self.wallet.is_some())
+            .field("miner_tracker", &"MinerTracker")
+            .field("stats_handle", &self.stats_handle.is_some())
+            .field("ehash_config", &self.ehash_config)
+            .finish()
+    }
 }
 
 fn resolve_and_prepare_db_path(config_path: &str) -> PathBuf {
@@ -126,12 +141,22 @@ impl TranslatorSv2 {
         let wait_time = rng.gen_range(0..=3000);
         let mint_client = HttpClient::new(MintUrl::from_str(&mint_url).unwrap(), None);
 
+        // Create stats handle if configured
+        let stats_handle = if let Some(ref stats_addr) = config.stats_server_address {
+            info!("Using external proxy-stats service at {}", stats_addr);
+            Some(stats_client::StatsHandle::new(stats_addr.clone()))
+        } else {
+            warn!("No stats_server_address configured - stats will be disabled");
+            None
+        };
+
         Self {
             config: config.clone(),
             reconnect_wait_time: wait_time,
             wallet: None,
             mint_client: mint_client,
             miner_tracker: Arc::new(miner_stats::MinerTracker::new()),
+            stats_handle,
             ehash_config,
         }
     }
@@ -164,18 +189,24 @@ impl TranslatorSv2 {
 
         self.wallet = Some(wallet.clone());
 
-        // Start web server
-        if let Some(wallet_ref) = &self.wallet {
-            let web_port = self.config.web_port;
-            let wallet_for_web = wallet_ref.clone();
-            let miner_tracker_for_web = self.miner_tracker.clone();
-            let downstream_address = self.config.downstream_address.clone();
-            let downstream_port = self.config.downstream_port;
-            let upstream_address = self.config.upstream_address.clone();
-            let upstream_port = self.config.upstream_port;
+        // Start background task to send balance updates to stats service
+        if let Some(stats_handle) = &self.stats_handle {
+            let wallet_clone = wallet.clone();
+            let stats_handle_clone = stats_handle.clone();
             tokio::spawn(async move {
-                if let Err(e) = web::start_web_server(wallet_for_web, miner_tracker_for_web, web_port, downstream_address, downstream_port, upstream_address, upstream_port).await {
-                    error!("Web server error: {}", e);
+                loop {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    if let Ok(balance) = wallet_clone.total_balance().await {
+                        let balance_u64 = u64::from(balance);
+                        let timestamp = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_millis() as u64;
+                        stats_handle_clone.send_stats(stats_client::StatsMessage::BalanceUpdate {
+                            balance: balance_u64,
+                            timestamp,
+                        });
+                    }
                 }
             });
         }
@@ -355,15 +386,16 @@ impl TranslatorSv2 {
             info!("Spawning proof sweeper");
             self.spawn_proof_sweeper(upstream.clone());
         }
-        
+
         let task_collector_init_task = task_collector.clone();
-        
-        
+
+
         // Spawn a task to do all of this init work so that the main thread
         // can listen for signals and failures on the status channel. This
         // allows for the tproxy to fail gracefully if any of these init tasks
         //fail
         let miner_tracker_for_task = self.miner_tracker.clone();
+        let stats_handle_for_task = self.stats_handle.clone();
         let task = task::spawn(async move {
             // Connect to the SV2 Upstream role
             match upstream_sv2::Upstream::connect(
@@ -443,6 +475,7 @@ impl TranslatorSv2 {
                 diff_config,
                 task_collector_downstream,
                 miner_tracker_for_task.clone(),
+                stats_handle_for_task,
             );
             
         }); // End of init task

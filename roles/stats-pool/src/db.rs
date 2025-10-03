@@ -2,6 +2,7 @@ use rusqlite::{Connection, Result};
 use std::path::Path;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
+use roles_logic_sv2::common_messages_sv2::has_work_selection;
 
 pub struct StatsDatabase {
     conn: Mutex<Connection>,
@@ -67,10 +68,23 @@ impl StatsDatabase {
                 channels TEXT NOT NULL,
                 last_share_time INTEGER,
                 connected_at INTEGER NOT NULL,
-                is_work_selection_enabled INTEGER NOT NULL
+                is_work_selection_enabled INTEGER NOT NULL,
+                address TEXT NOT NULL DEFAULT '-',
+                service_type TEXT
             )",
             [],
         )?;
+
+        // Add columns if they don't exist (migration)
+        conn.execute(
+            "ALTER TABLE current_stats ADD COLUMN address TEXT NOT NULL DEFAULT '-'",
+            [],
+        ).ok(); // Ignore error if column already exists
+
+        conn.execute(
+            "ALTER TABLE current_stats ADD COLUMN service_type TEXT",
+            [],
+        ).ok(); // Ignore error if column already exists
 
         Ok(())
     }
@@ -176,22 +190,24 @@ impl StatsDatabase {
         Ok(())
     }
 
-    pub fn record_downstream_connected(&self, downstream_id: u32, flags: u32) -> Result<()> {
+    pub fn record_downstream_connected(&self, downstream_id: u32, flags: u32, address: &str, service_type: Option<&str>) -> Result<()> {
         let conn = self.conn.lock().unwrap();
 
-        let is_work_selection = (flags & 1) != 0;
+        let is_work_selection = has_work_selection(flags);
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64;
 
         conn.execute(
-            "INSERT INTO current_stats (downstream_id, shares_submitted, quotes_created, ehash_mined, channels, connected_at, is_work_selection_enabled)
-             VALUES (?1, 0, 0, 0, '[]', ?2, ?3)
+            "INSERT INTO current_stats (downstream_id, shares_submitted, quotes_created, ehash_mined, channels, connected_at, is_work_selection_enabled, address, service_type)
+             VALUES (?1, 0, 0, 0, '[]', ?2, ?3, ?4, ?5)
              ON CONFLICT(downstream_id) DO UPDATE SET
                 connected_at = ?2,
-                is_work_selection_enabled = ?3",
-            rusqlite::params![downstream_id, now, is_work_selection as i64],
+                is_work_selection_enabled = ?3,
+                address = ?4,
+                service_type = ?5",
+            rusqlite::params![downstream_id, now, is_work_selection as i64, address, service_type],
         )?;
 
         Ok(())
@@ -209,10 +225,45 @@ impl StatsDatabase {
         Ok(())
     }
 
+    pub fn record_pool_info(&self, listen_address: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+
+        // Create or update pool_info table with a single row
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS pool_info (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                listen_address TEXT NOT NULL
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "INSERT INTO pool_info (id, listen_address) VALUES (1, ?1)
+             ON CONFLICT(id) DO UPDATE SET listen_address = ?1",
+            [listen_address],
+        )?;
+
+        Ok(())
+    }
+
+    pub fn get_pool_address(&self) -> Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+
+        match conn.query_row(
+            "SELECT listen_address FROM pool_info WHERE id = 1",
+            [],
+            |row| row.get(0)
+        ) {
+            Ok(addr) => Ok(Some(addr)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
     pub fn get_current_stats(&self) -> Result<Vec<DownstreamStats>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT downstream_id, shares_submitted, quotes_created, ehash_mined, channels, last_share_time, connected_at, is_work_selection_enabled
+            "SELECT downstream_id, shares_submitted, quotes_created, ehash_mined, channels, last_share_time, connected_at, is_work_selection_enabled, address, service_type
              FROM current_stats"
         )?;
 
@@ -227,6 +278,8 @@ impl StatsDatabase {
                     last_share_time: row.get(5)?,
                     connected_at: row.get(6)?,
                     is_work_selection_enabled: row.get::<_, i64>(7)? != 0,
+                    address: row.get(8)?,
+                    service_type: row.get(9)?,
                 })
             })?
             .filter_map(|r| r.ok())
@@ -275,6 +328,8 @@ pub struct DownstreamStats {
     pub last_share_time: Option<i64>,
     pub connected_at: i64,
     pub is_work_selection_enabled: bool,
+    pub address: String,
+    pub service_type: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -424,7 +479,7 @@ mod tests {
         let downstream_id = 1;
         let flags = 1; // Work selection enabled
 
-        db.record_downstream_connected(downstream_id, flags)
+        db.record_downstream_connected(downstream_id, flags, "127.0.0.1:1234", None)
             .unwrap();
 
         // Verify stats
@@ -435,7 +490,7 @@ mod tests {
 
         // Connect with different flags
         let flags_no_work_selection = 0;
-        db.record_downstream_connected(downstream_id, flags_no_work_selection)
+        db.record_downstream_connected(downstream_id, flags_no_work_selection, "127.0.0.1:1234", None)
             .unwrap();
 
         let stats = db.get_current_stats().unwrap();
@@ -448,7 +503,7 @@ mod tests {
         let downstream_id = 1;
 
         // Connect downstream
-        db.record_downstream_connected(downstream_id, 0).unwrap();
+        db.record_downstream_connected(downstream_id, 0, "127.0.0.1:1234", None).unwrap();
 
         // Verify connected
         let stats = db.get_current_stats().unwrap();
@@ -505,7 +560,7 @@ mod tests {
             .as_secs();
 
         // Connect
-        db.record_downstream_connected(downstream_id, 1).unwrap();
+        db.record_downstream_connected(downstream_id, 1, "127.0.0.1:1234", None).unwrap();
 
         // Open channels
         db.record_channel_opened(downstream_id, 100).unwrap();

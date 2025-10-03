@@ -15,8 +15,10 @@ pub enum StatsMessage {
     QuoteCreated { downstream_id: u32, amount: u64, timestamp: u64 },
     ChannelOpened { downstream_id: u32, channel_id: u32 },
     ChannelClosed { downstream_id: u32, channel_id: u32 },
-    DownstreamConnected { downstream_id: u32, flags: u32 },
+    DownstreamConnected { downstream_id: u32, flags: u32, #[serde(default)] name: String },
     DownstreamDisconnected { downstream_id: u32 },
+    HashrateUpdate { downstream_id: u32, hashrate: f64, timestamp: u64 },
+    BalanceUpdate { balance: u64, timestamp: u64 },
 }
 
 impl StatsHandler {
@@ -45,13 +47,21 @@ impl StatsHandler {
                 debug!("Channel closed: downstream_id={}, channel_id={}", downstream_id, channel_id);
                 self.db.record_channel_closed(downstream_id, channel_id)?;
             }
-            StatsMessage::DownstreamConnected { downstream_id, flags } => {
-                debug!("Downstream connected: downstream_id={}, flags={}", downstream_id, flags);
-                self.db.record_downstream_connected(downstream_id, flags)?;
+            StatsMessage::DownstreamConnected { downstream_id, flags, name } => {
+                debug!("Downstream connected: downstream_id={}, flags={}, name={}", downstream_id, flags, name);
+                self.db.record_downstream_connected(downstream_id, flags, name)?;
             }
             StatsMessage::DownstreamDisconnected { downstream_id } => {
                 debug!("Downstream disconnected: downstream_id={}", downstream_id);
                 self.db.record_downstream_disconnected(downstream_id)?;
+            }
+            StatsMessage::HashrateUpdate { downstream_id, hashrate, timestamp } => {
+                debug!("Hashrate update: downstream_id={}, hashrate={}, timestamp={}", downstream_id, hashrate, timestamp);
+                self.db.record_hashrate(downstream_id, hashrate, timestamp)?;
+            }
+            StatsMessage::BalanceUpdate { balance, timestamp } => {
+                debug!("Balance update: balance={}, timestamp={}", balance, timestamp);
+                self.db.update_balance(balance)?;
             }
         }
 

@@ -31,7 +31,7 @@ impl SetupConnectionHandler {
         receiver: &mut Receiver<EitherFrame>,
         sender: &mut Sender<EitherFrame>,
         address: SocketAddr,
-    ) -> PoolResult<CommonDownstreamData> {
+    ) -> PoolResult<(CommonDownstreamData, u32)> {
         // read stdFrame from receiver
 
         let mut incoming: StdFrame = match receiver.recv().await {
@@ -76,11 +76,14 @@ impl SetupConnectionHandler {
         match message {
             CommonMessages::SetupConnectionSuccess(m) => {
                 debug!("Sent back SetupConnectionSuccess: {:?}", m);
-                Ok(CommonDownstreamData {
-                    header_only: has_requires_std_job(m.flags),
-                    work_selection: has_work_selection(m.flags),
-                    version_rolling: has_version_rolling(m.flags),
-                })
+                Ok((
+                    CommonDownstreamData {
+                        header_only: has_requires_std_job(m.flags),
+                        work_selection: has_work_selection(m.flags),
+                        version_rolling: has_version_rolling(m.flags),
+                    },
+                    m.flags,
+                ))
             }
             _ => panic!(),
         }

@@ -101,7 +101,7 @@ balance:
          FROM proof WHERE state = 'UNSPENT' GROUP BY unit;" \
         2>/dev/null || echo "Error: Could not read wallet database"
 
-# delete persistent storage; options: cashu, regtest, testnet4
+# delete persistent storage; options: cashu, regtest, testnet4, stats, logs
 clean TYPE="":
     @if [ "{{TYPE}}" = "cashu" ]; then \
         echo "deleting all sqlite data..."; \
@@ -120,11 +120,20 @@ clean TYPE="":
         echo "deleting testnet4 data..."; \
         rm -rf .devenv/state/bitcoind/testnet4; \
         echo "testnet4 data deleted"; \
+    elif [ "{{TYPE}}" = "stats" ]; then \
+        echo "deleting stats data..."; \
+        rm -f .devenv/state/stats-pool/stats.sqlite \
+              .devenv/state/stats-pool/stats.sqlite-shm \
+              .devenv/state/stats-pool/stats.sqlite-wal \
+              .devenv/state/stats-proxy/stats.sqlite \
+              .devenv/state/stats-proxy/stats.sqlite-shm \
+              .devenv/state/stats-proxy/stats.sqlite-wal; \
+        echo "stats data deleted"; \
     elif [ "{{TYPE}}" = "logs" ]; then \
         echo "deleting logs..."; \
         rm -rf logs/*; \
         echo "logs deleted"; \
     else \
-        echo "Error: TYPE must be 'cashu', 'regtest', 'testnet4', or logs"; \
+        echo "Error: TYPE must be 'cashu', 'regtest', 'testnet4', 'stats', or 'logs'"; \
         exit 1; \
     fi

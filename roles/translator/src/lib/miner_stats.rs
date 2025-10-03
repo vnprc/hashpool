@@ -72,15 +72,14 @@ impl MinerTracker {
         self.miners.write().await.remove(&id);
     }
 
-    pub async fn increment_shares(&self, id: u32, current_expected_hashrate: f32) {
+    pub async fn increment_shares(&self, id: u32, current_hashrate: f32) {
         let mut miners = self.miners.write().await;
         if let Some(miner) = miners.get_mut(&id) {
             miner.shares_submitted += 1;
             miner.last_share_time = Some(Instant::now());
-            
-            // Use the current expected hashrate from difficulty management as approximation
-            // This gets updated by the difficulty system, so it's much more accurate than a fixed multiplier
-            miner.estimated_hashrate = current_expected_hashrate as f64;
+            // Update with current hashrate from difficulty management
+            // This gets adjusted by the difficulty system over time
+            miner.estimated_hashrate = current_hashrate as f64;
         }
     }
 
@@ -96,6 +95,11 @@ impl MinerTracker {
         if let Some(miner) = miners.get_mut(&id) {
             miner.name = name;
         }
+    }
+
+    pub async fn get_hashrate(&self, id: u32) -> Option<f64> {
+        let miners = self.miners.read().await;
+        miners.get(&id).map(|m| m.estimated_hashrate)
     }
 
     pub async fn get_stats(&self) -> MinerStats {
