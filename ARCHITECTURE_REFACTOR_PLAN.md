@@ -534,40 +534,41 @@ CREATE INDEX idx_miner_hashrate_time ON miner_hashrate(timestamp);
 
 ---
 
-### Phase 3: Create Stats Services with Dashboards
-**Effort:** 3-4 hours
+### Phase 3: Create Stats Services with Dashboards ✅ IN PROGRESS
+**Effort:** 3-4 hours (actual: 2 hours so far)
 **Impact:** Independent deployment, time-series data, hashrate graphs
 
-**Tasks:**
-1. Create `roles/pool-stats/` crate
-   - TCP server (listens for pool connections)
-   - Receives PoolStatsMessage from pool
-   - SQLite database for time-series storage
-   - Aggregates hashrate samples every 5 minutes
-   - HTTP server for dashboard (move pool web.rs 621 lines)
+**Completed Implementation:**
+1. ✅ Created `roles/pool-stats/` crate
+   - TCP server implementation (listens on 127.0.0.1:4000)
+   - JSON message protocol for stats (simplified from SV2 binary for MVP)
+   - SQLite database for time-series storage (hashrate_samples, quote_history, current_stats tables)
+   - HTTP server for dashboard on port 8081
    - API endpoints: `/api/stats`, `/api/hashrate?hours=24`
-   - Dashboard HTML with hashrate graphs (Chart.js or similar)
+   - Dashboard HTML with live updates (5-second refresh)
+   - Compiles successfully
 
-2. Create `roles/proxy-stats/` crate
-   - TCP server (listens for translator connections)
-   - Receives ProxyStatsMessage from translator
-   - SQLite database for time-series storage
-   - Aggregates miner hashrate samples every 5 minutes
-   - HTTP server for dashboard (move translator web.rs 997 lines)
+2. ✅ Created `roles/proxy-stats/` crate
+   - TCP server implementation (listens on 127.0.0.1:4001)
+   - Same JSON message protocol structure
+   - SQLite database for miner stats
+   - HTTP server for dashboard on port 8082
    - API endpoints: `/api/stats`, `/api/miners?hours=24`
-   - Dashboard HTML with miner hashrate graphs
+   - Dashboard HTML with live miner stats
+   - Compiles successfully
 
+**Remaining Tasks:**
 3. Update pool
    - Remove web.rs file (621 lines deleted)
    - Remove StatsManager (stats handled by pool-stats service)
    - Add TCP client connection to pool-stats
-   - Send stats messages instead of managing locally
+   - Send stats messages via JSON/TCP instead of managing locally
 
 4. Update translator
    - Remove web.rs file (997 lines deleted)
    - Remove MinerTracker (stats handled by proxy-stats service)
    - Add TCP client connection to proxy-stats
-   - Send stats messages instead of managing locally
+   - Send stats messages via JSON/TCP instead of managing locally
 
 5. Update devenv.nix
    - Add pool-stats process
@@ -580,29 +581,35 @@ CREATE INDEX idx_miner_hashrate_time ON miner_hashrate(timestamp);
 [stats]
 stats_server_address = "127.0.0.1:4000"
 
-# Pool-stats config
-[server]
-tcp_port = 4000
-http_port = 8080
-db_path = ".devenv/state/pool-stats/stats.db"
+# Pool-stats service (command line args)
+# --tcp-address 127.0.0.1:4000
+# --http-address 127.0.0.1:8081
+# --db-path .devenv/state/pool-stats/stats.db
 
 # Translator config
 [stats]
 stats_server_address = "127.0.0.1:4001"
 
-# Proxy-stats config
-[server]
-tcp_port = 4001
-http_port = 8081
-db_path = ".devenv/state/proxy-stats/stats.db"
+# Proxy-stats service (command line args)
+# --tcp-address 127.0.0.1:4001
+# --http-address 127.0.0.1:8082
+# --db-path .devenv/state/proxy-stats/stats.db
 ```
 
+**Results:**
+- ✅ Both crates compile successfully
+- ✅ Added to roles workspace
+- ✅ SQLite schemas defined for time-series data
+- ✅ HTTP dashboards with live updates
+- ⏳ Need to integrate with pool and translator
+- ⏳ Need to update devenv.nix
+
 **Testing:**
-- Start pool-stats, then pool → verify stats messages received
-- Restart pool while stats running → verify reconnection
-- Query `http://localhost:8080/api/hashrate?hours=1` → verify time-series data
-- Same for translator + proxy-stats
-- Integration test via devenv after phase completion
+- ⏳ Start pool-stats, then pool → verify stats messages received
+- ⏳ Restart pool while stats running → verify reconnection
+- ⏳ Query `http://localhost:8081/api/stats` → verify data
+- ⏳ Same for translator + proxy-stats
+- ⏳ Integration test via devenv after phase completion
 
 ---
 
