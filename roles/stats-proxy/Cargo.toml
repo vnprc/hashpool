@@ -1,14 +1,14 @@
 [package]
-name = "proxy-stats"
+name = "stats_proxy"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "proxy_stats"
+name = "stats_proxy"
 path = "src/lib.rs"
 
 [[bin]]
-name = "proxy-stats"
+name = "stats_proxy"
 path = "src/main.rs"
 
 [dependencies]

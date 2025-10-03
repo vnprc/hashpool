@@ -11,7 +11,7 @@ use tracing::{error, info};
 use bytes::Bytes;
 use serde_json::json;
 
-use proxy_stats::db::StatsDatabase;
+use stats_proxy::db::StatsDatabase;
 use web_assets::icons::{nav_icon_css, pickaxe_favicon_inline_svg};
 
 static MINERS_PAGE_HTML: OnceLock<String> = OnceLock::new();

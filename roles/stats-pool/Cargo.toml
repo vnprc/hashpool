@@ -1,14 +1,14 @@
 [package]
-name = "pool-stats"
+name = "stats_pool"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "pool_stats"
+name = "stats_pool"
 path = "src/lib.rs"
 
 [[bin]]
-name = "pool-stats"
+name = "stats_pool"
 path = "src/main.rs"
 
 [dependencies]

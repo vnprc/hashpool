@@ -8,8 +8,8 @@ mod config;
 mod web;
 
 use config::Config;
-use proxy_stats::db::StatsDatabase;
-use proxy_stats::stats_handler::StatsHandler;
+use stats_proxy::db::StatsDatabase;
+use stats_proxy::stats_handler::StatsHandler;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

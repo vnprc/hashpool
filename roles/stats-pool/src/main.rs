@@ -8,8 +8,8 @@ mod config;
 mod web;
 
 use config::Config;
-use pool_stats::db::StatsDatabase;
-use pool_stats::stats_handler::StatsHandler;
+use stats_pool::db::StatsDatabase;
+use stats_pool::stats_handler::StatsHandler;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -204,7 +204,7 @@ in {
           --tcp-address 127.0.0.1:4000 \
           --http-address 127.0.0.1:8081 \
           --db-path ${poolStatsDb}
-      '' "stats-pool.log";
+      '' "stats_pool.log";
     };
 
     stats-proxy = {
@@ -213,7 +213,7 @@ in {
           --tcp-address 127.0.0.1:4001 \
           --http-address 127.0.0.1:8082 \
           --db-path ${proxyStatsDb}
-      '' "stats-proxy.log";
+      '' "stats_proxy.log";
     };
   };
 

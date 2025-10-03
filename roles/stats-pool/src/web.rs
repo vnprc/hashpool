@@ -11,7 +11,7 @@ use tracing::{error, info};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
-use pool_stats::db::StatsDatabase;
+use stats_pool::db::StatsDatabase;
 use web_assets::icons::{nav_icon_css, pickaxe_favicon_inline_svg};
 
 static CONNECTIONS_PAGE_HTML: OnceLock<Bytes> = OnceLock::new();
