@@ -1,0 +1,15 @@
+[package]
+name = "quote-dispatcher"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+binary_sv2 = { version = "^1.0.0", path = "../../../protocols/v2/binary-sv2/binary-sv2" }
+bitcoin_hashes = { version = "0.14" }
+ehash = { path = "../../../protocols/ehash" }
+mint_pool_messaging = { path = "../mint-pool-messaging" }
+roles_logic_sv2 = { version = "^1.0.0", path = "../../../protocols/v2/roles-logic-sv2" }
+shared_config = { path = "../config" }
+tokio = { version = "1", features = ["full"] }
+tracing = { version = "0.1" }
+hex = "0.4.3"

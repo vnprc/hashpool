@@ -44,6 +44,7 @@ cdk = { git = "https://github.com/vnprc/cdk", rev = "48502f8c" }
 bitcoin_hashes = { version = "0.16", features = ["serde"] }
 shared_config = { path = "../roles-utils/config" }
 mint_pool_messaging = { path = "../roles-utils/mint-pool-messaging" }
+quote-dispatcher = { path = "../roles-utils/quote-dispatcher" }
 web_assets = { path = "../roles-utils/web-assets" }
 hyper = { version = "1.0", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }

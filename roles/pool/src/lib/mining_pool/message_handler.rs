@@ -1,11 +1,7 @@
 use super::super::{mining_pool::Downstream, stats::StatsMessage};
 use binary_sv2::Str0255;
-use bitcoin_hashes::sha256::Hash;
-use ehash::calculate_ehash_amount;
 use mining_sv2::MintQuoteNotification;
-use mint_pool_messaging::{
-    build_parsed_quote_request, MintQuoteResponseEvent, PendingQuoteContext,
-};
+use mint_pool_messaging::MintQuoteResponseEvent;
 use roles_logic_sv2::{
     errors::Error,
     handlers::mining::{ParseDownstreamMiningMessages, SendTo, SupportedChannelTypes},
@@ -16,80 +12,11 @@ use roles_logic_sv2::{
     template_distribution_sv2::SubmitSolution,
     utils::Mutex,
 };
-use shared_config::Sv2MessagingConfig;
 use std::{
     convert::{TryFrom, TryInto},
     sync::Arc,
 };
 use tracing::{debug, error, info, warn};
-
-/// Creates a mint quote request and sends it via TCP and Redis
-fn submit_quote(
-    m: SubmitSharesExtended<'_>,
-    sv2_config: Option<&Sv2MessagingConfig>,
-    pool: Arc<Mutex<super::Pool>>,
-    minimum_difficulty: u32,
-) -> Result<(), roles_logic_sv2::Error> {
-    let header_hash = Hash::from_slice(m.hash.inner_as_ref())
-        .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Invalid header hash: {e}")))?;
-
-    let amount = calculate_ehash_amount(header_hash.to_byte_array(), minimum_difficulty);
-
-    // Send stats update via channel - never blocks
-    if let Ok((stats_handle, downstream_id)) = pool.safe_lock(|p| {
-        let downstream_id = p.channel_to_downstream.get(&m.channel_id).copied();
-        (p.stats_handle.clone(), downstream_id)
-    }) {
-        if let Some(id) = downstream_id {
-            stats_handle.send_stats(StatsMessage::QuoteCreated {
-                downstream_id: id,
-                amount,
-            });
-        }
-    }
-
-    let hub = match pool.safe_lock(|p| p.mint_message_hub.clone()) {
-        Ok(hub) => hub,
-        Err(e) => {
-            error!("Failed to access mint message hub: {}", e);
-            return Ok(());
-        }
-    };
-
-    let locking_key = m.locking_pubkey.clone().into_static();
-    let parsed = build_parsed_quote_request(amount, m.hash.inner_as_ref(), locking_key)
-        .map_err(|e| roles_logic_sv2::Error::KeysetError(format!("Failed to build quote: {e}")))?;
-
-    let context = PendingQuoteContext {
-        channel_id: m.channel_id,
-        sequence_number: m.sequence_number,
-        amount,
-    };
-
-    let messaging_enabled = sv2_config.map(|cfg| cfg.enabled).unwrap_or(true);
-    if !messaging_enabled {
-        debug!(
-            "SV2 messaging disabled; skipping mint quote dispatch for channel {}",
-            m.channel_id
-        );
-        return Ok(());
-    }
-
-    let share_hash_hex = hex::encode(parsed.share_hash.as_bytes());
-
-    tokio::spawn(async move {
-        if let Err(e) = hub.send_quote_request(parsed, context).await {
-            error!("Failed to dispatch mint quote request via hub: {}", e);
-        } else {
-            info!(
-                "Queued mint quote request via hub: share_hash={}",
-                share_hash_hex
-            );
-        }
-    });
-
-    Ok(())
-}
 
 fn share_error_code(err: &roles_logic_sv2::Error) -> &'static str {
     use roles_logic_sv2::Error;
@@ -439,16 +366,12 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         while self.solution_sender.try_send(solution.clone()).is_err() {};
                     }
 
-                    let minimum_difficulty = self
-                        .pool
-                        .safe_lock(|p| p.minimum_difficulty)
-                        .map_err(|_| Error::PoisonLock("Failed to lock pool".to_string()))?;
-
-                    submit_quote(
-                        m.clone(),
-                        self.sv2_config.as_ref(),
-                        self.pool.clone(),
-                        minimum_difficulty,
+                    // Submit quote via dispatcher
+                    self.quote_dispatcher.submit_quote(
+                        m.hash.inner_as_ref(),
+                        m.locking_pubkey.clone().into_static(),
+                        m.channel_id,
+                        m.sequence_number,
                     )?;
 
                     let success = SubmitSharesSuccess {
@@ -471,16 +394,12 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         });
                     }
 
-                    let minimum_difficulty = self
-                        .pool
-                        .safe_lock(|p| p.minimum_difficulty)
-                        .map_err(|_| Error::PoisonLock("Failed to lock pool".to_string()))?;
-
-                    submit_quote(
-                        m.clone(),
-                        self.sv2_config.as_ref(),
-                        self.pool.clone(),
-                        minimum_difficulty,
+                    // Submit quote via dispatcher
+                    self.quote_dispatcher.submit_quote(
+                        m.hash.inner_as_ref(),
+                        m.locking_pubkey.clone().into_static(),
+                        m.channel_id,
+                        m.sequence_number,
                     )?;
 
                     let success = SubmitSharesSuccess {

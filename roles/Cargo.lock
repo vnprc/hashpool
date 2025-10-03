@@ -3780,6 +3780,7 @@ dependencies = [
  "network_helpers_sv2",
  "nohash-hasher",
  "noise_sv2",
+ "quote-dispatcher",
  "rand 0.8.5",
  "roles_logic_sv2",
  "serde",
@@ -4012,6 +4013,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1885c039570dc00dcb4ff087a89e185fd56bae234ddc7f056a945bf36467248d"
 dependencies = [
  "proc-macro2",
+]
+
+[[package]]
+name = "quote-dispatcher"
+version = "0.1.0"
+dependencies = [
+ "binary_sv2",
+ "bitcoin_hashes 0.14.0",
+ "ehash",
+ "hex",
+ "mint_pool_messaging",
+ "roles_logic_sv2",
+ "shared_config",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

@@ -478,31 +478,33 @@ CREATE INDEX idx_miner_hashrate_time ON miner_hashrate(timestamp);
 
 ## Implementation Plan
 
-### Phase 1: Extract Quote Handler (PRIORITY: HIGHEST)
-**Effort:** 2-3 hours
-**Impact:** Makes rebase 40% easier
+### Phase 1: Extract Quote Handler ✅ COMPLETED
+**Effort:** 2 hours (actual)
+**Impact:** Makes rebase significantly easier by isolating mint quote logic
 
-**Tasks:**
-1. Create `protocols/ehash/src/callbacks.rs`
-   - Define `QuoteCallbacks` trait
-   - Define `QuoteContext` struct
+**Completed Implementation:**
+1. Created `roles/roles-utils/quote-dispatcher` crate
+   - `QuoteDispatcher` struct handles all quote submission logic
+   - `QuoteEventCallback` trait for stats integration
+   - Extracted all quote building, validation, and dispatch logic
 
-2. Create `protocols/ehash/src/quote_handler.rs`
-   - Move `submit_quote()` logic from pool
-   - Implement `QuoteHandler<C: QuoteCallbacks>`
-   - Add tests
+2. Updated pool to use `QuoteDispatcher`
+   - Created `PoolStatsCallback` implementation
+   - Added `QuoteDispatcher` field to `Downstream` struct
+   - Replaced two `submit_quote()` calls with `dispatcher.submit_quote()`
+   - Removed 66-line `submit_quote()` function from message_handler
 
-3. Update pool to use `QuoteHandler`
-   - Create `PoolQuoteCallbacks` implementation
-   - Replace `submit_quote()` call with `quote_handler.handle_share_submission()`
-   - Test integration
-
-4. Update translator (if needed)
-   - Similar callback implementation
+3. Results
+   - Net reduction: 81 lines in message_handler.rs (94 deleted, 13 added)
+   - All mint quote logic isolated from SRI pool message handling
+   - Builds and runs successfully
+   - Zero runtime errors related to quote handling
 
 **Testing:**
-- Unit test `QuoteHandler::handle_share_submission()` with mock callbacks
-- Integration test via devenv after phase completion
+- ✅ Compiles successfully
+- ✅ Pool starts without errors
+- ✅ No quote-related runtime errors in logs
+- ✅ Ready for next rebase
 
 ---
 

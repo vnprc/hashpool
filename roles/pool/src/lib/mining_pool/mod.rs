@@ -188,6 +188,7 @@ pub struct Downstream {
     channel_factory: Arc<Mutex<PoolChannelFactory>>,
     pool: Arc<Mutex<Pool>>,
     sv2_config: Option<Sv2MessagingConfig>,
+    quote_dispatcher: quote_dispatcher::QuoteDispatcher,
     // Connection info for dashboard
     pub address: SocketAddr,
 }
@@ -225,6 +226,28 @@ pub struct Pool {
     mint_message_hub: Arc<MintPoolMessageHub>,
 }
 
+/// Callback implementation for quote events that updates pool stats.
+struct PoolStatsCallback {
+    pool: Arc<Mutex<Pool>>,
+}
+
+impl quote_dispatcher::QuoteEventCallback for PoolStatsCallback {
+    fn on_quote_created(&self, channel_id: u32, amount: u64) {
+        // Get stats handle and channel mapping from pool
+        if let Ok((stats_handle, downstream_id)) = self.pool.safe_lock(|p| {
+            let downstream_id = p.channel_to_downstream.get(&channel_id).copied();
+            (p.stats_handle.clone(), downstream_id)
+        }) {
+            if let Some(id) = downstream_id {
+                stats_handle.send_stats(super::stats::StatsMessage::QuoteCreated {
+                    downstream_id: id,
+                    amount,
+                });
+            }
+        }
+    }
+}
+
 impl Downstream {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
@@ -247,6 +270,22 @@ impl Downstream {
             true => channel_factory.safe_lock(|c| c.new_standard_id_for_hom())?,
         };
 
+        // Create quote dispatcher with stats callback
+        let (hub, minimum_difficulty) = pool
+            .safe_lock(|p| (p.mint_message_hub.clone(), p.minimum_difficulty))
+            .map_err(|e| PoolError::PoisonLock(e.to_string()))?;
+
+        let stats_callback = Arc::new(PoolStatsCallback {
+            pool: pool.clone(),
+        });
+
+        let quote_dispatcher = quote_dispatcher::QuoteDispatcher::new(
+            hub,
+            sv2_config.clone(),
+            minimum_difficulty,
+        )
+        .with_callback(stats_callback);
+
         let self_ = Arc::new(Mutex::new(Downstream {
             id,
             receiver,
@@ -256,6 +295,7 @@ impl Downstream {
             channel_factory,
             pool: pool.clone(),
             sv2_config,
+            quote_dispatcher,
             address,
         }));
 
