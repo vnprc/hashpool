@@ -2,11 +2,11 @@ use std::convert::{TryFrom, TryInto};
 
 use binary_sv2::{self, CompressedPubKey, Str0255, Sv2Option, U256};
 use cdk::{
-    mint::MintQuote,
     nuts::{nutXX::MintQuoteMiningShareRequest, CurrencyUnit, PublicKey},
     secp256k1::hashes::Hash as CdkHash,
     Amount,
 };
+use cdk_common::mint::MintQuote;
 use mint_quote_sv2::{MintQuoteRequest, MintQuoteResponse};
 use thiserror::Error;
 
