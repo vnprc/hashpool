@@ -1,10 +1,9 @@
 # Prompt Loop
 
 1. Read `AGENTS.md` for the repository overview.
-2. Read `REBASE_SRI.md` to understand the current rebase plan and status.
-3. Read `REBASE_NOTES.md` for detailed context on existing diffs.
-4. Continue executing the rebase plan.
-5. After each logical chunk of work:
+2. Read `ARCHITECTURE_REFACTOR_PLAN.md` to understand the current rebase plan and status.
+3. Continue executing the plan.
+4. After each logical chunk of work:
    - Keep the change set substantial (hundreds of lines when reasonable).
    - Confirm the edits shrink (or at minimum do not expand) the SRI diff surface; prefer exercising behaviour via existing smoke/integration tests instead of adding new unit tests inside upstream crates.
    - Run `cargo build` for the impacted workspace.
