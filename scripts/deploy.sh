@@ -71,6 +71,10 @@ cp "$LOCAL_DIR/scripts/hashpool-ctl.sh" "$STAGING_DIR/bin/"
 echo "📤 Deploying to VPS and installing..."
 rsync -avz --progress "$STAGING_DIR/" "$VPS_USER@$VPS_HOST:/tmp/hashpool-deploy/" && \
 ssh "$VPS_USER@$VPS_HOST" << 'EOF'
+  # Stop all services first
+  echo "Stopping services..."
+  systemctl stop hashpool-proxy hashpool-jd-client hashpool-jd-server hashpool-pool hashpool-mint hashpool-stats-proxy hashpool-stats-pool hashpool-bitcoind 2>/dev/null || true
+
   # Create necessary directories
   mkdir -p /opt/hashpool/{bin,config}
   mkdir -p /opt/hashpool/.devenv/state/{translator,mint,stats-pool,stats-proxy,bitcoind}
@@ -89,6 +93,18 @@ ssh "$VPS_USER@$VPS_HOST" << 'EOF'
 
   # Create symlink for easy access
   ln -sf /opt/hashpool/bin/hashpool-ctl.sh /usr/local/bin/hashpool-ctl
+
+  # Start services back up
+  echo "Starting services..."
+  systemctl start hashpool-bitcoind
+  sleep 2
+  systemctl start hashpool-stats-pool hashpool-stats-proxy
+  sleep 1
+  systemctl start hashpool-mint
+  sleep 1
+  systemctl start hashpool-pool
+  sleep 1
+  systemctl start hashpool-jd-server hashpool-jd-client hashpool-proxy
 
   # Clean up staging
   rm -rf /tmp/hashpool-deploy

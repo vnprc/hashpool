@@ -280,6 +280,24 @@ impl StatsDatabase {
         Ok(())
     }
 
+    /// Remove stale miners that haven't sent shares in X seconds
+    pub fn cleanup_stale_miners(&self, stale_threshold_secs: i64) -> Result<usize> {
+        let conn = self.conn.lock().unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        let cutoff_time = now - stale_threshold_secs;
+
+        let removed = conn.execute(
+            "DELETE FROM current_stats WHERE last_share_time < ?1 OR (last_share_time IS NULL AND connected_at < ?1)",
+            [cutoff_time],
+        )?;
+
+        Ok(removed)
+    }
+
     pub fn get_current_stats(&self) -> Result<Vec<DownstreamStats>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(

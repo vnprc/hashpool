@@ -45,6 +45,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // Start cleanup task for stale miners (15 seconds of no activity)
+    let db_cleanup = db.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
+        loop {
+            interval.tick().await;
+            match db_cleanup.cleanup_stale_miners(15) {
+                Ok(removed) if removed > 0 => {
+                    info!("Cleaned up {} stale miner(s)", removed);
+                }
+                Err(e) => {
+                    error!("Error cleaning up stale miners: {}", e);
+                }
+                _ => {}
+            }
+        }
+    });
+
     // Accept TCP connections
     loop {
         match tcp_listener.accept().await {
