@@ -1,11 +1,21 @@
 use std::env;
 use std::path::PathBuf;
+use std::fs;
+use serde::Deserialize;
 
 #[derive(Debug, Clone)]
 pub struct Config {
     pub tcp_address: String,
     pub http_address: String,
     pub db_path: PathBuf,
+    pub downstream_address: String,
+    pub downstream_port: u16,
+}
+
+#[derive(Debug, Deserialize)]
+struct TproxyConfig {
+    downstream_address: String,
+    downstream_port: u16,
 }
 
 impl Config {
@@ -34,10 +44,23 @@ impl Config {
             .cloned()
             .ok_or("Missing required argument: --db-path")?;
 
+        // Load tproxy config to get downstream connection info
+        let config_path = args
+            .iter()
+            .position(|arg| arg == "--config" || arg == "-c")
+            .and_then(|i| args.get(i + 1))
+            .map(|s| s.as_str())
+            .unwrap_or("config/tproxy.config.toml");
+
+        let config_str = fs::read_to_string(config_path)?;
+        let tproxy: TproxyConfig = toml::from_str(&config_str)?;
+
         Ok(Config {
             tcp_address,
             http_address,
             db_path: PathBuf::from(db_path),
+            downstream_address: tproxy.downstream_address,
+            downstream_port: tproxy.downstream_port,
         })
     }
 }

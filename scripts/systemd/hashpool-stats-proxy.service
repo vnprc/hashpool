@@ -10,7 +10,8 @@ WorkingDirectory=/opt/hashpool
 ExecStart=/opt/hashpool/bin/stats_proxy \
   --tcp-address 127.0.0.1:4001 \
   --http-address 127.0.0.1:3030 \
-  --db-path /opt/hashpool/.devenv/state/stats-proxy/stats.sqlite
+  --db-path /opt/hashpool/.devenv/state/stats-proxy/stats.sqlite \
+  --config /opt/hashpool/config/tproxy.config.toml
 Restart=always
 RestartSec=5
 StandardOutput=journal

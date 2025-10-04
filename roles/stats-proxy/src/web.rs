@@ -729,19 +729,26 @@ const POOL_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
 pub async fn run_http_server(
     address: String,
     db: Arc<StatsDatabase>,
+    downstream_address: String,
+    downstream_port: u16,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(&address).await?;
     info!("🌐 HTTP dashboard listening on http://{}", address);
+
+    let downstream_addr = Arc::new(downstream_address);
+    let downstream_p = downstream_port;
 
     loop {
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
         let db = db.clone();
+        let downstream_addr = downstream_addr.clone();
 
         tokio::task::spawn(async move {
             let service = service_fn(move |req| {
                 let db = db.clone();
-                async move { handle_request(req, db).await }
+                let downstream_addr = downstream_addr.clone();
+                async move { handle_request(req, db, downstream_addr.as_str(), downstream_p).await }
             });
 
             if let Err(err) = http1::Builder::new().serve_connection(io, service).await {
@@ -754,6 +761,8 @@ pub async fn run_http_server(
 async fn handle_request(
     req: Request<Incoming>,
     db: Arc<StatsDatabase>,
+    downstream_address: &str,
+    downstream_port: u16,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     let response = match (req.method(), req.uri().path()) {
         (&Method::GET, "/favicon.ico") | (&Method::GET, "/favicon.svg") => Ok(serve_favicon()),
@@ -765,7 +774,7 @@ async fn handle_request(
         (&Method::GET, "/miners") => {
             Response::builder()
                 .header("content-type", "text/html; charset=utf-8")
-                .body(Full::new(miners_page("localhost", 3333)))
+                .body(Full::new(miners_page(downstream_address, downstream_port)))
         }
         (&Method::GET, "/pool") => {
             Response::builder()
