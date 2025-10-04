@@ -1,0 +1,21 @@
+[Unit]
+Description=Hashpool Proxy Statistics Service
+After=network.target
+
+[Service]
+Type=simple
+User=hashpool
+Group=hashpool
+WorkingDirectory=/opt/hashpool
+ExecStart=/opt/hashpool/bin/stats_proxy \
+  --tcp-address 127.0.0.1:4001 \
+  --http-address 127.0.0.1:3030 \
+  --db-path /opt/hashpool/.devenv/state/stats-proxy/stats.sqlite
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hashpool-stats-proxy
+
+[Install]
+WantedBy=multi-user.target

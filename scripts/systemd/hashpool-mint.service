@@ -1,0 +1,21 @@
+[Unit]
+Description=Hashpool Mint (CDK)
+After=network.target
+
+[Service]
+Type=simple
+User=hashpool
+Group=hashpool
+WorkingDirectory=/opt/hashpool
+Environment="CDK_MINT_DB_PATH=/opt/hashpool/.devenv/state/mint/mint.sqlite"
+ExecStart=/opt/hashpool/bin/mint \
+  -c /opt/hashpool/config/mint.config.toml \
+  -g /opt/hashpool/config/shared/pool.toml
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hashpool-mint
+
+[Install]
+WantedBy=multi-user.target

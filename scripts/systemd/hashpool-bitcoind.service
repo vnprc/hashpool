@@ -1,0 +1,25 @@
+[Unit]
+Description=Bitcoin daemon (testnet4)
+After=network.target
+
+[Service]
+Type=forking
+User=hashpool
+Group=hashpool
+WorkingDirectory=/opt/hashpool
+PIDFile=/opt/hashpool/.devenv/state/bitcoind/testnet4/bitcoind.pid
+ExecStart=/opt/hashpool/bin/bitcoind \
+  -datadir=/opt/hashpool/.devenv/state/bitcoind \
+  -chain=testnet4 \
+  -conf=/opt/hashpool/config/bitcoin.conf \
+  -daemon
+ExecStop=/opt/hashpool/bin/bitcoin-cli -datadir=/opt/hashpool/.devenv/state/bitcoind -chain=testnet4 stop
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=300
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hashpool-bitcoind
+
+[Install]
+WantedBy=multi-user.target

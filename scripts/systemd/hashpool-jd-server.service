@@ -1,0 +1,20 @@
+[Unit]
+Description=Hashpool Job Declarator Server
+After=network.target hashpool-pool.service
+Wants=hashpool-pool.service
+
+[Service]
+Type=simple
+User=hashpool
+Group=hashpool
+WorkingDirectory=/opt/hashpool
+ExecStart=/opt/hashpool/bin/jd_server \
+  -c /opt/hashpool/config/jds.config.toml
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hashpool-jd-server
+
+[Install]
+WantedBy=multi-user.target

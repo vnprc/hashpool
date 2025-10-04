@@ -1,0 +1,22 @@
+[Unit]
+Description=Hashpool Proxy (Translator SV2)
+After=network.target hashpool-stats-proxy.service hashpool-pool.service
+Wants=hashpool-stats-proxy.service
+
+[Service]
+Type=simple
+User=hashpool
+Group=hashpool
+WorkingDirectory=/opt/hashpool
+Environment="CDK_WALLET_DB_PATH=/opt/hashpool/.devenv/state/translator/wallet.sqlite"
+ExecStart=/opt/hashpool/bin/translator_sv2 \
+  -c /opt/hashpool/config/tproxy.config.toml \
+  -g /opt/hashpool/config/shared/miner.toml
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hashpool-proxy
+
+[Install]
+WantedBy=multi-user.target

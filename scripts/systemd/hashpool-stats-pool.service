@@ -1,0 +1,21 @@
+[Unit]
+Description=Hashpool Pool Statistics Service
+After=network.target
+
+[Service]
+Type=simple
+User=hashpool
+Group=hashpool
+WorkingDirectory=/opt/hashpool
+ExecStart=/opt/hashpool/bin/stats_pool \
+  --tcp-address 127.0.0.1:4000 \
+  --http-address 127.0.0.1:8081 \
+  --db-path /opt/hashpool/.devenv/state/stats-pool/stats.sqlite
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hashpool-stats-pool
+
+[Install]
+WantedBy=multi-user.target
