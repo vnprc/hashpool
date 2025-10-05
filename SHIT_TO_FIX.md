@@ -66,49 +66,29 @@ Once mint uses proper SV2 connection:
 
 ### Stats Service Architecture - Push vs Pull
 
-**Status:** Currently push-based with no health monitoring
+**Status:** ✅ RESOLVED - Moving to snapshot-based polling
 **Priority:** Medium - Operational Visibility
+**Resolution:** See DEV_PLAN_STATS_SNAPSHOT.md
 
-**Current Architecture:**
-- Pool **pushes** stats events to pool-stats via newline-delimited JSON over TCP
-- Translator **pushes** stats to proxy-stats (same protocol)
-- Mint and JD don't report stats anywhere
-- No service health monitoring or heartbeats
-- Can't detect if a service crashes
+**Decision:**
+Implement **Option D: Snapshot-Based Polling** using existing TCP connection:
+- Pool/Translator send full miner state snapshot every 10 seconds
+- Stats service replaces in-memory state with snapshot
+- Time-series data (hashrate graphs) stored in DB
+- Current state (miner list) served from memory
+- No individual event messages needed
 
-**Problems:**
-1. If pool crashes, pool-stats shows stale data (no "last seen" timestamp)
-2. No way to query current state of a service on demand
-3. Mint and JD status invisible to monitoring
-4. Only pool knows about downstream connections
-5. No service discovery mechanism
+**Why This Approach:**
+1. **Single source of truth** - MinerTracker is reality, stats just mirrors it
+2. **Self-healing** - Automatically syncs every 10 seconds, no drift
+3. **No race conditions** - Atomic snapshot replaces event ordering issues
+4. **Automatic cleanup** - Disconnected miners vanish naturally
+5. **Restart safe** - Stats service recovers state within 10 seconds
+6. **Uses existing TCP** - No new protocols or ports needed
+7. **Simpler code** - Remove complex event handling and cleanup logic
 
-**Architectural Questions:**
-
-*Option A: Keep Push, Add Heartbeats*
-- Services continue pushing events
-- Add periodic heartbeat messages
-- Stats marks service "down" if no heartbeat in N seconds
-- Simple, minimal change
-
-*Option B: Pull-Based Health Checks*
-- Stats service polls each service on interval
-- Each service exposes /health endpoint (HTTP?)
-- Events still pushed for real-time data
-- Better failure detection
-
-*Option C: Full SV2 Integration*
-- Replace JSON-over-TCP with SV2 custom message extensions
-- Stats service is SV2 server, services connect as clients
-- Use SV2 Ping/Pong for health
-- Noise encryption for security
-- More complex but consistent with SV2-everywhere philosophy
-
-**Research Needed:**
-- Should internal services use HTTP or SV2?
-- HTTP is stateless (good for health checks), SV2 is connection-oriented (good for events)
-- Is hybrid approach (HTTP health + SV2 events) acceptable?
-- What does Stratum v2 spec say about monitoring/observability?
+**Implementation Plan:** DEV_PLAN_STATS_SNAPSHOT.md
+**Estimated Effort:** 12-15 hours
 
 ### Stats Protocol: Newline-Delimited JSON
 
