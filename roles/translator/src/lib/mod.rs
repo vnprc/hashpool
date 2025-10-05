@@ -488,6 +488,7 @@ impl TranslatorSv2 {
                 task_collector_downstream,
                 miner_tracker_for_task.clone(),
                 stats_handle_for_task,
+                proxy_config.redact_ip,
             );
             
         }); // End of init task

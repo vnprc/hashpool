@@ -731,6 +731,7 @@ pub async fn run_http_server(
     db: Arc<StatsDatabase>,
     downstream_address: String,
     downstream_port: u16,
+    redact_ip: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(&address).await?;
     info!("🌐 HTTP dashboard listening on http://{}", address);
@@ -748,7 +749,7 @@ pub async fn run_http_server(
             let service = service_fn(move |req| {
                 let db = db.clone();
                 let downstream_addr = downstream_addr.clone();
-                async move { handle_request(req, db, downstream_addr.as_str(), downstream_p).await }
+                async move { handle_request(req, db, downstream_addr.as_str(), downstream_p, redact_ip).await }
             });
 
             if let Err(err) = http1::Builder::new().serve_connection(io, service).await {
@@ -763,6 +764,7 @@ async fn handle_request(
     db: Arc<StatsDatabase>,
     downstream_address: &str,
     downstream_port: u16,
+    redact_ip: bool,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     let response = match (req.method(), req.uri().path()) {
         (&Method::GET, "/favicon.ico") | (&Method::GET, "/favicon.svg") => Ok(serve_favicon()),
@@ -782,7 +784,7 @@ async fn handle_request(
                 .body(Full::new(pool_page("localhost".to_string(), 34254)))
         }
         (&Method::GET, "/api/miners") => {
-            let stats = get_miner_stats(db).await;
+            let stats = get_miner_stats(db, redact_ip).await;
             Response::builder()
                 .header("content-type", "application/json")
                 .body(Full::new(Bytes::from(stats.to_string())))
@@ -910,7 +912,7 @@ async fn get_wallet_balance(db: Arc<StatsDatabase>) -> u64 {
     db.get_balance().unwrap_or(0)
 }
 
-async fn get_miner_stats(db: Arc<StatsDatabase>) -> serde_json::Value {
+async fn get_miner_stats(db: Arc<StatsDatabase>, redact_ip: bool) -> serde_json::Value {
     let stats = match db.get_current_stats() {
         Ok(stats) => stats,
         Err(_) => return json!({
@@ -945,10 +947,16 @@ async fn get_miner_stats(db: Arc<StatsDatabase>) -> serde_json::Value {
             }
         };
 
+        let address = if redact_ip {
+            "REDACTED".to_string()
+        } else {
+            s.address.clone().unwrap_or_else(|| "REDACTED".to_string())
+        };
+
         json!({
             "name": s.name,
             "id": s.downstream_id,
-            "address": "-",
+            "address": address,
             "hashrate": format_hashrate(s.current_hashrate),
             "shares": s.shares_submitted,
             "connected_time": connected_time

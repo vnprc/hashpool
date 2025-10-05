@@ -38,6 +38,15 @@ use v1::{
 
 const MAX_LINE_LENGTH: usize = 2_usize.pow(16);
 
+/// Helper function to redact IP addresses from logs when redact_ip is enabled
+fn redact_addr(addr: &str, redact: bool) -> String {
+    if redact {
+        "REDACTED".to_string()
+    } else {
+        addr.to_string()
+    }
+}
+
 /// Handles the sending and receiving of messages to and from an SV2 Upstream role (most typically
 /// a SV2 Pool server).
 #[derive(Debug)]
@@ -67,6 +76,7 @@ pub struct Downstream {
     miner_tracker: Arc<miner_stats::MinerTracker>,
     miner_id: u32,
     stats_handle: Option<super::super::stats_client::StatsHandle>,
+    redact_ip: bool,
 }
 
 impl Downstream {
@@ -123,6 +133,7 @@ impl Downstream {
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
         miner_tracker: Arc<miner_stats::MinerTracker>,
         stats_handle: Option<super::super::stats_client::StatsHandle>,
+        redact_ip: bool,
     ) {
         // Get peer address before moving stream into Arc
         let peer_addr = stream.peer_addr().unwrap();
@@ -143,10 +154,16 @@ impl Downstream {
         // Send stats for new miner connection
         if let Some(ref handle) = stats_handle {
             use super::super::stats_client::StatsMessage;
+            let address = if redact_ip {
+                None
+            } else {
+                Some(peer_addr.to_string())
+            };
             handle.send_stats(StatsMessage::DownstreamConnected {
                 downstream_id: miner_id,
                 flags: 0,
                 name: miner_name,
+                address,
             });
         }
 
@@ -167,9 +184,14 @@ impl Downstream {
             miner_tracker: miner_tracker.clone(),
             miner_id,
             stats_handle: stats_handle.clone(),
+            redact_ip,
         }));
         let self_ = downstream.clone();
-        info!("📋 Registered miner {} from {} with ID {}", connection_id, peer_addr, miner_id);
+        info!("📋 Registered miner {} from {} with ID {}",
+            connection_id,
+            redact_addr(&peer_addr.to_string(), redact_ip),
+            miner_id
+        );
 
         let host_ = host.clone();
         // The shutdown channel is used local to the `Downstream::new_downstream()` function.
@@ -460,6 +482,7 @@ impl Downstream {
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
         miner_tracker: Arc<miner_stats::MinerTracker>,
         stats_handle: Option<super::super::stats_client::StatsHandle>,
+        redact_ip: bool,
     ) {
         let task_collector_downstream = task_collector.clone();
 
@@ -477,7 +500,9 @@ impl Downstream {
                 let host = stream.peer_addr().unwrap().to_string();
                 match open_sv1_downstream {
                     Ok(opened) => {
-                        info!("PROXY SERVER - ACCEPTING FROM DOWNSTREAM: {}", host);
+                        info!("PROXY SERVER - ACCEPTING FROM DOWNSTREAM: {}",
+                            redact_addr(&host, redact_ip)
+                        );
                         Downstream::new_downstream(
                             stream,
                             opened.channel_id,
@@ -493,6 +518,7 @@ impl Downstream {
                             task_collector_downstream.clone(),
                             miner_tracker.clone(),
                             stats_handle.clone(),
+                            redact_ip,
                         )
                         .await;
                     }
@@ -651,16 +677,23 @@ impl IsServer<'static> for Downstream {
         let miner_id = self.miner_id;
         let worker_name = request.name.clone();
         let stats_handle = self.stats_handle.clone();
+        let redact_ip = self.redact_ip;
         tokio::spawn(async move {
             miner_tracker.update_miner_name(miner_id, worker_name.clone()).await;
 
             // Send updated name to stats service
             if let Some(handle) = stats_handle {
                 use super::super::stats_client::StatsMessage;
+                let address = if redact_ip {
+                    None
+                } else {
+                    miner_tracker.get_address(miner_id).await
+                };
                 handle.send_stats(StatsMessage::DownstreamConnected {
                     downstream_id: miner_id,
                     flags: 0,
                     name: worker_name,
+                    address,
                 });
             }
         });

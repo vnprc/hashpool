@@ -40,9 +40,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let http_address = config.http_address.clone();
     let downstream_address = config.downstream_address.clone();
     let downstream_port = config.downstream_port;
+    let redact_ip = config.redact_ip;
     let db_clone = db.clone();
     tokio::spawn(async move {
-        if let Err(e) = web::run_http_server(http_address, db_clone, downstream_address, downstream_port).await {
+        if let Err(e) = web::run_http_server(http_address, db_clone, downstream_address, downstream_port, redact_ip).await {
             error!("HTTP server error: {}", e);
         }
     });

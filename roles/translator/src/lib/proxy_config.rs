@@ -19,6 +19,12 @@ pub struct ProxyConfig {
     #[serde(default = "default_web_port")]
     pub web_port: u16,
     pub stats_server_address: Option<String>,
+    #[serde(default = "default_redact_ip")]
+    pub redact_ip: bool,
+}
+
+fn default_redact_ip() -> bool {
+    true
 }
 
 fn default_web_port() -> u16 {
@@ -88,6 +94,7 @@ impl ProxyConfig {
             wallet,
             web_port: default_web_port(),
             stats_server_address: None,
+            redact_ip: default_redact_ip(),
         }
     }
 }

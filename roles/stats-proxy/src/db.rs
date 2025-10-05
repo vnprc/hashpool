@@ -62,6 +62,7 @@ impl StatsDatabase {
             "CREATE TABLE IF NOT EXISTS current_stats (
                 downstream_id INTEGER PRIMARY KEY,
                 name TEXT NOT NULL DEFAULT '',
+                address TEXT,
                 shares_submitted INTEGER NOT NULL,
                 quotes_created INTEGER NOT NULL,
                 ehash_mined INTEGER NOT NULL,
@@ -83,6 +84,12 @@ impl StatsDatabase {
         // Add current_hashrate column if it doesn't exist
         conn.execute(
             "ALTER TABLE current_stats ADD COLUMN current_hashrate REAL NOT NULL DEFAULT 0.0",
+            [],
+        ).ok(); // Ignore error if column already exists
+
+        // Add address column if it doesn't exist
+        conn.execute(
+            "ALTER TABLE current_stats ADD COLUMN address TEXT",
             [],
         ).ok(); // Ignore error if column already exists
 
@@ -206,7 +213,7 @@ impl StatsDatabase {
         Ok(())
     }
 
-    pub fn record_downstream_connected(&self, downstream_id: u32, flags: u32, name: String) -> Result<()> {
+    pub fn record_downstream_connected(&self, downstream_id: u32, flags: u32, name: String, address: Option<String>) -> Result<()> {
         let conn = self.conn.lock().unwrap();
 
         let is_work_selection = (flags & 1) != 0;
@@ -216,13 +223,14 @@ impl StatsDatabase {
             .as_secs() as i64;
 
         conn.execute(
-            "INSERT INTO current_stats (downstream_id, name, shares_submitted, quotes_created, ehash_mined, channels, connected_at, is_work_selection_enabled, current_hashrate)
-             VALUES (?1, ?2, 0, 0, 0, '[]', ?3, ?4, 0.0)
+            "INSERT INTO current_stats (downstream_id, name, address, shares_submitted, quotes_created, ehash_mined, channels, connected_at, is_work_selection_enabled, current_hashrate)
+             VALUES (?1, ?2, ?3, 0, 0, 0, '[]', ?4, ?5, 0.0)
              ON CONFLICT(downstream_id) DO UPDATE SET
                 name = ?2,
-                connected_at = ?3,
-                is_work_selection_enabled = ?4",
-            rusqlite::params![downstream_id, name, now, is_work_selection as i64],
+                address = ?3,
+                connected_at = ?4,
+                is_work_selection_enabled = ?5",
+            rusqlite::params![downstream_id, name, address, now, is_work_selection as i64],
         )?;
 
         Ok(())
@@ -301,7 +309,7 @@ impl StatsDatabase {
     pub fn get_current_stats(&self) -> Result<Vec<DownstreamStats>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT downstream_id, name, shares_submitted, quotes_created, ehash_mined, channels, last_share_time, connected_at, is_work_selection_enabled, current_hashrate
+            "SELECT downstream_id, name, address, shares_submitted, quotes_created, ehash_mined, channels, last_share_time, connected_at, is_work_selection_enabled, current_hashrate
              FROM current_stats"
         )?;
 
@@ -310,14 +318,15 @@ impl StatsDatabase {
                 Ok(DownstreamStats {
                     downstream_id: row.get(0)?,
                     name: row.get(1)?,
-                    shares_submitted: row.get(2)?,
-                    quotes_created: row.get(3)?,
-                    ehash_mined: row.get(4)?,
-                    channels: serde_json::from_str(&row.get::<_, String>(5)?).unwrap_or_default(),
-                    last_share_time: row.get(6)?,
-                    connected_at: row.get(7)?,
-                    is_work_selection_enabled: row.get::<_, i64>(8)? != 0,
-                    current_hashrate: row.get(9)?,
+                    address: row.get(2)?,
+                    shares_submitted: row.get(3)?,
+                    quotes_created: row.get(4)?,
+                    ehash_mined: row.get(5)?,
+                    channels: serde_json::from_str(&row.get::<_, String>(6)?).unwrap_or_default(),
+                    last_share_time: row.get(7)?,
+                    connected_at: row.get(8)?,
+                    is_work_selection_enabled: row.get::<_, i64>(9)? != 0,
+                    current_hashrate: row.get(10)?,
                 })
             })?
             .filter_map(|r| r.ok())
@@ -360,6 +369,7 @@ impl StatsDatabase {
 pub struct DownstreamStats {
     pub downstream_id: u32,
     pub name: String,
+    pub address: Option<String>,
     pub shares_submitted: u64,
     pub quotes_created: u64,
     pub ehash_mined: u64,

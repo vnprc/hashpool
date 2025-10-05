@@ -10,7 +10,7 @@ use tracing::{error, info, warn};
 #[serde(tag = "type")]
 pub enum StatsMessage {
     ShareSubmitted { downstream_id: u32, timestamp: u64 },
-    DownstreamConnected { downstream_id: u32, flags: u32, name: String },
+    DownstreamConnected { downstream_id: u32, flags: u32, name: String, address: Option<String> },
     DownstreamDisconnected { downstream_id: u32 },
     HashrateUpdate { downstream_id: u32, hashrate: f64, timestamp: u64 },
     BalanceUpdate { balance: u64, timestamp: u64 },

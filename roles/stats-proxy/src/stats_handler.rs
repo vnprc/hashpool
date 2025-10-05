@@ -15,7 +15,7 @@ pub enum StatsMessage {
     QuoteCreated { downstream_id: u32, amount: u64, timestamp: u64 },
     ChannelOpened { downstream_id: u32, channel_id: u32 },
     ChannelClosed { downstream_id: u32, channel_id: u32 },
-    DownstreamConnected { downstream_id: u32, flags: u32, #[serde(default)] name: String },
+    DownstreamConnected { downstream_id: u32, flags: u32, #[serde(default)] name: String, address: Option<String> },
     DownstreamDisconnected { downstream_id: u32 },
     HashrateUpdate { downstream_id: u32, hashrate: f64, timestamp: u64 },
     BalanceUpdate { balance: u64, timestamp: u64 },
@@ -47,9 +47,9 @@ impl StatsHandler {
                 debug!("Channel closed: downstream_id={}, channel_id={}", downstream_id, channel_id);
                 self.db.record_channel_closed(downstream_id, channel_id)?;
             }
-            StatsMessage::DownstreamConnected { downstream_id, flags, name } => {
-                debug!("Downstream connected: downstream_id={}, flags={}, name={}", downstream_id, flags, name);
-                self.db.record_downstream_connected(downstream_id, flags, name)?;
+            StatsMessage::DownstreamConnected { downstream_id, flags, name, address } => {
+                debug!("Downstream connected: downstream_id={}, flags={}, name={}, address={:?}", downstream_id, flags, name, address);
+                self.db.record_downstream_connected(downstream_id, flags, name, address)?;
             }
             StatsMessage::DownstreamDisconnected { downstream_id } => {
                 debug!("Downstream disconnected: downstream_id={}", downstream_id);

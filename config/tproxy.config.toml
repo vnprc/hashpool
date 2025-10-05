@@ -16,6 +16,9 @@ downstream_port = 34255
 # downstream_address = "188.40.233.11"
 # downstream_port = 34256
 
+# Show actual miner IP addresses in database and website (dev)
+redact_ip = false
+
 # Version support
 max_supported_version = 2
 min_supported_version = 2

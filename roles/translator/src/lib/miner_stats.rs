@@ -102,6 +102,11 @@ impl MinerTracker {
         miners.get(&id).map(|m| m.estimated_hashrate)
     }
 
+    pub async fn get_address(&self, id: u32) -> Option<String> {
+        let miners = self.miners.read().await;
+        miners.get(&id).map(|m| m.address.to_string())
+    }
+
     pub async fn get_stats(&self) -> MinerStats {
         let miners = self.miners.read().await;
         let total_miners = miners.len();

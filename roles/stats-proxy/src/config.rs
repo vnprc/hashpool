@@ -10,12 +10,15 @@ pub struct Config {
     pub db_path: PathBuf,
     pub downstream_address: String,
     pub downstream_port: u16,
+    pub redact_ip: bool,
 }
 
 #[derive(Debug, Deserialize)]
 struct TproxyConfig {
     downstream_address: String,
     downstream_port: u16,
+    #[serde(default)]
+    redact_ip: bool,
 }
 
 impl Config {
@@ -61,6 +64,7 @@ impl Config {
             db_path: PathBuf::from(db_path),
             downstream_address: tproxy.downstream_address,
             downstream_port: tproxy.downstream_port,
+            redact_ip: tproxy.redact_ip,
         })
     }
 }
