@@ -213,7 +213,8 @@ in {
           --tcp-address 127.0.0.1:4001 \
           --http-address 127.0.0.1:8082 \
           --db-path ${proxyStatsDb} \
-          --config ${config.devenv.root}/config/tproxy.config.toml
+          --config ${config.devenv.root}/config/tproxy.config.toml \
+          --shared-config ${config.devenv.root}/config/shared/miner.toml
       '' "stats_proxy.log";
     };
   };

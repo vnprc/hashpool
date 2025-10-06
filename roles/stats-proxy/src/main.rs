@@ -41,9 +41,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let downstream_address = config.downstream_address.clone();
     let downstream_port = config.downstream_port;
     let redact_ip = config.redact_ip;
+    let faucet_enabled = config.faucet_enabled;
+    let faucet_url = config.faucet_url.clone();
     let db_clone = db.clone();
     tokio::spawn(async move {
-        if let Err(e) = web::run_http_server(http_address, db_clone, downstream_address, downstream_port, redact_ip).await {
+        if let Err(e) = web::run_http_server(http_address, db_clone, downstream_address, downstream_port, redact_ip, faucet_enabled, faucet_url).await {
             error!("HTTP server error: {}", e);
         }
     });
@@ -109,11 +111,8 @@ async fn handle_pool_connection(
                     let line = &leftover[..newline_pos];
 
                     if !line.is_empty() {
-                        info!("Received message from {}: {}", addr, String::from_utf8_lossy(line));
                         if let Err(e) = handler.handle_message(line).await {
                             error!("Error processing message from {}: {}", addr, e);
-                        } else {
-                            info!("Successfully processed message from {}", addr);
                         }
                     }
 

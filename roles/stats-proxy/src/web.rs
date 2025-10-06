@@ -15,7 +15,6 @@ use stats_proxy::db::StatsDatabase;
 use web_assets::icons::{nav_icon_css, pickaxe_favicon_inline_svg};
 
 static MINERS_PAGE_HTML: OnceLock<String> = OnceLock::new();
-static HTML_PAGE_HTML: OnceLock<Bytes> = OnceLock::new();
 static POOL_PAGE_HTML: OnceLock<String> = OnceLock::new();
 
 const MINERS_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
@@ -732,24 +731,29 @@ pub async fn run_http_server(
     downstream_address: String,
     downstream_port: u16,
     redact_ip: bool,
+    faucet_enabled: bool,
+    faucet_url: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(&address).await?;
     info!("🌐 HTTP dashboard listening on http://{}", address);
 
     let downstream_addr = Arc::new(downstream_address);
     let downstream_p = downstream_port;
+    let faucet_u = Arc::new(faucet_url);
 
     loop {
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
         let db = db.clone();
         let downstream_addr = downstream_addr.clone();
+        let faucet_u = faucet_u.clone();
 
         tokio::task::spawn(async move {
             let service = service_fn(move |req| {
                 let db = db.clone();
                 let downstream_addr = downstream_addr.clone();
-                async move { handle_request(req, db, downstream_addr.as_str(), downstream_p, redact_ip).await }
+                let faucet_u = faucet_u.clone();
+                async move { handle_request(req, db, downstream_addr.as_str(), downstream_p, redact_ip, faucet_enabled, faucet_u.as_deref()).await }
             });
 
             if let Err(err) = http1::Builder::new().serve_connection(io, service).await {
@@ -765,13 +769,15 @@ async fn handle_request(
     downstream_address: &str,
     downstream_port: u16,
     redact_ip: bool,
+    faucet_enabled: bool,
+    faucet_url: Option<&str>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     let response = match (req.method(), req.uri().path()) {
         (&Method::GET, "/favicon.ico") | (&Method::GET, "/favicon.svg") => Ok(serve_favicon()),
         (&Method::GET, "/") => {
             Response::builder()
                 .header("content-type", "text/html; charset=utf-8")
-                .body(Full::new(html_page()))
+                .body(Full::new(html_page(faucet_enabled)))
         }
         (&Method::GET, "/miners") => {
             Response::builder()
@@ -790,12 +796,30 @@ async fn handle_request(
                 .body(Full::new(Bytes::from(stats.to_string())))
         }
         (&Method::POST, "/mint/tokens") => {
+            if !faucet_enabled {
+                return Ok(Response::builder()
+                    .status(StatusCode::SERVICE_UNAVAILABLE)
+                    .header("content-type", "application/json")
+                    .body(Full::new(Bytes::from(r#"{"error":"Faucet is disabled"}"#)))
+                    .unwrap());
+            }
+
+            let Some(faucet_url) = faucet_url else {
+                return Ok(Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .header("content-type", "application/json")
+                    .body(Full::new(Bytes::from(r#"{"error":"Faucet URL not configured"}"#)))
+                    .unwrap());
+            };
+
             // Proxy mint request to translator's faucet API
-            let translator_faucet_url = "http://127.0.0.1:8083/mint/tokens";
+            let translator_faucet_url = format!("{}/mint/tokens", faucet_url);
 
             match reqwest::Client::new()
-                .post(translator_faucet_url)
-                .timeout(std::time::Duration::from_secs(10))
+                .post(&translator_faucet_url)
+                .header("content-length", "0")
+                .body("")
+                .timeout(std::time::Duration::from_secs(60))
                 .send()
                 .await
             {
@@ -883,12 +907,121 @@ fn miners_page(address: &str, port: u16) -> Bytes {
     Bytes::from(formatted_html)
 }
 
-fn html_page() -> Bytes {
-    HTML_PAGE_HTML
-        .get_or_init(|| {
-            Bytes::from(HTML_PAGE_TEMPLATE.replace("/* {{NAV_ICON_CSS}} */", nav_icon_css()))
-        })
-        .clone()
+fn html_page(faucet_enabled: bool) -> Bytes {
+    let mut html = HTML_PAGE_TEMPLATE.replace("/* {{NAV_ICON_CSS}} */", nav_icon_css());
+
+    if !faucet_enabled {
+        // Remove mint button and related elements
+        html = html.replace(r#"<button class="mint-button" id="drip-btn" onclick="requestDrip()">
+            <span class="qr-icon"></span>Mint
+        </button>"#, "");
+
+        html = html.replace(r#"<div class="qr-container" id="qr-container">
+            <canvas id="qr-canvas" class="qr-code" onclick="copyToken()" title="Click to copy token"></canvas>
+        </div>"#, "");
+
+        html = html.replace(r#"<p id="qr-instruction" style="margin: 10px 0; opacity: 0; transition: opacity 0.3s ease;">click to copy</p>"#, "");
+
+        // Remove mint-related CSS
+        html = html.replace(r#"        .mint-button {
+            font-size: 2em;
+            padding: 20px 40px;
+            background: transparent;
+            border: 2px solid #00ff00;
+            color: #00ff00;
+            font-family: inherit;
+            cursor: pointer;
+            margin: 20px;
+            transition: all 0.3s;
+        }
+        .mint-button:hover {
+            background: #00ff00;
+            color: #1a1a1a;
+            text-shadow: none;
+        }
+        .mint-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .qr-container {
+            display: grid;
+            place-items: center;
+            margin: 30px auto;
+            padding: 40px;
+            border: 1px solid #00ff00;
+            background: #222;
+            border-radius: 5px;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+            width: 400px;
+            height: 400px;
+            box-sizing: border-box;
+        }
+        .qr-container.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+        .qr-code {
+            cursor: pointer;
+            padding: 15px;
+            background: white;
+            border-radius: 5px;
+            display: block;
+            width: 280px;
+            height: 280px;
+            box-sizing: border-box;
+        }
+        #qr-canvas {
+            background: white;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }"#, "");
+
+        // Remove QR code script
+        html = html.replace(r#"<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>"#, "");
+
+        // Remove generateQRCode function
+        html = html.replace(r#"        // Simple QR generation - no animation needed for 370 chars
+        function generateQRCode(canvas, text) {
+            const qr = qrcode(0, 'L'); // Type 0, error correction level L
+            qr.addData(text);
+            qr.make();
+
+            const cellSize = 8;
+            const margin = 2;
+            const moduleCount = qr.getModuleCount();
+            const canvasSize = (moduleCount + margin * 2) * cellSize;
+
+            canvas.width = canvasSize;
+            canvas.height = canvasSize;
+
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, canvasSize, canvasSize);
+
+            ctx.fillStyle = '#000000';
+            for (let row = 0; row < moduleCount; row++) {
+                for (let col = 0; col < moduleCount; col++) {
+                    if (qr.isDark(row, col)) {
+                        ctx.fillRect(
+                            (col + margin) * cellSize,
+                            (row + margin) * cellSize,
+                            cellSize,
+                            cellSize
+                        );
+                    }
+                }
+            }
+        }"#, "");
+
+        // Remove faucet functionality
+        html = html.replace(r#"        // Faucet functionality"#, "        // Faucet disabled");
+        html = html.replace(r#"        async function requestDrip() {"#, r#"        async function requestDrip() { return; // Disabled"#);
+    }
+
+    Bytes::from(html)
 }
 
 fn pool_page(upstream_address: String, upstream_port: u16) -> Bytes {

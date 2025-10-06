@@ -11,6 +11,8 @@ pub struct Config {
     pub downstream_address: String,
     pub downstream_port: u16,
     pub redact_ip: bool,
+    pub faucet_enabled: bool,
+    pub faucet_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -19,6 +21,12 @@ struct TproxyConfig {
     downstream_port: u16,
     #[serde(default)]
     redact_ip: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct FaucetConfig {
+    enabled: bool,
+    port: u16,
 }
 
 impl Config {
@@ -58,6 +66,42 @@ impl Config {
         let config_str = fs::read_to_string(config_path)?;
         let tproxy: TproxyConfig = toml::from_str(&config_str)?;
 
+        // Load shared miner config to get faucet port
+        let shared_config_path = args
+            .iter()
+            .position(|arg| arg == "--shared-config" || arg == "-s")
+            .and_then(|i| args.get(i + 1))
+            .map(|s| s.as_str())
+            .unwrap_or("config/shared/miner.toml");
+
+        let shared_config_str = fs::read_to_string(shared_config_path)?;
+        let shared_config: toml::Value = toml::from_str(&shared_config_str)?;
+
+        // Extract faucet configuration (optional, defaults to disabled)
+        let faucet_enabled = shared_config
+            .get("faucet")
+            .and_then(|f| f.get("enabled"))
+            .and_then(|e| e.as_bool())
+            .unwrap_or(false);
+
+        let faucet_url = if faucet_enabled {
+            let faucet_host = shared_config
+                .get("faucet")
+                .and_then(|f| f.get("host"))
+                .and_then(|h| h.as_str())
+                .ok_or("Missing required config: faucet.host in shared config (required when faucet.enabled=true)")?;
+
+            let faucet_port = shared_config
+                .get("faucet")
+                .and_then(|f| f.get("port"))
+                .and_then(|p| p.as_integer())
+                .ok_or("Missing required config: faucet.port in shared config (required when faucet.enabled=true)")? as u16;
+
+            Some(format!("http://{}:{}", faucet_host, faucet_port))
+        } else {
+            None
+        };
+
         Ok(Config {
             tcp_address,
             http_address,
@@ -65,6 +109,8 @@ impl Config {
             downstream_address: tproxy.downstream_address,
             downstream_port: tproxy.downstream_port,
             redact_ip: tproxy.redact_ip,
+            faucet_enabled,
+            faucet_url,
         })
     }
 }
