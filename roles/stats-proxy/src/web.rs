@@ -11,7 +11,7 @@ use tracing::{error, info};
 use bytes::Bytes;
 use serde_json::json;
 
-use stats_proxy::db::StatsDatabase;
+use stats_proxy::db::StatsData;
 use web_assets::icons::{nav_icon_css, pickaxe_favicon_inline_svg};
 
 static MINERS_PAGE_HTML: OnceLock<String> = OnceLock::new();
@@ -727,7 +727,7 @@ const POOL_PAGE_TEMPLATE: &str = r#"<!DOCTYPE html>
 
 pub async fn run_http_server(
     address: String,
-    db: Arc<StatsDatabase>,
+    db: Arc<StatsData>,
     downstream_address: String,
     downstream_port: u16,
     redact_ip: bool,
@@ -765,7 +765,7 @@ pub async fn run_http_server(
 
 async fn handle_request(
     req: Request<Incoming>,
-    db: Arc<StatsDatabase>,
+    db: Arc<StatsData>,
     downstream_address: &str,
     downstream_port: u16,
     redact_ip: bool,
@@ -789,11 +789,47 @@ async fn handle_request(
                 .header("content-type", "text/html; charset=utf-8")
                 .body(Full::new(pool_page("localhost".to_string(), 34254)))
         }
+        (&Method::GET, "/api/stats") => {
+            // Return full snapshot (frontend determines staleness from timestamp)
+            let snapshot = get_snapshot(db.clone()).await;
+            Response::builder()
+                .header("content-type", "application/json")
+                .body(Full::new(Bytes::from(snapshot)))
+        }
         (&Method::GET, "/api/miners") => {
             let stats = get_miner_stats(db, redact_ip).await;
             Response::builder()
                 .header("content-type", "application/json")
                 .body(Full::new(Bytes::from(stats.to_string())))
+        }
+        (&Method::GET, "/balance") => {
+            // Return translator wallet balance from snapshot
+            let balance = get_wallet_balance(db).await;
+            let json_response = json!({
+                "balance": format!("{} ehash", balance),
+                "balance_raw": balance,
+                "unit": "HASH"
+            });
+            Response::builder()
+                .header("content-type", "application/json")
+                .body(Full::new(Bytes::from(json_response.to_string())))
+        }
+        (&Method::GET, "/health") => {
+            // Health check endpoint
+            let stale = db.is_stale(15);
+            let status_code = if stale {
+                StatusCode::SERVICE_UNAVAILABLE
+            } else {
+                StatusCode::OK
+            };
+            let json_response = json!({
+                "healthy": !stale,
+                "stale": stale
+            });
+            Response::builder()
+                .status(status_code)
+                .header("content-type", "application/json")
+                .body(Full::new(Bytes::from(json_response.to_string())))
         }
         (&Method::POST, "/mint/tokens") => {
             if !faucet_enabled {
@@ -857,18 +893,6 @@ async fn handle_request(
                         .body(Full::new(Bytes::from(json_response.to_string())))
                 }
             }
-        }
-        (&Method::GET, "/balance") => {
-            // Return translator wallet balance
-            let balance = get_wallet_balance(db).await;
-            let json_response = json!({
-                "balance": format!("{} ehash", balance),
-                "balance_raw": balance,
-                "unit": "HASH"
-            });
-            Response::builder()
-                .header("content-type", "application/json")
-                .body(Full::new(Bytes::from(json_response.to_string())))
         }
         _ => {
             Response::builder()
@@ -1041,14 +1065,28 @@ fn pool_page(upstream_address: String, upstream_port: u16) -> Bytes {
     Bytes::from(formatted_html)
 }
 
-async fn get_wallet_balance(db: Arc<StatsDatabase>) -> u64 {
-    db.get_balance().unwrap_or(0)
+async fn get_snapshot(db: Arc<StatsData>) -> String {
+    match db.get_latest_snapshot() {
+        Some(snapshot) => {
+            serde_json::to_string(&snapshot).unwrap()
+        }
+        None => {
+            json!({"error": "No snapshot available"}).to_string()
+        }
+    }
 }
 
-async fn get_miner_stats(db: Arc<StatsDatabase>, redact_ip: bool) -> serde_json::Value {
-    let stats = match db.get_current_stats() {
-        Ok(stats) => stats,
-        Err(_) => return json!({
+async fn get_wallet_balance(db: Arc<StatsData>) -> u64 {
+    match db.get_latest_snapshot() {
+        Some(snapshot) => snapshot.ehash_balance,
+        None => 0,
+    }
+}
+
+async fn get_miner_stats(db: Arc<StatsData>, redact_ip: bool) -> serde_json::Value {
+    let snapshot = match db.get_latest_snapshot() {
+        Some(snapshot) => snapshot,
+        None => return json!({
             "total_miners": 0,
             "total_hashrate": "0 H/s",
             "total_shares": 0,
@@ -1056,19 +1094,19 @@ async fn get_miner_stats(db: Arc<StatsDatabase>, redact_ip: bool) -> serde_json:
         })
     };
 
-    let total_miners = stats.len();
-    let total_shares: u64 = stats.iter().map(|s| s.shares_submitted).sum();
-    let total_hashrate_raw: f64 = stats.iter().map(|s| s.current_hashrate).sum();
+    let total_miners = snapshot.downstream_miners.len();
+    let total_shares: u64 = snapshot.downstream_miners.iter().map(|m| m.shares_submitted).sum();
+    let total_hashrate_raw: f64 = snapshot.downstream_miners.iter().map(|m| m.hashrate).sum();
 
     let total_hashrate = format_hashrate(total_hashrate_raw);
 
-    let miners: Vec<serde_json::Value> = stats.iter().map(|s| {
+    let miners: Vec<serde_json::Value> = snapshot.downstream_miners.iter().map(|m| {
         let connected_time = {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_secs() as i64;
-            let elapsed = (now - s.connected_at) as u64;
+                .as_secs();
+            let elapsed = now.saturating_sub(m.connected_at);
             if elapsed < 60 {
                 format!("{}s", elapsed)
             } else if elapsed < 3600 {
@@ -1083,15 +1121,15 @@ async fn get_miner_stats(db: Arc<StatsDatabase>, redact_ip: bool) -> serde_json:
         let address = if redact_ip {
             "REDACTED".to_string()
         } else {
-            s.address.clone().unwrap_or_else(|| "REDACTED".to_string())
+            m.address.clone()
         };
 
         json!({
-            "name": s.name,
-            "id": s.downstream_id,
+            "name": m.name,
+            "id": m.id,
             "address": address,
-            "hashrate": format_hashrate(s.current_hashrate),
-            "shares": s.shares_submitted,
+            "hashrate": format_hashrate(m.hashrate),
+            "shares": m.shares_submitted,
             "connected_time": connected_time
         })
     }).collect();

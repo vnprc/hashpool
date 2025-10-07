@@ -387,26 +387,26 @@ sequenceDiagram
 **stats-proxy (Updated - Pure Hashpool):**
 - Listen on TCP port for ProxySnapshot JSON messages
 - Parse newline-delimited JSON
-- Store entire snapshot in SQLite with timestamp
+- Store entire snapshot **in memory** using `Arc<RwLock<Option<ProxySnapshot>>>`
 - Expose HTTP endpoints:
-  - `GET /api/stats` - Full current state
+  - `GET /api/stats` - Full current state (includes timestamp for client-side staleness detection)
   - `GET /api/miners` - Just miner list (for compatibility)
   - `GET /api/balance` - Just balance (for compatibility)
-  - `GET /health` - Health check
-- Detect staleness (>15s no update)
+  - `GET /health` - Health check (returns 503 if no update in 15s)
 - NO cleanup task needed - snapshot is authoritative
+- NO database dependency - simple in-memory storage
 
 **stats-pool (Updated - Pure Hashpool):**
 - Listen on TCP port for PoolSnapshot JSON messages
 - Parse newline-delimited JSON
-- Store entire snapshot in SQLite with timestamp
+- Store entire snapshot **in memory** using `Arc<RwLock<Option<PoolSnapshot>>>`
 - Expose HTTP endpoints:
-  - `GET /api/stats` - Full current state
+  - `GET /api/stats` - Full current state (includes timestamp for client-side staleness detection)
   - `GET /api/services` - Just services (for compatibility)
   - `GET /api/connections` - Just connections (for compatibility)
-  - `GET /health` - Health check
-- Detect staleness (>15s no update)
+  - `GET /health` - Health check (returns 503 if no update in 15s)
 - NO cleanup task needed - snapshot is authoritative
+- NO database dependency - simple in-memory storage
 
 **web-proxy (NEW Service - Pure Hashpool):**
 - HTTP server on port 3030
@@ -605,14 +605,14 @@ cargo build --workspace
 
 **Current Status:** Phase 1 complete. Ready to begin updating stats-proxy and stats-pool to use the new snapshot-based architecture.
 
-**Deliverable 2.1: Update stats-proxy** 🚧 TODO
-- Change message handling from events → snapshots
-- Simplify DB schema to single snapshot table
-- Remove cleanup task
-- Update HTTP API to serve snapshots
-- Add staleness detection
+**Deliverable 2.1: Update stats-proxy** ✅ COMPLETE
+- Changed message handling from events → snapshots
+- Replaced SQLite with in-memory storage (`Arc<RwLock<Option<ProxySnapshot>>>`)
+- Removed cleanup task
+- Updated HTTP API to serve snapshots with timestamp (client-side staleness detection)
+- Health endpoint uses server-side staleness check (15s threshold)
 
-**Unit Tests:**
+**Unit Tests:** ✅ COMPLETE (10 tests passing)
 ```rust
 // In roles/stats-proxy/src/db.rs
 #[cfg(test)]
@@ -621,23 +621,23 @@ mod tests {
 
     #[test]
     fn test_store_and_retrieve_snapshot() {
-        let db = StatsDatabase::new_in_memory().unwrap();
+        let db = StatsDatabase::new();
 
         let snapshot = ProxySnapshot {
             ehash_balance: 1000,
             upstream_pool: None,
             downstream_miners: vec![],
-            timestamp: 1234567890,
+            timestamp: unix_timestamp(),
         };
 
-        db.store_snapshot(&snapshot).unwrap();
-        let retrieved = db.get_latest_snapshot().unwrap().unwrap();
+        db.store_snapshot(snapshot);
+        let retrieved = db.get_latest_snapshot().unwrap();
         assert_eq!(retrieved.ehash_balance, 1000);
     }
 
     #[test]
     fn test_staleness_detection() {
-        let db = StatsDatabase::new_in_memory().unwrap();
+        let db = StatsDatabase::new();
 
         // Store old snapshot (30 seconds ago)
         let old_snapshot = ProxySnapshot {
@@ -646,17 +646,17 @@ mod tests {
             downstream_miners: vec![],
             timestamp: unix_timestamp() - 30,
         };
-        db.store_snapshot(&old_snapshot).unwrap();
+        db.store_snapshot(old_snapshot);
 
         assert!(db.is_stale(15), "Should be stale after 30 seconds");
     }
 }
 ```
 
-**Human Smoke Test:**
+**Human Smoke Test:** ✅ COMPLETE
 ```bash
 cd roles/stats-proxy && cargo test
-# Unit tests pass
+# All tests pass (10 tests)
 
 # Start stats-proxy manually
 cargo run -- -c ../../config/stats-proxy.config.toml

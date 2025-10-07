@@ -8,7 +8,7 @@ mod config;
 mod web;
 
 use config::Config;
-use stats_proxy::db::StatsDatabase;
+use stats_proxy::db::StatsData;
 use stats_proxy::stats_handler::StatsHandler;
 
 #[tokio::main]
@@ -26,11 +26,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting proxy-stats service");
     info!("TCP server: {}", config.tcp_address);
     info!("HTTP server: {}", config.http_address);
-    info!("Database: {}", config.db_path.display());
 
-    // Initialize database
-    let db = Arc::new(StatsDatabase::new(&config.db_path)?);
-    info!("Database initialized");
+    // Initialize in-memory stats data storage
+    let db = Arc::new(StatsData::new());
+    info!("Stats data storage initialized");
 
     // Start TCP server for receiving stats messages
     let tcp_listener = TcpListener::bind(&config.tcp_address).await?;
@@ -47,24 +46,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async move {
         if let Err(e) = web::run_http_server(http_address, db_clone, downstream_address, downstream_port, redact_ip, faucet_enabled, faucet_url).await {
             error!("HTTP server error: {}", e);
-        }
-    });
-
-    // Start cleanup task for stale miners (15 seconds of no activity)
-    let db_cleanup = db.clone();
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
-        loop {
-            interval.tick().await;
-            match db_cleanup.cleanup_stale_miners(15) {
-                Ok(removed) if removed > 0 => {
-                    info!("Cleaned up {} stale miner(s)", removed);
-                }
-                Err(e) => {
-                    error!("Error cleaning up stale miners: {}", e);
-                }
-                _ => {}
-            }
         }
     });
 
@@ -90,7 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn handle_pool_connection(
     mut stream: TcpStream,
     addr: SocketAddr,
-    db: Arc<StatsDatabase>,
+    db: Arc<StatsData>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let handler = StatsHandler::new(db);
     let mut buffer = vec![0u8; 8192];
