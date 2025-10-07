@@ -1,11 +1,9 @@
 # Prompt Loop
 
 1. Read `AGENTS.md` for the repository overview.
-2. Read `ARCHITECTURE_REFACTOR_PLAN.md` to understand the current rebase plan and status.
+2. Read ``docs/stats-refactor-plan.md to understand the current development plan and status.
 3. Continue executing the plan.
-4. After each logical chunk of work:
-   - Keep the change set substantial (hundreds of lines when reasonable).
-   - Confirm the edits shrink (or at minimum do not expand) the SRI diff surface; prefer exercising behaviour via existing smoke/integration tests instead of adding new unit tests inside upstream crates.
+4. After each phase:
    - Run `cargo build` for the impacted workspace.
    - Pause so the user can run the devenv smoke test.
    - Update the task plan to reflect the completed chunk.

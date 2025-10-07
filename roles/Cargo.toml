@@ -16,7 +16,7 @@ members = [
     "mint",
     "roles-utils/mint-pool-messaging",
     "roles-utils/quote-dispatcher",
-    "roles-utils/web-assets",
+    "roles-utils/web-assets", "roles-utils/stats",
 ]
 
 [profile.dev]
