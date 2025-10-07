@@ -37,11 +37,45 @@
         .nav a:hover {
             text-shadow: 0 0 10px #00ff00;
         }
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 40px;
+        }
+        .stat-box {
+            text-align: center;
+            padding: 20px;
+            border: 1px solid #00ff00;
+            min-width: 150px;
+        }
+        .stat-value {
+            font-size: 2em;
+            margin-top: 10px;
+        }
         .status {
             margin: 20px 0;
             padding: 10px;
             border: 1px solid #00ff00;
             display: inline-block;
+        }
+        .offline {
+            color: #ff4444;
+            border-color: #ff4444;
+        }
+        .status-dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-up {
+            background-color: #00ff00;
+            box-shadow: 0 0 5px #00ff00;
+        }
+        .status-down {
+            background-color: #ff4444;
+            box-shadow: 0 0 5px #ff4444;
         }
         /* {{NAV_ICON_CSS}} */
     </style>
@@ -54,7 +88,65 @@
 
         <h1>Mining Pool</h1>
 
-        <div class="status" id="status">Pool Information</div>
+        <div style="margin: 30px 0; padding: 20px; border: 1px solid #00ff00; text-align: left;">
+            <h3 style="margin-top: 0; text-align: center;">Pool Settings</h3>
+            <div style="font-family: monospace; font-size: 1.1em;">
+                <div style="margin: 10px 0;"><strong>Pool:</strong> <span style="color: #ffff00;">Hashpool</span></div>
+                <div style="margin: 10px 0;"><strong>Server:</strong> <span style="color: #ffff00;">{upstream_address}</span></div>
+                <div style="margin: 10px 0;"><strong>Port:</strong> <span style="color: #ffff00;">{upstream_port}</span></div>
+                <div style="margin: 10px 0;"><strong>Protocol:</strong> <span style="color: #ffff00;">Stratum V2</span></div>
+            </div>
+        </div>
+
+        <div class="stats">
+            <div class="stat-box">
+                <div>Blockchain</div>
+                <div class="stat-value" id="blockchain-status">Signet</div>
+            </div>
+            <div class="stat-box">
+                <div>Block Height</div>
+                <div class="stat-value" id="block-height-status">-</div>
+            </div>
+            <div class="stat-box">
+                <div>Last Block Found</div>
+                <div class="stat-value" id="last-block-status">-</div>
+            </div>
+        </div>
+
+        <div class="status" id="status">Connecting...</div>
     </div>
+
+    <script>
+        const statusEl = document.getElementById('status');
+        const blockchainEl = document.getElementById('blockchain-status');
+        const blockHeightEl = document.getElementById('block-height-status');
+        const lastBlockEl = document.getElementById('last-block-status');
+
+        function updatePoolStatus() {
+            if (!statusEl) return;
+
+            fetch('/balance')
+                .then(response => response.json())
+                .then(data => {
+                    statusEl.innerHTML = '<span class="status-dot status-up"></span>Connected';
+                    statusEl.className = 'status';
+
+                    // TODO: Update these with real data when available
+                    if (blockHeightEl) blockHeightEl.textContent = '-';
+                    if (lastBlockEl) lastBlockEl.textContent = '-';
+                })
+                .catch(e => {
+                    statusEl.innerHTML = '<span class="status-dot status-down"></span>Connection Lost';
+                    statusEl.className = 'status offline';
+
+                    if (blockHeightEl) blockHeightEl.textContent = '-';
+                    if (lastBlockEl) lastBlockEl.textContent = '-';
+                });
+        }
+
+        // Update immediately and then every 3 seconds
+        updatePoolStatus();
+        setInterval(updatePoolStatus, 3000);
+    </script>
 </body>
 </html>

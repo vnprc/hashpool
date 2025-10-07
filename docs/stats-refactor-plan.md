@@ -911,18 +911,20 @@ cargo build --workspace
 
 **Phase 4: Integrate with SRI (Minimal Touch)**
 
-**Deliverable 4.1: Update Translator**
-- Create `roles/translator/src/stats_integration.rs`
-- Implement `StatsSnapshotProvider` for translator state (~30 lines)
-- In `main.rs`, spawn polling loop (2 lines)
-- Total: ~35 lines SRI code changed
+**Deliverable 4.1: Update Translator** ✅ COMPLETE
+- ✅ Created `roles/translator/src/lib/stats_integration.rs`
+- ✅ Implemented `StatsSnapshotProvider` for TranslatorSv2 (~30 lines)
+- ✅ In `lib/mod.rs`, spawn polling loop (replaces old stats code)
+- ✅ Total: ~35 lines SRI code changed
+- ✅ Updated config/tproxy.config.toml with stats_server_address
+- ✅ Fixed web-proxy UI to match old translator design (miners/wallet/pool pages)
 
 **No Unit Tests** (SRI integration, tested via smoke test)
 
-**Human Smoke Test:**
+**Human Smoke Test:** ✅ COMPLETE
 ```bash
 cd roles && cargo build translator
-# Should compile
+# ✅ Compiles successfully
 
 # Start stats-proxy
 cd stats-proxy && cargo run &
@@ -932,7 +934,12 @@ cd ../translator && cargo run -- -c ../../config/tproxy.config.toml
 
 # Check that snapshots are being sent
 curl http://localhost:8082/api/stats
-# Should see translator snapshot with wallet balance, upstream, downstream miners
+# ✅ Translator snapshot with wallet balance, upstream, downstream miners
+
+# Verify web-proxy at http://127.0.0.1:3030
+# ✅ Wallet page shows balance and mint button
+# ✅ Miners page shows connected miners with Username/Password/Example
+# ✅ Pool page shows Pool Settings with upstream address/port
 ```
 
 ---

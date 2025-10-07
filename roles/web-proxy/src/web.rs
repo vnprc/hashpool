@@ -15,7 +15,6 @@ use crate::SnapshotStorage;
 use web_assets::icons::{nav_icon_css, pickaxe_favicon_inline_svg};
 
 static MINERS_PAGE_HTML: OnceLock<String> = OnceLock::new();
-static POOL_PAGE_HTML: OnceLock<String> = OnceLock::new();
 
 const WALLET_PAGE_TEMPLATE: &str = include_str!("../templates/wallet.html");
 const MINERS_PAGE_TEMPLATE: &str = include_str!("../templates/miners.html");
@@ -28,12 +27,15 @@ pub async fn run_http_server(
     faucet_url: Option<String>,
     downstream_address: String,
     downstream_port: u16,
+    upstream_address: String,
+    upstream_port: u16,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(&address).await?;
     info!("🌐 Web proxy listening on http://{}", address);
 
     let faucet_url = Arc::new(faucet_url);
     let downstream_addr = Arc::new(downstream_address);
+    let upstream_addr = Arc::new(upstream_address);
 
     loop {
         let (stream, _) = listener.accept().await?;
@@ -41,12 +43,14 @@ pub async fn run_http_server(
         let storage = storage.clone();
         let faucet_url = faucet_url.clone();
         let downstream_addr = downstream_addr.clone();
+        let upstream_addr = upstream_addr.clone();
 
         tokio::task::spawn(async move {
             let service = service_fn(move |req| {
                 let storage = storage.clone();
                 let faucet_url = faucet_url.clone();
                 let downstream_addr = downstream_addr.clone();
+                let upstream_addr = upstream_addr.clone();
                 async move {
                     handle_request(
                         req,
@@ -55,6 +59,8 @@ pub async fn run_http_server(
                         faucet_url.as_deref(),
                         downstream_addr.as_str(),
                         downstream_port,
+                        upstream_addr.as_str(),
+                        upstream_port,
                     )
                     .await
                 }
@@ -74,6 +80,8 @@ async fn handle_request(
     faucet_url: Option<&str>,
     downstream_address: &str,
     downstream_port: u16,
+    upstream_address: &str,
+    upstream_port: u16,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     let response = match (req.method(), req.uri().path()) {
         (&Method::GET, "/favicon.ico") | (&Method::GET, "/favicon.svg") => Ok(serve_favicon()),
@@ -90,7 +98,7 @@ async fn handle_request(
         (&Method::GET, "/pool") => {
             Response::builder()
                 .header("content-type", "text/html; charset=utf-8")
-                .body(Full::new(pool_page()))
+                .body(Full::new(pool_page(upstream_address, upstream_port)))
         }
         (&Method::GET, "/api/miners") => {
             let stats = get_miner_stats(storage).await;
@@ -178,11 +186,14 @@ fn miners_page(downstream_address: &str, downstream_port: u16) -> Bytes {
     Bytes::from(formatted_html)
 }
 
-fn pool_page() -> Bytes {
-    let html = POOL_PAGE_HTML.get_or_init(|| {
-        POOL_PAGE_TEMPLATE.replace("/* {{NAV_ICON_CSS}} */", nav_icon_css())
-    });
-    Bytes::from(html.clone())
+fn pool_page(upstream_address: &str, upstream_port: u16) -> Bytes {
+    let html = POOL_PAGE_TEMPLATE.replace("/* {{NAV_ICON_CSS}} */", nav_icon_css());
+
+    let formatted_html = html
+        .replace("{upstream_address}", upstream_address)
+        .replace("{upstream_port}", &upstream_port.to_string());
+
+    Bytes::from(formatted_html)
 }
 
 async fn get_wallet_balance(storage: Arc<SnapshotStorage>) -> u64 {

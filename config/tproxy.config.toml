@@ -29,8 +29,8 @@ min_supported_version = 2
 # Min value: 2
 min_extranonce2_size = 8
 
-# Stats server config
-stats_server_address = "127.0.0.1:4001"
+# Stats server config (TCP address for stats-proxy)
+stats_server_address = "127.0.0.1:8082"
 
 # Difficulty params
 [downstream_difficulty_config]

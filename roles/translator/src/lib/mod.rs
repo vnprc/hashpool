@@ -36,6 +36,7 @@ pub mod miner_stats;
 pub mod proxy;
 pub mod proxy_config;
 pub mod stats_client;
+pub mod stats_integration;
 pub mod status;
 pub mod upstream_sv2;
 pub mod utils;
@@ -201,23 +202,29 @@ impl TranslatorSv2 {
             }
         }
 
-        // Start background task to send balance updates to stats service
-        if let Some(stats_handle) = &self.stats_handle {
-            let wallet_clone = wallet.clone();
-            let stats_handle_clone = stats_handle.clone();
+        // Start new snapshot-based stats polling loop
+        if let Some(ref stats_addr) = self.config.stats_server_address {
+            use stats::stats_adapter::StatsSnapshotProvider;
+            use stats::stats_adapter::ProxySnapshot;
+            use stats::stats_client::StatsClient;
+
+            let stats_client = StatsClient::<ProxySnapshot>::new(stats_addr.clone());
+            let translator_clone = self.clone();
+
+            info!("Starting stats polling loop, sending to {}", stats_addr);
+
             tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(5));
+
                 loop {
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                    if let Ok(balance) = wallet_clone.total_balance().await {
-                        let balance_u64 = u64::from(balance);
-                        let timestamp = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
-                            .as_millis() as u64;
-                        stats_handle_clone.send_stats(stats_client::StatsMessage::BalanceUpdate {
-                            balance: balance_u64,
-                            timestamp,
-                        });
+                    interval.tick().await;
+
+                    // Get snapshot via trait - trait must be in scope
+                    let snapshot = StatsSnapshotProvider::get_snapshot(&translator_clone);
+
+                    // Send to stats service
+                    if let Err(e) = stats_client.send_snapshot(snapshot).await {
+                        tracing::error!("Failed to send stats snapshot: {}", e);
                     }
                 }
             });

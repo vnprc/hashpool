@@ -43,6 +43,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.faucet_url,
         config.downstream_address,
         config.downstream_port,
+        config.upstream_address,
+        config.upstream_port,
     )
     .await?;
 
@@ -84,6 +86,8 @@ async fn start_web_server(
     faucet_url: Option<String>,
     downstream_address: String,
     downstream_port: u16,
+    upstream_address: String,
+    upstream_port: u16,
 ) -> Result<(), Box<dyn std::error::Error>> {
     web_proxy::web::run_http_server(
         address,
@@ -92,6 +96,8 @@ async fn start_web_server(
         faucet_url,
         downstream_address,
         downstream_port,
+        upstream_address,
+        upstream_port,
     )
     .await
 }

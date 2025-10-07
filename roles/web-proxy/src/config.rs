@@ -8,6 +8,8 @@ pub struct Config {
     pub web_server_address: String,
     pub downstream_address: String,
     pub downstream_port: u16,
+    pub upstream_address: String,
+    pub upstream_port: u16,
     pub faucet_enabled: bool,
     pub faucet_url: Option<String>,
 }
@@ -16,6 +18,8 @@ pub struct Config {
 struct TproxyConfig {
     downstream_address: String,
     downstream_port: u16,
+    upstream_address: String,
+    upstream_port: u16,
 }
 
 impl Config {
@@ -89,6 +93,8 @@ impl Config {
             web_server_address,
             downstream_address: tproxy.downstream_address,
             downstream_port: tproxy.downstream_port,
+            upstream_address: tproxy.upstream_address,
+            upstream_port: tproxy.upstream_port,
             faucet_enabled,
             faucet_url,
         })

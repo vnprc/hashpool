@@ -148,7 +148,7 @@
         <h1>Ehash Wallet</h1>
         <div class="wallet" id="wallet">---</div>
 
-        <button class="mint-button" id="drip-btn" onclick="requestDrip()">Mint</button>
+        <button class="mint-button" id="drip-btn" onclick="requestDrip()"><span class="qr-icon"></span>Mint</button>
 
         <div class="status" id="status" style="text-align: center; border: none; display: block; margin: 20px auto;"></div>
 
@@ -197,7 +197,7 @@
                     document.getElementById('qr-instruction').style.opacity = '1';
 
                     btn.disabled = false;
-                    btn.textContent = 'Mint';
+                    btn.innerHTML = '<span class="qr-icon"></span>Mint';
                 } else {
                     throw new Error(data.error || 'Unknown error');
                 }
@@ -205,7 +205,7 @@
                 status.textContent = `Error: ${error.message}`;
                 status.className = 'status error';
                 btn.disabled = false;
-                btn.textContent = 'Mint';
+                btn.innerHTML = '<span class="qr-icon"></span>Mint';
             }
         }
 
