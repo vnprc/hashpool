@@ -601,9 +601,7 @@ cargo build --workspace
 
 ---
 
-**Phase 2: Update Stats Services (Pure Hashpool)** 🚧 NEXT UP
-
-**Current Status:** Phase 1 complete. Ready to begin updating stats-proxy and stats-pool to use the new snapshot-based architecture.
+**Phase 2: Update Stats Services (Pure Hashpool)** ✅ COMPLETE
 
 **Deliverable 2.1: Update stats-proxy** ✅ COMPLETE
 - Changed message handling from events → snapshots
@@ -671,14 +669,16 @@ curl http://localhost:8082/api/stats
 
 ---
 
-**Deliverable 2.2: Update stats-pool**
-- Change message handling from events → snapshots
-- Simplify DB schema to single snapshot table
-- Remove cleanup task
-- Update HTTP API to serve snapshots
-- Add staleness detection
+**Deliverable 2.2: Update stats-pool** ✅ COMPLETE
+- Changed message handling from events → snapshots
+- Replaced SQLite with in-memory storage (`Arc<RwLock<Option<PoolSnapshot>>>`)
+- Removed cleanup task
+- Removed rusqlite dependency from Cargo.toml
+- Removed db_path from config (no longer needed)
+- Updated HTTP API to serve snapshots (`/api/stats` endpoint)
+- Renamed `StatsDatabase` to `StatsData` (consistent with stats-proxy)
 
-**Unit Tests:**
+**Unit Tests:** ✅ COMPLETE (9 tests passing)
 ```rust
 // In roles/stats-pool/src/db.rs
 #[cfg(test)]
@@ -687,7 +687,7 @@ mod tests {
 
     #[test]
     fn test_store_pool_snapshot() {
-        let db = StatsDatabase::new_in_memory().unwrap();
+        let store = StatsData::new();
 
         let snapshot = PoolSnapshot {
             services: vec![],
@@ -696,8 +696,8 @@ mod tests {
             timestamp: 1234567890,
         };
 
-        db.store_snapshot(&snapshot).unwrap();
-        let retrieved = db.get_latest_snapshot().unwrap().unwrap();
+        store.store_snapshot(snapshot.clone());
+        let retrieved = store.get_latest_snapshot().unwrap();
         assert_eq!(retrieved.listen_address, "0.0.0.0:34254");
     }
 }
@@ -706,25 +706,25 @@ mod tests {
 **Human Smoke Test:**
 ```bash
 cd roles/stats-pool && cargo test
-# Unit tests pass
+# 9 tests pass
 
 # Start stats-pool manually
-cargo run -- -c ../../config/stats-pool.config.toml
+cargo run -- --tcp-address 127.0.0.1:8083 --http-address 127.0.0.1:8084
 
 # Send test snapshot
 echo '{"services":[],"downstream_proxies":[],"listen_address":"0.0.0.0:34254","timestamp":1234567890}' | nc localhost 8083
 
 # Check HTTP API
-curl http://localhost:8083/api/stats
+curl http://localhost:8084/api/stats
 # Should return the snapshot
 ```
 
-**Phase 2 Complete - Verify:**
+**Phase 2 Complete - Verify:** ✅ COMPLETE
 ```bash
-cd roles && cargo test stats-proxy stats-pool
-# All tests pass
-cargo build --workspace
-# Still compiles
+cargo test --package stats_pool
+# All tests pass (9 tests)
+cargo build --package stats_pool
+# Compiles successfully
 ```
 
 ---

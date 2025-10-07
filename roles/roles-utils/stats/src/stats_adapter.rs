@@ -47,7 +47,7 @@ pub struct ServiceConnection {
     pub address: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ServiceType {
     Mint,
     JobDeclarator,
