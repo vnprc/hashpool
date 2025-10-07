@@ -219,9 +219,9 @@ pub struct Pool {
     last_prev_hash_template_id: u64,
     status_tx: status::Sender,
     sv2_config: Option<Sv2MessagingConfig>,
-    mint_connections: HashMap<SocketAddr, Sender<EitherFrame>>,
+    pub mint_connections: HashMap<SocketAddr, Sender<EitherFrame>>,
     /// Maps channel_id (from mining protocol) to downstream_id (connection identifier)
-    channel_to_downstream: HashMap<u32, u32, BuildNoHashHasher<u32>>,
+    pub channel_to_downstream: HashMap<u32, u32, BuildNoHashHasher<u32>>,
     pub listen_address: String,
     pub minimum_difficulty: u32,
     pub stats_handle: Option<super::stats_client::StatsHandle>,
@@ -1139,6 +1139,9 @@ impl Pool {
             });
         }
 
+        // Extract stats_server_address before config is moved
+        let stats_addr_opt = config.stats_server_address.clone();
+
         info!("Starting up pool listener");
         let status_tx_clone = status_tx.clone();
         task::spawn(async move {
@@ -1227,6 +1230,42 @@ impl Pool {
                 error!("Downstream shutdown and Status Channel dropped");
             }
         });
+
+        // Start new snapshot-based stats polling loop
+        if let Some(stats_addr) = stats_addr_opt {
+            use stats::stats_adapter::StatsSnapshotProvider;
+            use stats::stats_adapter::PoolSnapshot;
+            use stats::stats_client::StatsClient;
+
+            let stats_client = StatsClient::<PoolSnapshot>::new(stats_addr.clone());
+            let pool_clone = cloned3.clone();
+
+            info!("Starting stats polling loop, sending to {}", stats_addr);
+
+            task::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+
+                loop {
+                    interval.tick().await;
+
+                    // Get snapshot via trait - need to lock pool to call get_snapshot
+                    let snapshot = match pool_clone.safe_lock(|p| {
+                        StatsSnapshotProvider::get_snapshot(p)
+                    }) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            error!("Failed to lock pool for stats snapshot: {}", e);
+                            continue;
+                        }
+                    };
+
+                    // Send to stats service
+                    if let Err(e) = stats_client.send_snapshot(snapshot).await {
+                        error!("Failed to send stats snapshot: {}", e);
+                    }
+                }
+            });
+        }
 
         cloned3
     }

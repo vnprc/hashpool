@@ -2,6 +2,7 @@ pub mod error;
 pub mod mining_pool;
 pub mod status;
 pub mod stats_client;
+pub mod stats_integration;
 pub mod template_receiver;
 
 use std::net::SocketAddr;

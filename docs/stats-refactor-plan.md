@@ -944,11 +944,12 @@ curl http://localhost:8082/api/stats
 
 ---
 
-**Deliverable 4.2: Update Pool**
-- Create `roles/pool/src/stats_integration.rs`
-- Implement `StatsSnapshotProvider` for pool state (~40 lines)
-- In `main.rs`, spawn polling loop (2 lines)
-- Total: ~45 lines SRI code changed
+**Deliverable 4.2: Update Pool** ✅ COMPLETE
+- ✅ Created `roles/pool/src/lib/stats_integration.rs`
+- ✅ Implemented `StatsSnapshotProvider` for Pool (~70 lines)
+- ✅ In `mining_pool/mod.rs`, spawned polling loop in Pool::start() method
+- ✅ Made `mint_connections` and `channel_to_downstream` public for stats access
+- ✅ Total: ~80 lines SRI code touched (slightly more due to field visibility)
 
 **No Unit Tests** (SRI integration, tested via smoke test)
 
@@ -968,11 +969,12 @@ curl http://localhost:8083/api/stats
 # Should see pool snapshot with services, downstream proxies
 ```
 
-**Phase 4 Complete - Verify:**
+**Phase 4 Complete - Verify:** ✅ COMPLETE
 ```bash
 cd roles && cargo build --workspace
-# Everything compiles
+# ✅ Everything compiles
 
+# 🚧 Manual smoke test pending - will test data flow in Phase 5
 # Run translator + stats-proxy + web-proxy together
 # Run pool + stats-pool + web-pool together
 # Verify data flows through the chain
