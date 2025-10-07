@@ -817,14 +817,17 @@ curl http://localhost:3030/health     # Returns 503 + stale:true (correct)
 
 ---
 
-**Deliverable 3.2: Create web-pool service**
-- New crate: `roles/web-pool`
-- HTTP server on port 8081
-- Polling loop fetching from stats-pool
-- In-memory state storage
-- Serve dashboard page
+**Deliverable 3.2: Create web-pool service** ✅ COMPLETE
+- ✅ New crate: `roles/web-pool`
+- ✅ HTTP server on port 8081
+- ✅ Polling loop fetching from stats-pool every 5s
+- ✅ In-memory snapshot cache with staleness detection
+- ✅ Dashboard page with pool info, services, and proxies tables
+- ✅ JSON API endpoints: /api/stats, /api/services, /api/connections
+- ✅ Health endpoint with 503 on stale data
+- ✅ Config-driven via CLI args: --stats-pool-url and --web-address
 
-**Unit Tests:**
+**Unit Tests:** ✅ COMPLETE (3 tests passing)
 ```rust
 // In roles/web-pool/src/lib.rs
 #[cfg(test)]
@@ -832,7 +835,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_pool_snapshot_storage() {
+    fn test_snapshot_storage() {
         let storage = SnapshotStorage::new();
 
         let snapshot = PoolSnapshot {
@@ -843,37 +846,65 @@ mod tests {
         };
 
         storage.update(snapshot.clone());
-        let retrieved = storage.get();
+        let retrieved = storage.get().unwrap();
         assert_eq!(retrieved.timestamp, 456);
+    }
+
+    #[test]
+    fn test_storage_returns_none_initially() {
+        let storage = SnapshotStorage::new();
+        assert!(storage.get().is_none());
+    }
+
+    #[test]
+    fn test_staleness_detection() {
+        let storage = SnapshotStorage::new();
+        // No data = stale
+        assert!(storage.is_stale(15));
+        // Fresh data
+        let now = unix_timestamp();
+        storage.update(PoolSnapshot { timestamp: now, ... });
+        assert!(!storage.is_stale(15));
+        // Old data (30 seconds ago)
+        storage.update(PoolSnapshot { timestamp: now - 30, ... });
+        assert!(storage.is_stale(15));
     }
 }
 ```
 
-**Human Smoke Test:**
+**Human Smoke Test:** ✅ COMPLETE
 ```bash
 cd roles/web-pool && cargo test
-# Unit tests pass
+# ✅ 3 tests pass
 
-# Start stats-pool first
-cd ../stats-pool && cargo run &
+cargo build --package web_pool
+# ✅ Compiles successfully
+
+# Start stats-pool
+cargo run --package stats_pool -- --tcp-address 127.0.0.1:9083 --http-address 127.0.0.1:9084 &
 
 # Start web-pool
-cd ../web-pool && cargo run
+cargo run --package web_pool -- --stats-pool-url http://127.0.0.1:9084 --web-address 127.0.0.1:8081 &
+
+# ✅ Service starts: "🌐 Web pool listening on http://127.0.0.1:8081"
+curl http://localhost:8081/health
+# ✅ Returns {"healthy":false,"stale":true} (correct - no data yet)
 
 # Open browser to http://localhost:8081
-# Should see pool dashboard
+# ✅ Dashboard loads with empty tables
 ```
 
-**Phase 3 Complete - Verify:**
+**Phase 3 Complete - Verify:** ✅ COMPLETE
 ```bash
-cd roles && cargo test web-proxy web-pool
-# All tests pass
-cargo build --workspace
-# Still compiles
+cd roles && cargo test --package web_proxy --package web_pool --lib
+# ✅ All tests pass (6 tests total: 3 web-proxy + 3 web-pool)
 
-# Manual integration: start all 4 services
-# stats-proxy, stats-pool, web-proxy, web-pool
-# Verify web pages load
+cargo build --workspace
+# ✅ Compiles successfully
+
+# Manual integration test
+# ✅ stats-proxy, stats-pool, web-proxy, web-pool all run
+# ✅ Web pages load and respond
 ```
 
 ---
@@ -1030,11 +1061,11 @@ curl http://localhost:8083/api/stats | jq
 **Testing Summary**
 
 **Automated Tests (~250 lines total):**
-- Phase 1: 4 unit tests (serialization, TCP client)
-- Phase 2: 4 unit tests (DB operations, staleness)
-- Phase 3: 4 unit tests (storage, HTTP endpoints)
-- Phase 4: 0 unit tests (SRI integration)
-- Phase 5: 0 unit tests (config & orchestration)
+- Phase 1: 4 unit tests (serialization, TCP client) ✅
+- Phase 2: 4 unit tests (DB operations, staleness) ✅
+- Phase 3: 6 unit tests (cache storage, staleness) ✅ (3 web-proxy + 3 web-pool)
+- Phase 4: 0 unit tests (SRI integration) 🚧 TODO
+- Phase 5: 0 unit tests (config & orchestration) 🚧 TODO
 
 **Human Smoke Tests:**
 - After each deliverable: verify specific component
@@ -1055,11 +1086,13 @@ curl http://localhost:8083/api/stats | jq
 
 **All Other Code: ~3000 lines (Pure Hashpool)**
 - ✅ roles-utils stats adapter: ~200 lines (COMPLETE)
-- 🚧 stats-proxy updates: ~400 lines (TODO)
-- 🚧 stats-pool updates: ~400 lines (TODO)
-- 🚧 web-proxy service: ~600 lines (TODO)
-- 🚧 web-pool service: ~600 lines (TODO)
-- 🚧 Tests: ~700 lines (TODO)
+- ✅ stats-proxy updates: ~400 lines (COMPLETE)
+- ✅ stats-pool updates: ~400 lines (COMPLETE)
+- ✅ web-proxy service: ~600 lines (COMPLETE)
+- ✅ web-pool service: ~600 lines (COMPLETE)
+- ✅ Tests: ~200 lines (COMPLETE - 14 tests passing)
+- 🚧 SRI integration: ~80 lines (TODO - Phase 4)
+- 🚧 Configuration: ~100 lines (TODO - Phase 5)
 
 **Rebase Strategy:**
 When rebasing to new SRI version:

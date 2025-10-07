@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pool Dashboard - HashPool</title>
+    <style>
+        /* {{NAV_ICON_CSS}} */
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 2rem;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 2rem;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+
+        .card h2 {
+            margin-bottom: 1.5rem;
+            color: #667eea;
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .info-item {
+            padding: 1rem;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .info-label {
+            font-size: 0.875rem;
+            color: #666;
+            margin-bottom: 0.25rem;
+        }
+
+        .info-value {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #333;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+
+        thead {
+            background: #667eea;
+            color: white;
+        }
+
+        th {
+            padding: 1rem;
+            text-align: left;
+            font-weight: 600;
+        }
+
+        td {
+            padding: 1rem;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        tbody tr:hover {
+            background: #f8f9fa;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .status-online {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-offline {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: #666;
+        }
+
+        .empty-state-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .card {
+                padding: 1.5rem;
+            }
+
+            table {
+                font-size: 0.875rem;
+            }
+
+            th, td {
+                padding: 0.75rem 0.5rem;
+            }
+        }
+
+        .refresh-indicator {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            background: white;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            font-size: 0.875rem;
+            color: #666;
+        }
+
+        .refresh-indicator.updating {
+            color: #667eea;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="refresh-indicator" id="refresh-indicator">
+        Last updated: <span id="last-update">never</span>
+    </div>
+
+    <div class="container">
+        <div class="header">
+            <h1>⛏️ Pool Dashboard</h1>
+            <p>HashPool Mining Pool Status</p>
+        </div>
+
+        <div class="card">
+            <h2>📊 Pool Information</h2>
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">Listen Address</div>
+                    <div class="info-value" id="listen-address">-</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Connected Proxies</div>
+                    <div class="info-value" id="proxy-count">0</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Active Services</div>
+                    <div class="info-value" id="service-count">0</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>🔌 Services</h2>
+            <div id="services-container">
+                <div class="empty-state">
+                    <div class="empty-state-icon">⏳</div>
+                    <p>Loading services...</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>🌐 Connected Proxies</h2>
+            <div id="connections-container">
+                <div class="empty-state">
+                    <div class="empty-state-icon">⏳</div>
+                    <p>Loading connections...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let lastUpdateTime = null;
+
+        async function fetchStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+
+                // Update pool info
+                document.getElementById('listen-address').textContent = data.listen_address || '-';
+                document.getElementById('proxy-count').textContent = data.downstream_proxies.length;
+                document.getElementById('service-count').textContent = data.services.length;
+
+                // Update services table
+                updateServicesTable(data.services);
+
+                // Update connections table
+                updateConnectionsTable(data.downstream_proxies);
+
+                // Update last update indicator
+                lastUpdateTime = new Date();
+                updateRefreshIndicator();
+            } catch (error) {
+                console.error('Failed to fetch stats:', error);
+            }
+        }
+
+        function updateServicesTable(services) {
+            const container = document.getElementById('services-container');
+
+            if (services.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🔌</div>
+                        <p>No services connected</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const html = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Service Type</th>
+                            <th>Address</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${services.map(service => `
+                            <tr>
+                                <td>${service.service_type}</td>
+                                <td>${service.address}</td>
+                                <td><span class="status-badge status-online">Online</span></td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            container.innerHTML = html;
+        }
+
+        function updateConnectionsTable(proxies) {
+            const container = document.getElementById('connections-container');
+
+            if (proxies.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🌐</div>
+                        <p>No proxies connected</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const html = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Address</th>
+                            <th>Channels</th>
+                            <th>Shares</th>
+                            <th>Quotes</th>
+                            <th>eHash Mined</th>
+                            <th>Last Share</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${proxies.map(proxy => `
+                            <tr>
+                                <td>${proxy.id}</td>
+                                <td>${proxy.address}</td>
+                                <td>${proxy.channels.length}</td>
+                                <td>${proxy.shares_submitted.toLocaleString()}</td>
+                                <td>${proxy.quotes_created.toLocaleString()}</td>
+                                <td>${proxy.ehash_mined.toLocaleString()}</td>
+                                <td>${proxy.last_share_at || '-'}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            container.innerHTML = html;
+        }
+
+        function updateRefreshIndicator() {
+            const indicator = document.getElementById('refresh-indicator');
+            const updateSpan = document.getElementById('last-update');
+
+            if (!lastUpdateTime) {
+                updateSpan.textContent = 'never';
+                return;
+            }
+
+            const now = new Date();
+            const elapsed = Math.floor((now - lastUpdateTime) / 1000);
+
+            if (elapsed < 60) {
+                updateSpan.textContent = `${elapsed}s ago`;
+            } else {
+                updateSpan.textContent = `${Math.floor(elapsed / 60)}m ago`;
+            }
+        }
+
+        // Fetch stats immediately
+        fetchStats();
+
+        // Refresh every 5 seconds
+        setInterval(fetchStats, 5000);
+
+        // Update "last update" indicator every second
+        setInterval(updateRefreshIndicator, 1000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+[package]
+name = "web_pool"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "web_pool"
+path = "src/lib.rs"
+
+[[bin]]
+name = "web_pool"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+hyper = { version = "1.0", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+http-body-util = "0.1"
+bytes = "1"
+reqwest = { version = "0.12", features = ["json"] }
+
+# Web assets
+web_assets = { path = "../roles-utils/web-assets" }
+
+# Stats adapter (for PoolSnapshot type)
+stats = { path = "../roles-utils/stats" }
