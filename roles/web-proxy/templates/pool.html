@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Hashpool Pool Settings</title>
+    <link rel="icon" type="image/svg+xml" sizes="any" href="/favicon.svg">
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background: #1a1a1a;
+            color: #00ff00;
+            margin: 0;
+            padding: 20px;
+            text-align: center;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px;
+            text-align: center;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .nav {
+            margin-bottom: 30px;
+        }
+        .nav a {
+            color: #00ff00;
+            text-decoration: none;
+            margin: 0 20px;
+            font-size: 1.2em;
+            white-space: nowrap;
+            display: inline-block;
+        }
+        .nav a:hover {
+            text-shadow: 0 0 10px #00ff00;
+        }
+        .status {
+            margin: 20px 0;
+            padding: 10px;
+            border: 1px solid #00ff00;
+            display: inline-block;
+        }
+        /* {{NAV_ICON_CSS}} */
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="nav">
+            <a href="/"><span class="wallet-icon">Wallet</span></a> | <a href="/miners"><span class="pickaxe-icon">Miners</span></a> | <a href="/pool"><span class="miner-icon">Pool</span></a>
+        </div>
+
+        <h1>Mining Pool</h1>
+
+        <div class="status" id="status">Pool Information</div>
+    </div>
+</body>
+</html>

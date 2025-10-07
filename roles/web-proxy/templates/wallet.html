@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Hashpool Ehash Wallet</title>
+    <link rel="icon" type="image/svg+xml" sizes="any" href="/favicon.svg">
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background: #1a1a1a;
+            color: #00ff00;
+            margin: 0;
+            padding: 20px;
+            text-align: center;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px;
+        }
+        .wallet {
+            font-size: 4em;
+            margin: 40px 0;
+            text-shadow: 0 0 10px #00ff00;
+        }
+        .nav {
+            margin-bottom: 30px;
+        }
+        .nav a {
+            color: #00ff00;
+            text-decoration: none;
+            margin: 0 20px;
+            font-size: 1.2em;
+            white-space: nowrap;
+            display: inline-block;
+        }
+        .nav a:hover {
+            text-shadow: 0 0 10px #00ff00;
+        }
+        .mint-button {
+            font-size: 2em;
+            padding: 20px 40px;
+            background: transparent;
+            border: 2px solid #00ff00;
+            color: #00ff00;
+            font-family: inherit;
+            cursor: pointer;
+            margin: 20px;
+            transition: all 0.3s;
+        }
+        .mint-button:hover {
+            background: #00ff00;
+            color: #1a1a1a;
+            text-shadow: none;
+        }
+        .mint-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .qr-container {
+            display: grid;
+            place-items: center;
+            margin: 30px auto;
+            padding: 40px;
+            border: 1px solid #00ff00;
+            background: #222;
+            border-radius: 5px;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+            width: 400px;
+            height: 400px;
+            box-sizing: border-box;
+        }
+        .qr-container.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+        .qr-code {
+            cursor: pointer;
+            padding: 15px;
+            background: white;
+            border-radius: 5px;
+            display: block;
+            width: 280px;
+            height: 280px;
+            box-sizing: border-box;
+        }
+        #qr-canvas {
+            background: white;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        .status {
+            margin: 20px 0;
+            padding: 10px;
+        }
+        .success {
+            color: #00ff00;
+        }
+        .error {
+            color: #ff4444;
+        }
+        /* {{NAV_ICON_CSS}} */
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+    <script>
+        function generateQRCode(canvas, text) {
+            const qr = qrcode(0, 'L');
+            qr.addData(text);
+            qr.make();
+
+            const cellSize = 8;
+            const margin = 2;
+            const moduleCount = qr.getModuleCount();
+            const canvasSize = (moduleCount + margin * 2) * cellSize;
+
+            canvas.width = canvasSize;
+            canvas.height = canvasSize;
+
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, canvasSize, canvasSize);
+
+            ctx.fillStyle = '#000000';
+            for (let row = 0; row < moduleCount; row++) {
+                for (let col = 0; col < moduleCount; col++) {
+                    if (qr.isDark(row, col)) {
+                        ctx.fillRect(
+                            (col + margin) * cellSize,
+                            (row + margin) * cellSize,
+                            cellSize,
+                            cellSize
+                        );
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body>
+    <div class="container">
+        <div class="nav">
+            <a href="/"><span class="wallet-icon">Wallet</span></a> | <a href="/miners"><span class="pickaxe-icon">Miners</span></a> | <a href="/pool"><span class="miner-icon">Pool</span></a>
+        </div>
+
+        <h1>Ehash Wallet</h1>
+        <div class="wallet" id="wallet">---</div>
+
+        <button class="mint-button" id="drip-btn" onclick="requestDrip()">Mint</button>
+
+        <div class="status" id="status" style="text-align: center; border: none; display: block; margin: 20px auto;"></div>
+
+        <div class="qr-container" id="qr-container">
+            <canvas id="qr-canvas" class="qr-code" onclick="copyToken()" title="Click to copy token"></canvas>
+        </div>
+        <p id="qr-instruction" style="margin: 10px 0; opacity: 0; transition: opacity 0.3s ease;">click to copy</p>
+    </div>
+
+    <script>
+        async function updateWalletDisplay() {
+            try {
+                const response = await fetch('/balance');
+                const data = await response.json();
+                document.getElementById('wallet').textContent = data.balance_raw.toLocaleString() + ' ehash';
+            } catch (e) {
+                document.getElementById('wallet').textContent = '---';
+            }
+        }
+
+        updateWalletDisplay();
+        setInterval(updateWalletDisplay, 3000);
+
+        async function requestDrip() {
+            const btn = document.getElementById('drip-btn');
+            const status = document.getElementById('status');
+            const qrContainer = document.getElementById('qr-container');
+
+            btn.disabled = true;
+            btn.textContent = 'Minting...';
+            status.textContent = 'Creating your ehash tokens...';
+            status.className = 'status';
+            qrContainer.classList.remove('visible');
+            document.getElementById('qr-instruction').style.opacity = '0';
+
+            try {
+                const response = await fetch('/mint/tokens', { method: 'POST' });
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    status.innerHTML = `Success! Minted ${data.amount} ehash<br><br>Redeem <a href="https://wallet.hashpool.dev" target="_blank" style="color: #00ff00; text-decoration: underline;">here</a>`;
+                    status.className = 'status success';
+
+                    generateQR(data.token);
+                    qrContainer.classList.add('visible');
+                    document.getElementById('qr-instruction').style.opacity = '1';
+
+                    btn.disabled = false;
+                    btn.textContent = 'Mint';
+                } else {
+                    throw new Error(data.error || 'Unknown error');
+                }
+            } catch (error) {
+                status.textContent = `Error: ${error.message}`;
+                status.className = 'status error';
+                btn.disabled = false;
+                btn.textContent = 'Mint';
+            }
+        }
+
+        let currentToken = '';
+
+        function generateQR(token) {
+            currentToken = token;
+            const canvas = document.getElementById('qr-canvas');
+
+            try {
+                generateQRCode(canvas, token);
+            } catch (error) {
+                console.error('QR generation failed:', error);
+            }
+        }
+
+        function copyToken() {
+            if (currentToken) {
+                navigator.clipboard.writeText(currentToken).then(() => {
+                    const status = document.getElementById('status');
+                    const originalHTML = status.innerHTML;
+                    const lines = originalHTML.split('<br>');
+                    lines[0] = 'Token copied to clipboard!';
+                    status.innerHTML = lines.join('<br>');
+
+                    setTimeout(() => {
+                        status.innerHTML = originalHTML;
+                    }, 2000);
+                }).catch(err => {
+                    console.error('Copy failed:', err);
+                });
+            }
+        }
+    </script>
+</body>
+</html>

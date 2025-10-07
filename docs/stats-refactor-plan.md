@@ -731,12 +731,15 @@ cargo build --package stats_pool
 
 **Phase 3: Create Web Services (Pure Hashpool)**
 
-**Deliverable 3.1: Create web-proxy service**
-- New crate: `roles/web-proxy`
-- HTTP server on port 3030
-- Polling loop fetching from stats-proxy
-- In-memory state storage
-- Serve 3 HTML pages (wallet, miners, pool)
+**Deliverable 3.1: Create web-proxy service** ✅ COMPLETE
+- ✅ New crate: `roles/web-proxy`
+- ✅ HTTP server on port 3030
+- ✅ Polling loop fetching from stats-proxy every 5s
+- ✅ In-memory state storage with staleness detection
+- ✅ Serve 3 HTML pages (wallet with mint/faucet, miners, pool)
+- ✅ Config-driven (no hard-coded addresses)
+- ✅ Faucet proxy to translator's /mint/tokens endpoint
+- ✅ Health endpoint with 503 on stale data
 
 **Unit Tests:**
 ```rust
@@ -777,20 +780,39 @@ mod tests {
 }
 ```
 
-**Human Smoke Test:**
+**Human Smoke Test:** ✅ COMPLETE
 ```bash
 cd roles/web-proxy && cargo test
-# Unit tests pass
+# ✅ 3 tests passing
 
-# Start stats-proxy first
-cd ../stats-proxy && cargo run &
+# Start stats-proxy
+cargo run --package stats_proxy -- \
+  --tcp-address 127.0.0.1:8082 \
+  --http-address 127.0.0.1:8084 \
+  --db-path /tmp/stats-proxy.db \
+  --config ../config/tproxy.config.toml \
+  --shared-config ../config/shared/miner.toml
 
 # Start web-proxy
-cd ../web-proxy && cargo run
+cargo run --package web_proxy -- \
+  --stats-proxy-url http://127.0.0.1:8084 \
+  --web-address 127.0.0.1:3030 \
+  --config ../config/tproxy.config.toml \
+  --shared-config ../config/shared/miner.toml
 
-# Open browser to http://localhost:3030
-# Should see wallet page
-# Navigate to /miners and /pool pages
+# Send test snapshot
+printf '{"ehash_balance":12345,"upstream_pool":{"address":"pool.example.com:3333"},"downstream_miners":[{"name":"test-miner","id":1,"address":"192.168.1.100:4444","hashrate":100000000.0,"shares_submitted":42,"connected_at":1234567890}],"timestamp":1728275000}\n' | nc localhost 8082
+
+# ✅ Verify data flow
+curl http://localhost:8084/api/stats  # stats-proxy has snapshot
+curl http://localhost:3030/balance    # web-proxy serving: {"balance":"12345 ehash"}
+curl http://localhost:3030/api/miners # web-proxy serving miner data
+curl http://localhost:3030/health     # Returns 503 + stale:true (correct)
+
+# ✅ Browser verification
+# http://localhost:3030 - Wallet page with balance
+# http://localhost:3030/miners - Miners page with test-miner
+# http://localhost:3030/pool - Pool page
 ```
 
 ---

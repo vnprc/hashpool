@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Hashpool Connected Miners</title>
+    <link rel="icon" type="image/svg+xml" sizes="any" href="/favicon.svg">
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background: #1a1a1a;
+            color: #00ff00;
+            margin: 0;
+            padding: 20px;
+            text-align: center;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 40px;
+        }
+        .stat-box {
+            text-align: center;
+            padding: 20px;
+            border: 1px solid #00ff00;
+            min-width: 150px;
+        }
+        .stat-value {
+            font-size: 2em;
+            margin-top: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #00ff00;
+        }
+        th {
+            background: #0a0a0a;
+            font-weight: bold;
+        }
+        tr:hover {
+            background: #0a0a0a;
+        }
+        .nav {
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        .nav a {
+            color: #00ff00;
+            text-decoration: none;
+            margin: 0 20px;
+            font-size: 1.2em;
+            white-space: nowrap;
+            display: inline-block;
+        }
+        .nav a:hover {
+            text-shadow: 0 0 10px #00ff00;
+        }
+        /* {{NAV_ICON_CSS}} */
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="nav">
+            <a href="/"><span class="wallet-icon">Wallet</span></a> | <a href="/miners"><span class="pickaxe-icon">Miners</span></a> | <a href="/pool"><span class="miner-icon">Pool</span></a>
+        </div>
+
+        <h1>Mining Devices</h1>
+
+        <div style="margin: 30px 0; padding: 20px; border: 1px solid #00ff00; text-align: left;">
+            <h3 style="margin-top: 0; text-align: center;">Connection Settings</h3>
+            <div style="font-family: monospace; font-size: 1.1em;">
+                <div style="margin: 10px 0;"><strong>Server:</strong> <span style="color: #ffff00;">{downstream_address}</span></div>
+                <div style="margin: 10px 0;"><strong>Port:</strong> <span style="color: #ffff00;">{downstream_port}</span></div>
+                <div style="margin: 10px 0;"><strong>Protocol:</strong> <span style="color: #ffff00;">Stratum V1</span></div>
+            </div>
+        </div>
+
+        <div class="stats">
+            <div class="stat-box">
+                <div>Connected Miners</div>
+                <div class="stat-value" id="total-miners">-</div>
+            </div>
+            <div class="stat-box">
+                <div>Total Hashrate</div>
+                <div class="stat-value" id="total-hashrate">-</div>
+            </div>
+            <div class="stat-box">
+                <div>Total Shares</div>
+                <div class="stat-value" id="total-shares">-</div>
+            </div>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 2.5em;"></th>
+                    <th>Name</th>
+                    <th>ID</th>
+                    <th>Address</th>
+                    <th>Hashrate</th>
+                    <th>Shares</th>
+                    <th>Connected</th>
+                </tr>
+            </thead>
+            <tbody id="miners-tbody">
+                <tr><td colspan="7" style="text-align: center; opacity: 0.5;">No miners connected</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        async function updateMiners() {
+            try {
+                const response = await fetch('/api/miners');
+                const data = await response.json();
+
+                document.getElementById('total-miners').textContent = data.total_miners || 0;
+                document.getElementById('total-hashrate').textContent = data.total_hashrate || '0 H/s';
+                document.getElementById('total-shares').textContent = (data.total_shares || 0).toLocaleString();
+
+                const tbody = document.getElementById('miners-tbody');
+                tbody.innerHTML = '';
+
+                if (!data.miners || data.miners.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; opacity: 0.5;">No miners connected</td></tr>';
+                } else {
+                    data.miners.forEach(miner => {
+                        const row = tbody.insertRow();
+                        const iconCell = row.insertCell();
+                        iconCell.style.textAlign = 'center';
+                        iconCell.innerHTML = '<span class="pickaxe-icon" aria-hidden="true"></span>';
+
+                        row.insertCell().textContent = miner.name || 'Unknown';
+                        row.insertCell().textContent = miner.id || '-';
+                        row.insertCell().textContent = miner.address || '-';
+                        row.insertCell().textContent = miner.hashrate || '0 H/s';
+                        row.insertCell().textContent = (miner.shares || 0).toLocaleString();
+                        row.insertCell().textContent = miner.connected_time || 'Just now';
+                    });
+                }
+            } catch (error) {
+                console.error('Failed to fetch miners:', error);
+            }
+        }
+
+        // Update immediately and then every 3 seconds
+        updateMiners();
+        setInterval(updateMiners, 3000);
+    </script>
+</body>
+</html>

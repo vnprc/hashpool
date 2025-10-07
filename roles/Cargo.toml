@@ -7,6 +7,7 @@ members = [
     "pool",
     "stats-pool",
     "stats-proxy",
+    "web-proxy",
     "test-utils/mining-device",
     "test-utils/mining-device-sv1",
     "translator",
