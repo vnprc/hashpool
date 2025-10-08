@@ -1,0 +1,42 @@
+# Job Declarator Client config for testnet4 production
+
+# Downstream listening address (for miners connecting to JDC)
+downstream_address = "127.0.0.1"
+downstream_port = 34265
+
+# Version support
+max_supported_version = 2
+min_supported_version = 2
+
+# Minimum extranonce2 size for downstream
+min_extranonce2_size = 8
+
+# Withhold
+withhold = false
+
+# Auth keys for encrypted connection
+authority_public_key = "9auqWEzQDVyd2oe1JVGFLMLHZtCo2FFqZwtKA5gd9xbuEu7PH72"
+authority_secret_key = "mkDLTBBRxdBv998612qipDYoTK3YUrqLe8uWw7gu3iXbSrn2n"
+cert_validity_sec = 3600
+
+# Retry attempts after failure
+retry = 10
+
+# Template Provider config - using local TP
+tp_address = "127.0.0.1:8442"
+
+# Solo Mining coinbase outputs (fallback)
+coinbase_outputs = [
+    { output_script_type = "P2WPKH", output_script_value = "036adc3bdf21e6f9a0f0fb0066bf517e5b7909ed1563d6958a10993849a7554075" },
+]
+
+[timeout]
+unit = "secs"
+value = 1
+
+# Upstream pool and JD server addresses
+[[upstreams]]
+authority_pubkey = "9auqWEzQDVyd2oe1JVGFLMLHZtCo2FFqZwtKA5gd9xbuEu7PH72"
+pool_address = "127.0.0.1:34254"
+jd_address = "127.0.0.1:34264"
+pool_signature = "Hashpool Testnet"

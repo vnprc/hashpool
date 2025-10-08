@@ -36,7 +36,9 @@ cargo build \
   --bin jd_server \
   --bin jd_client \
   --bin stats_pool \
-  --bin stats_proxy
+  --bin stats_proxy \
+  --bin web_pool \
+  --bin web_proxy
 
 echo "✅ Build complete"
 
@@ -48,6 +50,7 @@ STAGING_DIR="/tmp/hashpool-deploy-$$"
 mkdir -p "$STAGING_DIR/bin"
 mkdir -p "$STAGING_DIR/config"
 mkdir -p "$STAGING_DIR/systemd"
+mkdir -p "$STAGING_DIR/nginx"
 
 # Stage binaries
 cp "$LOCAL_DIR/roles/target/debug/pool_sv2" "$STAGING_DIR/bin/"
@@ -57,6 +60,8 @@ cp "$LOCAL_DIR/roles/target/debug/jd_server" "$STAGING_DIR/bin/"
 cp "$LOCAL_DIR/roles/target/debug/jd_client" "$STAGING_DIR/bin/"
 cp "$LOCAL_DIR/roles/target/debug/stats_pool" "$STAGING_DIR/bin/"
 cp "$LOCAL_DIR/roles/target/debug/stats_proxy" "$STAGING_DIR/bin/"
+cp "$LOCAL_DIR/roles/target/debug/web_pool" "$STAGING_DIR/bin/"
+cp "$LOCAL_DIR/roles/target/debug/web_proxy" "$STAGING_DIR/bin/"
 cp /tmp/bitcoind "$STAGING_DIR/bin/"
 cp /tmp/bitcoin-cli "$STAGING_DIR/bin/"
 
@@ -67,13 +72,18 @@ cp -r "$LOCAL_DIR/config/prod/"* "$STAGING_DIR/config/"
 cp "$LOCAL_DIR/scripts/systemd/"*.service "$STAGING_DIR/systemd/"
 cp "$LOCAL_DIR/scripts/hashpool-ctl.sh" "$STAGING_DIR/bin/"
 
+# Stage nginx configs
+cp -r "$LOCAL_DIR/scripts/nginx/sites-available" "$STAGING_DIR/nginx/"
+
 # Single rsync to VPS and run installation commands
 echo "📤 Deploying to VPS and installing..."
-rsync -avz --progress "$STAGING_DIR/" "$VPS_USER@$VPS_HOST:/tmp/hashpool-deploy/" && \
+# Use --partial to resume interrupted transfers, --bwlimit to avoid throttling (KB/s)
+# Adjust --bwlimit value if needed: 5000 = 5MB/s, 10000 = 10MB/s
+rsync -avz --progress --partial --bwlimit=5000 --compress-level=9 --timeout=300 "$STAGING_DIR/" "$VPS_USER@$VPS_HOST:/tmp/hashpool-deploy/" && \
 ssh "$VPS_USER@$VPS_HOST" << 'EOF'
   # Stop all services first
   echo "Stopping services..."
-  systemctl stop hashpool-proxy hashpool-jd-client hashpool-jd-server hashpool-pool hashpool-mint hashpool-stats-proxy hashpool-stats-pool hashpool-bitcoind 2>/dev/null || true
+  systemctl stop hashpool-web-proxy hashpool-web-pool hashpool-proxy hashpool-jd-client hashpool-jd-server hashpool-pool hashpool-mint hashpool-stats-proxy hashpool-stats-pool hashpool-bitcoind 2>/dev/null || true
 
   # Create necessary directories
   mkdir -p /opt/hashpool/{bin,config}
@@ -83,6 +93,18 @@ ssh "$VPS_USER@$VPS_HOST" << 'EOF'
   cp -r /tmp/hashpool-deploy/bin/* /opt/hashpool/bin/
   cp -r /tmp/hashpool-deploy/config/* /opt/hashpool/config/
   cp /tmp/hashpool-deploy/systemd/*.service /etc/systemd/system/
+
+  # Deploy nginx configs
+  echo "Deploying nginx configs..."
+  cp -r /tmp/hashpool-deploy/nginx/sites-available/* /etc/nginx/sites-available/
+
+  # Ensure symlinks exist in sites-enabled
+  ln -sf /etc/nginx/sites-available/pool.hashpool.dev /etc/nginx/sites-enabled/pool.hashpool.dev
+  ln -sf /etc/nginx/sites-available/proxy.hashpool.dev /etc/nginx/sites-enabled/proxy.hashpool.dev
+  ln -sf /etc/nginx/sites-available/mint.hashpool.dev /etc/nginx/sites-enabled/mint.hashpool.dev
+
+  # Test and reload nginx
+  nginx -t && systemctl reload nginx
 
   # Reload systemd
   systemctl daemon-reload
@@ -105,6 +127,8 @@ ssh "$VPS_USER@$VPS_HOST" << 'EOF'
   systemctl start hashpool-pool
   sleep 1
   systemctl start hashpool-jd-server hashpool-jd-client hashpool-proxy
+  sleep 1
+  systemctl start hashpool-web-pool hashpool-web-proxy
 
   # Clean up staging
   rm -rf /tmp/hashpool-deploy
@@ -122,7 +146,7 @@ echo "  sudo hashpool-ctl restart   # Restart all services"
 echo "  sudo hashpool-ctl status    # Check service status"
 echo ""
 echo "To enable services at boot:"
-echo "  sudo systemctl enable hashpool-{bitcoind,stats-pool,stats-proxy,mint,pool,jd-server,jd-client,proxy}"
+echo "  sudo systemctl enable hashpool-{bitcoind,stats-pool,stats-proxy,mint,pool,jd-server,jd-client,proxy,web-pool,web-proxy}"
 echo ""
 echo "Individual service management:"
 echo "  sudo systemctl start hashpool-pool"

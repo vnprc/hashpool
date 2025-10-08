@@ -55,7 +55,7 @@ impl StatsSnapshotProvider for Pool {
                     .collect();
 
                 let is_jd = d.is_job_declarator();
-                tracing::debug!("Downstream {} ({}) - is_jd: {}", id, d.address, is_jd);
+                tracing::debug!("Downstream {} ({}) - is_jd: {}, has_work_selection: {}", id, d.address, is_jd, d.has_work_selection());
 
                 (
                     d.address.to_string(),

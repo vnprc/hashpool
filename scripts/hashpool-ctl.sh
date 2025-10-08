@@ -13,6 +13,8 @@ SERVICES=(
   "hashpool-jd-server"
   "hashpool-jd-client"
   "hashpool-proxy"
+  "hashpool-web-pool"
+  "hashpool-web-proxy"
 )
 
 start_services() {

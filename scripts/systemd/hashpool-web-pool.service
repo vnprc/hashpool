@@ -1,0 +1,21 @@
+[Unit]
+Description=Hashpool Pool Web Dashboard
+After=network.target hashpool-stats-pool.service
+Requires=hashpool-stats-pool.service
+
+[Service]
+Type=simple
+User=hashpool
+Group=hashpool
+WorkingDirectory=/opt/hashpool
+ExecStart=/opt/hashpool/bin/web_pool \
+  --stats-pool-url http://127.0.0.1:8081 \
+  --web-address 127.0.0.1:8080
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hashpool-web-pool
+
+[Install]
+WantedBy=multi-user.target

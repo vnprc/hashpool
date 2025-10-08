@@ -1,0 +1,23 @@
+[Unit]
+Description=Hashpool Proxy Web Dashboard
+After=network.target hashpool-stats-proxy.service
+Requires=hashpool-stats-proxy.service
+
+[Service]
+Type=simple
+User=hashpool
+Group=hashpool
+WorkingDirectory=/opt/hashpool
+ExecStart=/opt/hashpool/bin/web_proxy \
+  --stats-proxy-url http://127.0.0.1:3030 \
+  --web-address 127.0.0.1:3000 \
+  --config /opt/hashpool/config/tproxy.config.toml \
+  --shared-config /opt/hashpool/config/shared/miner.toml
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hashpool-web-proxy
+
+[Install]
+WantedBy=multi-user.target
