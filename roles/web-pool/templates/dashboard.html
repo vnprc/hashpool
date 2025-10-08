@@ -71,12 +71,6 @@
             font-family: monospace;
             font-size: 0.9em;
         }
-        .refresh {
-            text-align: right;
-            margin-bottom: 10px;
-            font-size: 0.9em;
-            opacity: 0.7;
-        }
         .status-dot {
             display: inline-block;
             width: 10px;
@@ -166,8 +160,6 @@
                 <div class="stat-value" id="ehash-mined">-</div>
             </div>
         </div>
-
-        <div class="refresh" id="refresh-time">Loading...</div>
 
         <h2>Connected Proxies</h2>
         <table class="proxies-table">
@@ -296,12 +288,8 @@
                         row.insertCell().textContent = proxy.last_share_at || 'Never';
                     });
                 }
-
-                document.getElementById('refresh-time').textContent =
-                    'Updated: ' + new Date().toLocaleTimeString();
             } catch (error) {
                 console.error('Failed to fetch stats:', error);
-                document.getElementById('refresh-time').textContent = 'Error loading data';
             }
         }
 
