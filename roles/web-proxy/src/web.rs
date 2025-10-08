@@ -29,6 +29,7 @@ pub async fn run_http_server(
     downstream_port: u16,
     upstream_address: String,
     upstream_port: u16,
+    client_poll_interval_secs: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(&address).await?;
     info!("🌐 Web proxy listening on http://{}", address);
@@ -36,6 +37,7 @@ pub async fn run_http_server(
     let faucet_url = Arc::new(faucet_url);
     let downstream_addr = Arc::new(downstream_address);
     let upstream_addr = Arc::new(upstream_address);
+    let poll_interval_secs = Arc::new(client_poll_interval_secs);
 
     loop {
         let (stream, _) = listener.accept().await?;
@@ -44,6 +46,7 @@ pub async fn run_http_server(
         let faucet_url = faucet_url.clone();
         let downstream_addr = downstream_addr.clone();
         let upstream_addr = upstream_addr.clone();
+        let poll_interval_secs = poll_interval_secs.clone();
 
         tokio::task::spawn(async move {
             let service = service_fn(move |req| {
@@ -51,6 +54,7 @@ pub async fn run_http_server(
                 let faucet_url = faucet_url.clone();
                 let downstream_addr = downstream_addr.clone();
                 let upstream_addr = upstream_addr.clone();
+                let poll_interval_secs = poll_interval_secs.clone();
                 async move {
                     handle_request(
                         req,
@@ -61,6 +65,7 @@ pub async fn run_http_server(
                         downstream_port,
                         upstream_addr.as_str(),
                         upstream_port,
+                        *poll_interval_secs,
                     )
                     .await
                 }
@@ -82,6 +87,7 @@ async fn handle_request(
     downstream_port: u16,
     upstream_address: &str,
     upstream_port: u16,
+    client_poll_interval_secs: u64,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     let response = match (req.method(), req.uri().path()) {
         (&Method::GET, "/favicon.ico") | (&Method::GET, "/favicon.svg") => Ok(serve_favicon()),
@@ -98,13 +104,19 @@ async fn handle_request(
         (&Method::GET, "/pool") => {
             Response::builder()
                 .header("content-type", "text/html; charset=utf-8")
-                .body(Full::new(pool_page(upstream_address, upstream_port)))
+                .body(Full::new(pool_page(upstream_address, upstream_port, client_poll_interval_secs)))
         }
         (&Method::GET, "/api/miners") => {
             let stats = get_miner_stats(storage).await;
             Response::builder()
                 .header("content-type", "application/json")
                 .body(Full::new(Bytes::from(stats.to_string())))
+        }
+        (&Method::GET, "/api/pool") => {
+            let pool_info = get_pool_info(storage).await;
+            Response::builder()
+                .header("content-type", "application/json")
+                .body(Full::new(Bytes::from(pool_info.to_string())))
         }
         (&Method::GET, "/balance") => {
             let balance = get_wallet_balance(storage.clone()).await;
@@ -186,12 +198,16 @@ fn miners_page(downstream_address: &str, downstream_port: u16) -> Bytes {
     Bytes::from(formatted_html)
 }
 
-fn pool_page(upstream_address: &str, upstream_port: u16) -> Bytes {
+fn pool_page(upstream_address: &str, upstream_port: u16, client_poll_interval_secs: u64) -> Bytes {
     let html = POOL_PAGE_TEMPLATE.replace("/* {{NAV_ICON_CSS}} */", nav_icon_css());
+
+    // Convert seconds to milliseconds for JavaScript setInterval
+    let client_poll_interval_ms = client_poll_interval_secs * 1000;
 
     let formatted_html = html
         .replace("{upstream_address}", upstream_address)
-        .replace("{upstream_port}", &upstream_port.to_string());
+        .replace("{upstream_port}", &upstream_port.to_string())
+        .replace("{client_poll_interval_ms}", &client_poll_interval_ms.to_string());
 
     Bytes::from(formatted_html)
 }
@@ -200,6 +216,25 @@ async fn get_wallet_balance(storage: Arc<SnapshotStorage>) -> u64 {
     match storage.get() {
         Some(snapshot) => snapshot.ehash_balance,
         None => 0,
+    }
+}
+
+async fn get_pool_info(storage: Arc<SnapshotStorage>) -> serde_json::Value {
+    match storage.get() {
+        Some(snapshot) => {
+            json!({
+                "blockchain_network": snapshot.blockchain_network,
+                "upstream_pool": snapshot.upstream_pool,
+                "connected": snapshot.upstream_pool.is_some()
+            })
+        }
+        None => {
+            json!({
+                "blockchain_network": "unknown",
+                "upstream_pool": null,
+                "connected": false
+            })
+        }
     }
 }
 

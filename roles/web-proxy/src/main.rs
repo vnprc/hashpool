@@ -7,8 +7,6 @@ use stats::stats_adapter::ProxySnapshot;
 
 use web_proxy::{SnapshotStorage, config::Config};
 
-const POLL_INTERVAL_SECS: u64 = 5;
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing
@@ -24,6 +22,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting web-proxy service");
     info!("Stats proxy URL: {}", config.stats_proxy_url);
     info!("Web server address: {}", config.web_server_address);
+    info!("Stats poll interval: {}s", config.stats_poll_interval_secs);
+    info!("Client poll interval: {}s", config.client_poll_interval_secs);
 
     // Create shared snapshot storage
     let storage = Arc::new(SnapshotStorage::new());
@@ -31,8 +31,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Spawn polling loop
     let storage_clone = storage.clone();
     let stats_proxy_url = config.stats_proxy_url.clone();
+    let poll_interval = config.stats_poll_interval_secs;
     tokio::spawn(async move {
-        poll_stats_proxy(storage_clone, stats_proxy_url).await;
+        poll_stats_proxy(storage_clone, stats_proxy_url, poll_interval).await;
     });
 
     // Start HTTP server
@@ -45,15 +46,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.downstream_port,
         config.upstream_address,
         config.upstream_port,
+        config.client_poll_interval_secs,
     )
     .await?;
 
     Ok(())
 }
 
-async fn poll_stats_proxy(storage: Arc<SnapshotStorage>, stats_proxy_url: String) {
+async fn poll_stats_proxy(storage: Arc<SnapshotStorage>, stats_proxy_url: String, poll_interval_secs: u64) {
     let client = reqwest::Client::new();
-    let mut interval = time::interval(Duration::from_secs(POLL_INTERVAL_SECS));
+    let mut interval = time::interval(Duration::from_secs(poll_interval_secs));
 
     loop {
         interval.tick().await;
@@ -88,6 +90,7 @@ async fn start_web_server(
     downstream_port: u16,
     upstream_address: String,
     upstream_port: u16,
+    client_poll_interval_secs: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     web_proxy::web::run_http_server(
         address,
@@ -98,6 +101,7 @@ async fn start_web_server(
         downstream_port,
         upstream_address,
         upstream_port,
+        client_poll_interval_secs,
     )
     .await
 }

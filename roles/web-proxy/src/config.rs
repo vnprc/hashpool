@@ -12,6 +12,8 @@ pub struct Config {
     pub upstream_port: u16,
     pub faucet_enabled: bool,
     pub faucet_url: Option<String>,
+    pub stats_poll_interval_secs: u64,
+    pub client_poll_interval_secs: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -88,6 +90,19 @@ impl Config {
             None
         };
 
+        // Extract web_proxy poll intervals (with defaults)
+        let stats_poll_interval_secs = shared_config
+            .get("web_proxy")
+            .and_then(|w| w.get("stats_poll_interval_secs"))
+            .and_then(|i| i.as_integer())
+            .unwrap_or(3) as u64;
+
+        let client_poll_interval_secs = shared_config
+            .get("web_proxy")
+            .and_then(|w| w.get("client_poll_interval_secs"))
+            .and_then(|i| i.as_integer())
+            .unwrap_or(3) as u64;
+
         Ok(Config {
             stats_proxy_url,
             web_server_address,
@@ -97,6 +112,8 @@ impl Config {
             upstream_port: tproxy.upstream_port,
             faucet_enabled,
             faucet_url,
+            stats_poll_interval_secs,
+            client_poll_interval_secs,
         })
     }
 }

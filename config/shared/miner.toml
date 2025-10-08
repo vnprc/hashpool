@@ -21,3 +21,9 @@ minimum_difficulty = 32
 enabled = true
 host = "127.0.0.1"
 port = 8083
+
+[web_proxy]
+# Interval in seconds for web-proxy to poll stats-proxy service
+stats_poll_interval_secs = 3
+# Interval in seconds for browser to poll web-proxy API
+client_poll_interval_secs = 3

@@ -90,10 +90,16 @@ impl StatsSnapshotProvider for TranslatorSv2 {
             })
         });
 
+        // Get blockchain network from environment variable
+        let blockchain_network = std::env::var("BITCOIND_NETWORK")
+            .unwrap_or_else(|_| "unknown".to_string())
+            .to_lowercase();
+
         ProxySnapshot {
             ehash_balance,
             upstream_pool,
             downstream_miners,
+            blockchain_network,
             timestamp: unix_timestamp(),
         }
     }

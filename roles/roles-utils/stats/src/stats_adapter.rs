@@ -14,6 +14,7 @@ pub struct ProxySnapshot {
     pub ehash_balance: u64,
     pub upstream_pool: Option<PoolConnection>,
     pub downstream_miners: Vec<MinerInfo>,
+    pub blockchain_network: String,
     pub timestamp: u64,
 }
 
@@ -93,6 +94,7 @@ mod tests {
                 shares_submitted: 42,
                 connected_at: 1234567890,
             }],
+            blockchain_network: "testnet4".to_string(),
             timestamp: 1234567890,
         };
 

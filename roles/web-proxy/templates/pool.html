@@ -101,7 +101,7 @@
         <div class="stats">
             <div class="stat-box">
                 <div>Blockchain</div>
-                <div class="stat-value" id="blockchain-status">Signet</div>
+                <div class="stat-value" id="blockchain-status">-</div>
             </div>
             <div class="stat-box">
                 <div>Block Height</div>
@@ -125,11 +125,21 @@
         function updatePoolStatus() {
             if (!statusEl) return;
 
-            fetch('/balance')
+            fetch('/api/pool')
                 .then(response => response.json())
                 .then(data => {
-                    statusEl.innerHTML = '<span class="status-dot status-up"></span>Connected';
-                    statusEl.className = 'status';
+                    if (data.connected) {
+                        statusEl.innerHTML = '<span class="status-dot status-up"></span>Connected';
+                        statusEl.className = 'status';
+                    } else {
+                        statusEl.innerHTML = '<span class="status-dot status-down"></span>Disconnected';
+                        statusEl.className = 'status offline';
+                    }
+
+                    // Update blockchain network from snapshot data
+                    if (blockchainEl && data.blockchain_network) {
+                        blockchainEl.textContent = data.blockchain_network;
+                    }
 
                     // TODO: Update these with real data when available
                     if (blockHeightEl) blockHeightEl.textContent = '-';
@@ -139,14 +149,15 @@
                     statusEl.innerHTML = '<span class="status-dot status-down"></span>Connection Lost';
                     statusEl.className = 'status offline';
 
+                    if (blockchainEl) blockchainEl.textContent = '-';
                     if (blockHeightEl) blockHeightEl.textContent = '-';
                     if (lastBlockEl) lastBlockEl.textContent = '-';
                 });
         }
 
-        // Update immediately and then every 3 seconds
+        // Update immediately and then at configured interval
         updatePoolStatus();
-        setInterval(updatePoolStatus, 3000);
+        setInterval(updatePoolStatus, {client_poll_interval_ms});
     </script>
 </body>
 </html>
