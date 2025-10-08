@@ -107,6 +107,11 @@ impl MinerTracker {
         miners.get(&id).map(|m| m.address.to_string())
     }
 
+    pub async fn get_all_miners(&self) -> Vec<MinerInfo> {
+        let miners = self.miners.read().await;
+        miners.values().cloned().collect()
+    }
+
     pub async fn get_stats(&self) -> MinerStats {
         let miners = self.miners.read().await;
         let total_miners = miners.len();

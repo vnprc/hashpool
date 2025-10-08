@@ -57,27 +57,34 @@ impl StatsSnapshotProvider for TranslatorSv2 {
 
         // Get downstream miner info from MinerTracker
         // We'll need to access the internal miners map, so let's use the get_stats method
-        // and convert the API info back to snapshot format
+        // Get raw miner info to access connected_time Instant
         let miner_tracker = self.miner_tracker.clone();
         let downstream_miners = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
-                // Unfortunately, MinerTracker doesn't expose the internal miners directly
-                // We'll use the public get_stats method and convert the result
-                let stats = miner_tracker.get_stats().await;
-                stats.miners.into_iter().map(|miner_api| {
+                let miners = miner_tracker.get_all_miners().await;
+                let now = std::time::SystemTime::now();
+
+                miners.into_iter().map(|miner| {
+                    // Convert Instant to Unix timestamp
+                    // We calculate: now (SystemTime) - (Instant::now() - miner.connected_time)
+                    let elapsed = std::time::Instant::now().duration_since(miner.connected_time);
+                    let connected_at_systemtime = now - elapsed;
+                    let connected_at = connected_at_systemtime
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+
                     MinerInfo {
-                        name: miner_api.name,
-                        id: miner_api.id,
+                        name: miner.name,
+                        id: miner.id,
                         address: if self.config.redact_ip {
                             "REDACTED".to_string()
                         } else {
-                            miner_api.address
+                            miner.address.to_string()
                         },
-                        hashrate: parse_hashrate_string(&miner_api.hashrate),
-                        shares_submitted: miner_api.shares,
-                        // We don't have exact connected_at timestamp, use 0 for now
-                        // This is the timestamp when they connected, not duration
-                        connected_at: 0,
+                        hashrate: miner.estimated_hashrate,
+                        shares_submitted: miner.shares_submitted,
+                        connected_at,
                     }
                 }).collect()
             })
