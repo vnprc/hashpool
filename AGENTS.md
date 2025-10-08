@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to LLM coding agents when working with code in this repository.
 
 ## Project Overview
 
@@ -66,7 +66,7 @@ There is **NO** direct communication between:
    - SV2 mining pool that coordinates work
    - Communicates with separate Mint service via TCP (SV2 MintQuote protocol)
    - Sends MintQuoteRequest messages to mint when shares are accepted
-   - Web dashboard on port 8081 showing pool status and connections
+   - Sends stats snapshots to stats-pool service every 5s via TCP
    - Configuration: `config/pool.config.toml`, `config/shared/pool.toml`
 
 2. **Mint** (`roles/mint/`)
@@ -75,7 +75,7 @@ There is **NO** direct communication between:
    - Receives quote requests via TCP from pool using SV2 MintQuote subprotocol
    - Generates blinded signatures for accepted shares
    - SQLite database at `.devenv/state/mint/mint.sqlite`
-   - HTTP API on port 3338 for wallet operations
+   - HTTP API for wallet operations
    - Configuration: `config/mint.config.toml`
 
 3. **JD-Server** (`roles/jd-server/`)
@@ -83,27 +83,94 @@ There is **NO** direct communication between:
    - Talks to bitcoind (pool side) for block templates
    - Configuration: `config/jds.config.toml`
 
+4. **stats-pool** (`roles/stats-pool/`)
+   - Receives snapshot-based stats from Pool via TCP
+   - Stores latest snapshot in memory (no database)
+   - Exposes HTTP API for web-pool to consume
+   - Staleness detection: marks data stale after 15s without updates
+
+5. **web-pool** (`roles/web-pool/`)
+   - Web dashboard showing pool status and connections
+   - Polls stats-pool HTTP API every 5s
+   - Serves HTML dashboard with services table and downstream proxies table
+   - Pure hashpool code, completely separate from Pool
+
 ### Miner Side Components
 
-4. **Translator** (`roles/translator/`)
+1. **Translator** (`roles/translator/`)
    - Proxy that translates SV1 (downstream) ↔ SV2 (upstream)
    - Integrated Cashu wallet for managing ehash tokens
    - Bundles blinded messages with shares sent upstream to pool
    - Receives blinded signatures from pool and stores complete tokens
-   - Web dashboard on port 3030 showing miner stats and wallet balance
+   - Sends stats snapshots to stats-proxy service every 5s via TCP
    - SQLite database at `.devenv/state/translator/wallet.sqlite`
    - Configuration: `config/tproxy.config.toml`, `config/shared/miner.toml`
 
-5. **JD-Client** (`roles/jd-client/`)
+2. **JD-Client** (`roles/jd-client/`)
    - Job Declarator Client for custom job selection
    - Talks to bitcoind (miner side) for block template construction
    - Configuration: `config/jdc.config.toml`
 
+3. **stats-proxy** (`roles/stats-proxy/`)
+   - Receives snapshot-based stats from Translator via TCP
+   - Stores latest snapshot in memory (no database)
+   - Exposes HTTP API for web-proxy to consume
+   - Staleness detection: marks data stale after 15s without updates
+
+4. **web-proxy** (`roles/web-proxy/`)
+   - Web dashboard showing miner stats and wallet balance
+   - Polls stats-proxy HTTP API every 5s
+   - Serves three HTML pages: wallet (with faucet), miners, pool
+   - Proxies faucet requests to translator's /mint/tokens endpoint
+   - Pure hashpool code, completely separate from Translator
+
 ### Web Dashboards
 
-Both the Pool and Translator have embedded web dashboards:
-- **Pool Dashboard** (port 8081): Shows pool status, connected miners, share statistics
-- **Translator Dashboard** (port 3030): Shows wallet balance, miner stats, ehash redemption interface
+Both pool and miner sides have separate web services for dashboards:
+- **web-pool**: Shows pool status, connected services, and downstream proxies
+- **web-proxy**: Shows wallet balance, miner stats, upstream pool connection, and ehash redemption interface
+
+## Stats Architecture (Snapshot-Based)
+
+Hashpool uses a **snapshot-based stats architecture** to minimize SRI code changes and enable easy rebasing:
+
+### Design Goals
+- **Minimal SRI coupling**: Only ~80 lines of SRI code touch stats (trait implementations)
+- **Rebase-friendly**: Adapter trait pattern isolates SRI changes
+- **Resilient**: Full state snapshots every 5s prevent synchronization bugs
+- **Flexible**: Separate web services enable alternative UIs (TUI, mobile, etc.)
+
+### Data Flow
+
+**Miner Side:**
+```
+Translator → TCP (5s heartbeat) → stats-proxy → HTTP API
+                                       ↓
+                                  web-proxy polls every 5s → Serves HTML
+```
+
+**Pool Side:**
+```
+Pool → TCP (5s heartbeat) → stats-pool → HTTP API
+                                ↓
+                           web-pool polls every 5s → Serves HTML
+```
+
+### Key Features
+1. **Snapshot messages**: Pool/Translator send complete state every 5s (not incremental events)
+2. **In-memory storage**: stats services store only the latest snapshot (no database)
+3. **Staleness detection**: If no update for >15s, data marked as stale
+4. **Adapter traits**: `StatsSnapshotProvider` trait in `roles-utils/stats` defines the interface
+5. **Zero SRI knowledge**: Polling loops and stats services are 100% hashpool code
+
+### Implementation Details
+- **Translator**: Implements `StatsSnapshotProvider` trait in `roles/translator/src/lib/stats_integration.rs` (~35 lines)
+- **Pool**: Implements `StatsSnapshotProvider` trait in `roles/pool/src/lib/stats_integration.rs` (~80 lines)
+- **Generic polling**: `roles-utils/stats/src/stats_poller.rs` works with any `StatsSnapshotProvider`
+- **Stats services**: Listen on TCP, parse JSON snapshots, expose HTTP APIs
+- **Web services**: Poll stats services, cache in memory, serve HTML dashboards
+
+This architecture ensures that when rebasing to new SRI versions, only the small trait implementations need updating—all other stats/web code remains unchanged.
 
 ## Development Commands
 
@@ -224,10 +291,15 @@ devenv up
 
 1. **Deployment isolation**: Pool and miner sides are separate deployments with no direct inter-component communication
 2. **Mint is standalone**: The mint runs as its own service, not embedded in the pool
-3. **Two web dashboards**: Pool (8081) and Translator (3030) each have their own dashboard
-4. **Shared Bitcoin nodes**: In devenv, both sides may share a Bitcoin node for convenience, but this is not required in production
-5. **CDK dependencies**: Using forked CDK from `github.com/vnprc/cdk.git`
-6. **Database paths**: Set via environment variables (e.g., `CDK_MINT_DB_PATH`)
+3. **Four-tier web architecture**:
+   - Pool/Translator → stats services (TCP snapshots) → web services (HTTP) → browsers
+   - web-pool and web-proxy are separate services from Pool/Translator
+4. **Snapshot-based stats**: Services send complete state every 5s, not incremental events
+5. **Shared Bitcoin nodes**: In devenv and the testnet deployment, both sides may share a Bitcoin node for convenience
+   - this will not be the case in a production deployment
+6. **CDK dependencies**: Using forked CDK from `github.com/vnprc/cdk.git`
+7. **Database paths**: Set via environment variables (e.g., `CDK_MINT_DB_PATH`)
+8. **Minimal SRI coupling**: Only ~80 lines of SRI code changed for stats (adapter trait pattern)
 
 ## Testing Approach
 
@@ -236,4 +308,6 @@ The devenv stack serves as an integration test to verify:
 2. Pool sends MintQuoteRequest to mint service
 3. Mint generates blinded signatures
 4. Translator receives and stores complete ehash tokens
-5. Web dashboards display correct state
+5. Stats services receive snapshots from Pool/Translator every 5s
+6. Web services poll stats services and display correct state
+7. Dashboards mark data as stale when services restart (resilience test)
