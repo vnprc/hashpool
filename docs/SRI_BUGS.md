@@ -141,6 +141,71 @@ if tracing::level_enabled!(tracing::Level::DEBUG) {
 
 ---
 
+## Protocol Library Bug: work_selection and version_rolling Flag Helpers Swapped
+
+**Status:** FIXED in hashpool fork, needs upstream PR to SRI
+**Priority:** CRITICAL - Breaks all work selection detection
+**Fixed:** 2025-10-07
+
+**Bug Location:** `protocols/v2/subprotocols/common-messages/src/setup_connection.rs:206-219`
+
+**The Problem:**
+The helper functions `has_work_selection()` and `has_version_rolling()` have their bit shift values swapped:
+
+```rust
+// WRONG (original):
+pub fn has_version_rolling(flags: u32) -> bool {
+    let flags = flags.reverse_bits();
+    let flags = flags << 1;  // Checks bit 1 (work_selection) ❌
+    let flag = flags >> 31;
+    flag != 0
+}
+
+pub fn has_work_selection(flags: u32) -> bool {
+    let flags = flags.reverse_bits();
+    let flags = flags << 2;  // Checks bit 2 (version_rolling) ❌
+    let flag = flags >> 31;
+    flag != 0
+}
+
+// CORRECT (fixed):
+pub fn has_version_rolling(flags: u32) -> bool {
+    let flags = flags.reverse_bits();
+    let flags = flags << 2;  // Bit 2 for version_rolling ✓
+    let flag = flags >> 31;
+    flag != 0
+}
+
+pub fn has_work_selection(flags: u32) -> bool {
+    let flags = flags.reverse_bits();
+    let flags = flags << 1;  // Bit 1 for work_selection ✓
+    let flag = flags >> 31;
+    flag != 0
+}
+```
+
+**Impact:**
+- JD Client (flags=100, bit 2 set) was detected as having work_selection=true ❌
+- Translator (flags=110, bits 1+2 set) was detected as having work_selection=true ✓ (accidentally correct!)
+- All downstream connections with version_rolling enabled were misidentified as template providers
+- Impossible to correctly distinguish JDC from regular proxies
+
+**Per SV2 Spec:**
+- Bit 0: REQUIRES_STANDARD_JOBS
+- Bit 1: REQUIRES_WORK_SELECTION
+- Bit 2: REQUIRES_VERSION_ROLLING
+
+**Discovery:**
+Found while debugging dashboard Template Provider column - both translator (flags=110) and JDC (flags=100) were showing work_selection=true even though only translator should have bit 1 set.
+
+**Action Items:**
+1. ✅ Fixed in hashpool fork
+2. ⬜ Submit PR to stratum-mining/stratum upstream
+3. ⬜ Check if other SRI roles are affected by this bug
+4. ⬜ Add unit tests for flag helper functions
+
+---
+
 ## Notes
 
 - We should submit PRs to SRI for all these bug fixes once we've confirmed they're stable in our implementation
