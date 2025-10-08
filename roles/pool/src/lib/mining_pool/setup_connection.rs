@@ -20,11 +20,17 @@ use tracing::{debug, error};
 
 pub struct SetupConnectionHandler {
     header_only: Option<bool>,
+    work_selection: Option<bool>,
+    version_rolling: Option<bool>,
 }
 
 impl SetupConnectionHandler {
     pub fn new() -> Self {
-        Self { header_only: None }
+        Self {
+            header_only: None,
+            work_selection: None,
+            version_rolling: None,
+        }
     }
     pub async fn setup(
         self_: Arc<Mutex<Self>>,
@@ -71,16 +77,24 @@ impl SetupConnectionHandler {
         let sv2_frame: StdFrame = PoolMessages::Common(message.clone()).try_into()?;
         let sv2_frame = sv2_frame.into();
         sender.send(sv2_frame).await?;
-        self_.safe_lock(|s| s.header_only)?;
+
+        // Get all flags from the incoming request, not the response
+        let (header_only, work_selection, version_rolling) = self_.safe_lock(|s| {
+            (
+                s.header_only.unwrap_or(false),
+                s.work_selection.unwrap_or(false),
+                s.version_rolling.unwrap_or(false),
+            )
+        })?;
 
         match message {
             CommonMessages::SetupConnectionSuccess(m) => {
                 debug!("Sent back SetupConnectionSuccess: {:?}", m);
                 Ok((
                     CommonDownstreamData {
-                        header_only: has_requires_std_job(m.flags),
-                        work_selection: has_work_selection(m.flags),
-                        version_rolling: has_version_rolling(m.flags),
+                        header_only,
+                        work_selection,
+                        version_rolling,
                     },
                     m.flags,
                 ))
@@ -98,8 +112,15 @@ impl ParseDownstreamCommonMessages<NoRouting> for SetupConnectionHandler {
     ) -> Result<roles_logic_sv2::handlers::common::SendTo, Error> {
         use roles_logic_sv2::handlers::common::SendTo;
         let header_only = incoming.requires_standard_job();
-        debug!("Handling setup connection: header_only: {}", header_only);
+        let work_selection = has_work_selection(incoming.flags);
+        let version_rolling = has_version_rolling(incoming.flags);
+        debug!(
+            "Handling setup connection: header_only={}, work_selection={}, version_rolling={}",
+            header_only, work_selection, version_rolling
+        );
         self.header_only = Some(header_only);
+        self.work_selection = Some(work_selection);
+        self.version_rolling = Some(version_rolling);
         Ok(SendTo::RelayNewMessageToRemote(
             Arc::new(Mutex::new(())),
             CommonMessages::SetupConnectionSuccess(SetupConnectionSuccess {

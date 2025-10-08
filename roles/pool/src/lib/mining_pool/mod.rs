@@ -224,37 +224,20 @@ pub struct Pool {
     pub channel_to_downstream: HashMap<u32, u32, BuildNoHashHasher<u32>>,
     pub listen_address: String,
     pub minimum_difficulty: u32,
-    pub stats_handle: Option<super::stats_client::StatsHandle>,
     mint_message_hub: Arc<MintPoolMessageHub>,
 }
 
-/// Callback implementation for quote events that updates pool stats.
-struct PoolStatsCallback {
-    pool: Arc<Mutex<Pool>>,
-}
-
-impl quote_dispatcher::QuoteEventCallback for PoolStatsCallback {
-    fn on_quote_created(&self, channel_id: u32, amount: u64) {
-        // Get stats handle and channel mapping from pool
-        if let Ok((stats_handle, downstream_id)) = self.pool.safe_lock(|p| {
-            let downstream_id = p.channel_to_downstream.get(&channel_id).copied();
-            (p.stats_handle.clone(), downstream_id)
-        }) {
-            if let (Some(handle), Some(id)) = (stats_handle, downstream_id) {
-                handle.send_stats(super::stats_client::StatsMessage::QuoteCreated {
-                    downstream_id: id,
-                    amount,
-                    timestamp: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as u64,
-                });
-            }
-        }
-    }
-}
-
 impl Downstream {
+    /// Returns true if this downstream is a Job Declarator (header-only mining)
+    pub fn is_job_declarator(&self) -> bool {
+        self.downstream_data.header_only
+    }
+
+    /// Returns true if this downstream has work selection enabled (can submit custom templates)
+    pub fn has_work_selection(&self) -> bool {
+        self.downstream_data.work_selection
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         mut receiver: Receiver<EitherFrame>,
@@ -276,21 +259,16 @@ impl Downstream {
             true => channel_factory.safe_lock(|c| c.new_standard_id_for_hom())?,
         };
 
-        // Create quote dispatcher with stats callback
+        // Create quote dispatcher
         let (hub, minimum_difficulty) = pool
             .safe_lock(|p| (p.mint_message_hub.clone(), p.minimum_difficulty))
             .map_err(|e| PoolError::PoisonLock(e.to_string()))?;
-
-        let stats_callback = Arc::new(PoolStatsCallback {
-            pool: pool.clone(),
-        });
 
         let quote_dispatcher = quote_dispatcher::QuoteDispatcher::new(
             hub,
             sv2_config.clone(),
             minimum_difficulty,
-        )
-        .with_callback(stats_callback);
+        );
 
         let self_ = Arc::new(Mutex::new(Downstream {
             id,
@@ -304,19 +282,6 @@ impl Downstream {
             quote_dispatcher,
             address,
         }));
-
-        // Notify stats manager about new downstream connection
-        pool.safe_lock(|p| {
-            if let Some(ref handle) = p.stats_handle {
-                handle.send_stats(super::stats_client::StatsMessage::DownstreamConnected {
-                    downstream_id: id,
-                    flags,
-                    address: address.to_string(),
-                    service_type: None, // Will be inferred from flags
-                });
-            }
-        })
-        .unwrap_or(());
 
         let cloned = self_.clone();
 
@@ -598,23 +563,11 @@ impl Pool {
         info!("Mint connected from {}", address);
 
         // Store the mint connection sender for message routing
-        let stats_handle = pool.safe_lock(|p| {
+        pool.safe_lock(|p| {
             p.mint_connections.insert(address, sender.clone());
             info!("Stored mint connection sender for {}", address);
-            p.stats_handle.clone()
         })
         .map_err(|e| format!("Failed to lock pool: {}", e))?;
-
-        // Notify stats about mint connection (use hash of address as ID)
-        if let Some(ref handle) = stats_handle {
-            let mint_id = address.port() as u32; // Use port as simple ID
-            handle.send_stats(super::stats_client::StatsMessage::DownstreamConnected {
-                downstream_id: mint_id,
-                flags: 0, // Mint doesn't use SetupConnection flags
-                address: address.to_string(),
-                service_type: Some("mint".to_string()),
-            });
-        }
 
         let connection_id = address.to_string();
         let hub = pool
@@ -1042,20 +995,6 @@ impl Pool {
 
         let mint_message_hub = MintPoolMessageHub::new(messaging_config);
 
-        // Create stats handle that connects to external pool-stats service
-        let stats_handle = if let Some(ref stats_addr) = config.stats_server_address {
-            info!("Using external pool-stats service at {}", stats_addr);
-            let handle = super::stats_client::StatsHandle::new(stats_addr.clone());
-            // Send pool info immediately
-            handle.send_stats(super::stats_client::StatsMessage::PoolInfo {
-                listen_address: config.listen_address.clone(),
-            });
-            Some(handle)
-        } else {
-            warn!("No stats_server_address configured - stats will be disabled");
-            None
-        };
-
         let pool = Arc::new(Mutex::new(Pool {
             downstreams: HashMap::with_hasher(BuildNoHashHasher::default()),
             solution_sender,
@@ -1068,7 +1007,6 @@ impl Pool {
             channel_to_downstream: HashMap::with_hasher(BuildNoHashHasher::default()),
             listen_address: config.listen_address.clone(),
             minimum_difficulty,
-            stats_handle,
             mint_message_hub: mint_message_hub.clone(),
         }));
 
@@ -1277,10 +1215,6 @@ impl Pool {
     /// to communicate will fail but continue with the next downstream.
     pub fn remove_downstream(&mut self, downstream_id: u32) {
         self.downstreams.remove(&downstream_id);
-        // Notify stats manager about downstream disconnection
-        if let Some(ref handle) = self.stats_handle {
-            handle.send_stats(super::stats_client::StatsMessage::DownstreamDisconnected { downstream_id });
-        }
     }
 
     /// Send extension message to specific downstream

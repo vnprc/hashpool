@@ -18,8 +18,6 @@
   bitcoindDataDir = "${config.devenv.root}/.devenv/state/bitcoind";
   translatorWalletDb = "${config.devenv.root}/.devenv/state/translator/wallet.sqlite";
   mintDb = "${config.devenv.root}/.devenv/state/mint/mint.sqlite";
-  poolStatsDb = "${config.devenv.root}/.devenv/state/stats-pool/stats.sqlite";
-  proxyStatsDb = "${config.devenv.root}/.devenv/state/stats-proxy/stats.sqlite";
 
   poolConfig = builtins.fromTOML (builtins.readFile ./config/shared/pool.toml);
   minerConfig = builtins.fromTOML (builtins.readFile ./config/shared/miner.toml);
@@ -75,10 +73,8 @@ in {
       mkdir -p ${config.devenv.root}/logs
       mkdir -p $(dirname ${translatorWalletDb})
       mkdir -p $(dirname ${mintDb})
-      mkdir -p $(dirname ${poolStatsDb})
-      mkdir -p $(dirname ${proxyStatsDb})
     '';
-    before = ["proxy" "mint" "pool" "stats-pool" "stats-proxy"];
+    before = ["proxy" "mint" "pool" "stats-pool" "stats-proxy" "web-pool" "web-proxy"];
   };
 
   # Build CDK CLI from remote repo using same CDK version as hashpool
@@ -132,7 +128,7 @@ in {
 
     pool = {
       exec = withLogging ''
-        ${waitForPort 4000 "Pool-Stats"}
+        ${waitForPort 9083 "Stats-Pool"}
         ${waitForPort poolConfig.mint.port "Mint"}
         cargo -C roles/pool -Z unstable-options run -- \
           -c ${config.devenv.root}/config/pool.config.toml \
@@ -161,7 +157,7 @@ in {
     proxy = {
       exec = withLogging ''
         export CDK_WALLET_DB_PATH=${config.env.TRANSLATOR_WALLET_DB}
-        ${waitForPort 4001 "Proxy-Stats"}
+        ${waitForPort 8082 "Stats-Proxy"}
         ${waitForPort minerConfig.pool.port "Pool"}
         cargo -C roles/translator -Z unstable-options run -- \
           -c ${config.devenv.root}/config/tproxy.config.toml \
@@ -201,21 +197,40 @@ in {
     stats-pool = {
       exec = withLogging ''
         cargo -C roles/stats-pool -Z unstable-options run -- \
-          --tcp-address 127.0.0.1:4000 \
-          --http-address 127.0.0.1:8081 \
-          --db-path ${poolStatsDb}
+          --tcp-address 127.0.0.1:9083 \
+          --http-address 127.0.0.1:9084
       '' "stats_pool.log";
     };
 
     stats-proxy = {
       exec = withLogging ''
         cargo -C roles/stats-proxy -Z unstable-options run -- \
-          --tcp-address 127.0.0.1:4001 \
-          --http-address 127.0.0.1:8082 \
-          --db-path ${proxyStatsDb} \
+          --tcp-address 127.0.0.1:8082 \
+          --http-address 127.0.0.1:8084 \
+          --db-path ${config.devenv.root}/.devenv/state/stats-proxy.db \
           --config ${config.devenv.root}/config/tproxy.config.toml \
           --shared-config ${config.devenv.root}/config/shared/miner.toml
       '' "stats_proxy.log";
+    };
+
+    web-pool = {
+      exec = withLogging ''
+        ${waitForPort 9084 "Stats-Pool HTTP"}
+        cargo -C roles/web-pool -Z unstable-options run -- \
+          --stats-pool-url http://127.0.0.1:9084 \
+          --web-address 127.0.0.1:8081
+      '' "web_pool.log";
+    };
+
+    web-proxy = {
+      exec = withLogging ''
+        ${waitForPort 8084 "Stats-Proxy HTTP"}
+        cargo -C roles/web-proxy -Z unstable-options run -- \
+          --stats-proxy-url http://127.0.0.1:8084 \
+          --web-address 127.0.0.1:3030 \
+          --config ${config.devenv.root}/config/tproxy.config.toml \
+          --shared-config ${config.devenv.root}/config/shared/miner.toml
+      '' "web_proxy.log";
     };
   };
 

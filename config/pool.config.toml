@@ -26,3 +26,6 @@ tp_address = "127.0.0.1:8442"
 
 # Stats server config (TCP address for stats-pool)
 stats_server_address = "127.0.0.1:9083"
+
+# Job Declarator Server address (for display purposes)
+jd_server_address = "127.0.0.1:34264"

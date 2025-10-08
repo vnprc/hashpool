@@ -1,41 +1,62 @@
 use std::sync::RwLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use stats::stats_adapter::PoolSnapshot;
+use stats::stats_adapter::{JdsSnapshot, PoolSnapshot, ServiceConnection, ServiceType};
 
-/// In-memory storage for the latest pool snapshot.
+/// In-memory storage for the latest pool and JDS snapshots.
 ///
-/// The pool emits complete snapshots on every heartbeat, so we only need to
-/// retain the most recent copy. Web services can derive any secondary views
-/// off this structure without touching the SRI internals.
+/// The pool and JDS emit complete snapshots on every heartbeat. We merge them
+/// when serving to web services.
 pub struct StatsData {
-    snapshot: RwLock<Option<PoolSnapshot>>,
+    pool_snapshot: RwLock<Option<PoolSnapshot>>,
+    jds_snapshot: RwLock<Option<JdsSnapshot>>,
 }
 
 impl StatsData {
     pub fn new() -> Self {
         Self {
-            snapshot: RwLock::new(None),
+            pool_snapshot: RwLock::new(None),
+            jds_snapshot: RwLock::new(None),
         }
     }
 
-    /// Replace the currently stored snapshot with a new one.
+    /// Replace the currently stored pool snapshot with a new one.
     pub fn store_snapshot(&self, snapshot: PoolSnapshot) {
-        let mut guard = self.snapshot.write().unwrap();
+        let mut guard = self.pool_snapshot.write().unwrap();
         *guard = Some(snapshot);
     }
 
-    /// Fetch the latest snapshot clone for read-only consumers.
-    pub fn get_latest_snapshot(&self) -> Option<PoolSnapshot> {
-        let guard = self.snapshot.read().unwrap();
-        guard.clone()
+    /// Store the JDS snapshot.
+    pub fn store_jds_snapshot(&self, snapshot: JdsSnapshot) {
+        let mut guard = self.jds_snapshot.write().unwrap();
+        *guard = Some(snapshot);
     }
 
-    /// Determine if the stored snapshot is older than the provided threshold
+    /// Fetch the latest merged snapshot (pool + JDS) for read-only consumers.
+    pub fn get_latest_snapshot(&self) -> Option<PoolSnapshot> {
+        let pool_guard = self.pool_snapshot.read().unwrap();
+        let jds_guard = self.jds_snapshot.read().unwrap();
+
+        pool_guard.as_ref().map(|pool| {
+            let mut merged = pool.clone();
+
+            // Add JDS as a service if present
+            if let Some(jds) = jds_guard.as_ref() {
+                merged.services.push(ServiceConnection {
+                    service_type: ServiceType::JobDeclarator,
+                    address: jds.listen_address.clone(),
+                });
+            }
+
+            merged
+        })
+    }
+
+    /// Determine if the stored pool snapshot is older than the provided threshold
     /// (expressed in seconds). Missing data is treated as stale so callers can
     /// surface appropriate warnings in health endpoints.
     pub fn is_stale(&self, threshold_secs: i64) -> bool {
-        let guard = self.snapshot.read().unwrap();
+        let guard = self.pool_snapshot.read().unwrap();
 
         match guard.as_ref() {
             Some(snapshot) => {

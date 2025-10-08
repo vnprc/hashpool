@@ -430,18 +430,24 @@ impl JobDeclarator {
         mempool: Arc<Mutex<JDsMempool>>,
         new_block_sender: Sender<String>,
         sender_add_txs_to_mempool: Sender<AddTrasactionsToMempoolInner>,
-    ) {
+    ) -> Arc<Mutex<Self>> {
         let self_ = Arc::new(Mutex::new(Self {}));
         info!("JD INITIALIZED");
-        Self::accept_incoming_connection(
-            self_,
-            config,
-            status_tx,
-            mempool,
-            new_block_sender,
-            sender_add_txs_to_mempool,
-        )
-        .await;
+
+        let self_clone = self_.clone();
+        tokio::spawn(async move {
+            Self::accept_incoming_connection(
+                self_clone,
+                config,
+                status_tx,
+                mempool,
+                new_block_sender,
+                sender_add_txs_to_mempool,
+            )
+            .await;
+        });
+
+        self_
     }
     async fn accept_incoming_connection(
         _self_: Arc<Mutex<JobDeclarator>>,

@@ -35,7 +35,6 @@ pub mod faucet_api;
 pub mod miner_stats;
 pub mod proxy;
 pub mod proxy_config;
-pub mod stats_client;
 pub mod stats_integration;
 pub mod status;
 pub mod upstream_sv2;
@@ -51,11 +50,9 @@ pub struct TranslatorSv2 {
     wallet: Option<Arc<Wallet>>,
     mint_client: HttpClient,
     miner_tracker: Arc<miner_stats::MinerTracker>,
-    stats_handle: Option<stats_client::StatsHandle>,
     global_config: shared_config::MinerGlobalConfig,
 }
 
-// Manual Debug implementation since StatsHandle doesn't derive Debug
 impl std::fmt::Debug for TranslatorSv2 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TranslatorSv2")
@@ -63,7 +60,6 @@ impl std::fmt::Debug for TranslatorSv2 {
             .field("reconnect_wait_time", &self.reconnect_wait_time)
             .field("wallet", &self.wallet.is_some())
             .field("miner_tracker", &"MinerTracker")
-            .field("stats_handle", &self.stats_handle.is_some())
             .field("ehash_config", &self.global_config.ehash)
             .finish()
     }
@@ -143,22 +139,12 @@ impl TranslatorSv2 {
         let wait_time = rng.gen_range(0..=3000);
         let mint_client = HttpClient::new(MintUrl::from_str(&mint_url).unwrap(), None);
 
-        // Create stats handle if configured
-        let stats_handle = if let Some(ref stats_addr) = config.stats_server_address {
-            info!("Using external proxy-stats service at {}", stats_addr);
-            Some(stats_client::StatsHandle::new(stats_addr.clone()))
-        } else {
-            warn!("No stats_server_address configured - stats will be disabled");
-            None
-        };
-
         Self {
             config: config.clone(),
             reconnect_wait_time: wait_time,
             wallet: None,
             mint_client: mint_client,
             miner_tracker: Arc::new(miner_stats::MinerTracker::new()),
-            stats_handle,
             global_config,
         }
     }
@@ -414,7 +400,6 @@ impl TranslatorSv2 {
         // allows for the tproxy to fail gracefully if any of these init tasks
         //fail
         let miner_tracker_for_task = self.miner_tracker.clone();
-        let stats_handle_for_task = self.stats_handle.clone();
         let task = task::spawn(async move {
             // Connect to the SV2 Upstream role
             match upstream_sv2::Upstream::connect(
@@ -494,7 +479,6 @@ impl TranslatorSv2 {
                 diff_config,
                 task_collector_downstream,
                 miner_tracker_for_task.clone(),
-                stats_handle_for_task,
                 proxy_config.redact_ip,
             );
             

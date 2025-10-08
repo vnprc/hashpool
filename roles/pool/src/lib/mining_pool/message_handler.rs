@@ -1,4 +1,4 @@
-use super::super::{mining_pool::Downstream, stats_client::StatsMessage};
+use super::super::mining_pool::Downstream;
 use binary_sv2::Str0255;
 use mining_sv2::MintQuoteNotification;
 use mint_pool_messaging::MintQuoteResponseEvent;
@@ -165,13 +165,6 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                         success.channel_id, self.id
                     );
                 }) {
-                    // Send stats update for new channel
-                    if let Ok(Some(stats_handle)) = self.pool.safe_lock(|p| p.stats_handle.clone()) {
-                        stats_handle.send_stats(StatsMessage::ChannelOpened {
-                            downstream_id: self.id,
-                            channel_id: success.channel_id,
-                        });
-                    }
                 } else {
                     error!(
                         "Failed to add channel mapping for channel_id: {}",
@@ -211,15 +204,6 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                                 success.channel_id, self.id
                             );
                         }) {
-                            // Send stats update for new extended channel
-                            if let Ok(Some(stats_handle)) =
-                                self.pool.safe_lock(|p| p.stats_handle.clone())
-                            {
-                                stats_handle.send_stats(StatsMessage::ChannelOpened {
-                                    downstream_id: self.id,
-                                    channel_id: success.channel_id,
-                                });
-                            }
                         } else {
                             error!(
                                 "Failed to add extended channel mapping for channel_id: {}",
@@ -347,17 +331,6 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::SendSubmitShareUpstream(_) => unreachable!(),
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::RelaySubmitShareUpstream => unreachable!(),
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetBitcoinTarget((share,t_id,coinbase,_)) => {
-                    // Send share submitted stats - never blocks
-                    if let Ok(Some(stats_handle)) = self.pool.safe_lock(|p| p.stats_handle.clone()) {
-                        stats_handle.send_stats(StatsMessage::ShareSubmitted {
-                            downstream_id: self.id,
-                            timestamp: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap()
-                                .as_millis() as u64,
-                        });
-                    }
-
                     if let Some(template_id) = t_id {
                         let solution = SubmitSolution {
                             template_id,
@@ -391,17 +364,6 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
 
                 },
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetDownstreamTarget => {
-                    // Send share submitted stats - never blocks
-                    if let Ok(Some(stats_handle)) = self.pool.safe_lock(|p| p.stats_handle.clone()) {
-                        stats_handle.send_stats(StatsMessage::ShareSubmitted {
-                            downstream_id: self.id,
-                            timestamp: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap()
-                                .as_millis() as u64,
-                        });
-                    }
-
                     // Submit quote via dispatcher
                     self.quote_dispatcher.submit_quote(
                         m.hash.inner_as_ref(),

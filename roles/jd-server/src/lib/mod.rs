@@ -1,6 +1,7 @@
 pub mod error;
 pub mod job_declarator;
 pub mod mempool;
+pub mod stats_integration;
 pub mod status;
 
 use async_channel::{bounded, unbounded, Receiver, Sender};
@@ -125,16 +126,47 @@ impl JobDeclaratorServer {
         let cloned = config.clone();
         let mempool_cloned = mempool.clone();
         let (sender_add_txs_to_mempool, receiver_add_txs_to_mempool) = unbounded();
-        task::spawn(async move {
-            JobDeclarator::start(
-                cloned,
-                sender,
-                mempool_cloned,
-                new_block_sender,
-                sender_add_txs_to_mempool,
-            )
-            .await
-        });
+
+        // Start JobDeclarator and get reference for stats
+        let jd = JobDeclarator::start(
+            cloned,
+            sender,
+            mempool_cloned,
+            new_block_sender,
+            sender_add_txs_to_mempool,
+        )
+        .await;
+
+        // Start stats polling if stats_server_address is configured
+        if let Some(stats_addr) = &config.stats_server_address {
+            let listen_addr = config.listen_jd_address.clone();
+            let stats_client = stats::stats_client::StatsClient::new(stats_addr.clone());
+
+            tokio::spawn(async move {
+                // Wrap to set listen_address in snapshots
+                struct JdsStatsProvider {
+                    jd: Arc<Mutex<JobDeclarator>>,
+                    listen_address: String,
+                }
+
+                impl stats::stats_adapter::StatsSnapshotProvider for JdsStatsProvider {
+                    type Snapshot = stats::stats_adapter::JdsSnapshot;
+
+                    fn get_snapshot(&self) -> stats::stats_adapter::JdsSnapshot {
+                        let mut snapshot = self.jd.safe_lock(|jd| jd.get_snapshot()).unwrap();
+                        snapshot.listen_address = self.listen_address.clone();
+                        snapshot
+                    }
+                }
+
+                let provider = Arc::new(tokio::sync::Mutex::new(JdsStatsProvider {
+                    jd,
+                    listen_address: listen_addr,
+                }));
+
+                stats::stats_poller::start_stats_polling(provider, stats_client).await;
+            });
+        }
         task::spawn(async move {
             loop {
                 if let Ok(add_transactions_to_mempool) = receiver_add_txs_to_mempool.recv().await {
@@ -251,6 +283,7 @@ pub struct Configuration {
     #[serde(default = "default_true")]
     pub async_mining_allowed: bool,
     pub listen_jd_address: String,
+    pub stats_server_address: Option<String>,
     pub authority_public_key: Secp256k1PublicKey,
     pub authority_secret_key: Secp256k1SecretKey,
     pub cert_validity_sec: u64,
@@ -295,6 +328,7 @@ impl Configuration {
         Self {
             async_mining_allowed: true,
             listen_jd_address,
+            stats_server_address: None,
             authority_public_key,
             authority_secret_key,
             cert_validity_sec,

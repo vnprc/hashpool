@@ -1,6 +1,7 @@
 use super::{Downstream, DownstreamMessages, SetDownstreamTarget};
 
 use super::super::error::{Error, ProxyResult};
+use super::super::miner_stats;
 use roles_logic_sv2::utils::Mutex;
 use std::{ops::Div, sync::Arc};
 use v1::json_rpc;
@@ -321,6 +322,7 @@ mod test {
     };
 
     use crate::downstream_sv1::Downstream;
+    use crate::miner_stats;
 
     #[ignore] // as described in issue #988
     #[test]
@@ -431,6 +433,7 @@ mod test {
         };
         let (tx_sv1_submit, _rx_sv1_submit) = unbounded();
         let (tx_outgoing, _rx_outgoing) = unbounded();
+        let miner_tracker = Arc::new(miner_stats::MinerTracker::new());
         let mut downstream = Downstream::new(
             1,
             vec![],
@@ -444,6 +447,9 @@ mod test {
             downstream_conf.clone(),
             Arc::new(Mutex::new(upstream_config)),
             "0".to_string(),
+            miner_tracker,
+            0,
+            false,
         );
         downstream.difficulty_mgmt.min_individual_miner_hashrate = start_hashrate as f32;
 

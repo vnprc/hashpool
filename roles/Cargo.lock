@@ -2896,6 +2896,7 @@ dependencies = [
  "rpc_sv2",
  "serde",
  "serde_json",
+ "stats",
  "stratum-common",
  "tokio",
  "tracing",

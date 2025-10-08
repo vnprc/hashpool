@@ -1,367 +1,313 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pool Dashboard - HashPool</title>
+    <title>Hashpool Pool Dashboard</title>
+    <link rel="icon" type="image/svg+xml" sizes="any" href="/favicon.svg">
     <style>
-        /* {{NAV_ICON_CSS}} */
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 2rem;
-            color: #333;
+            font-family: 'Courier New', monospace;
+            background: #1a1a1a;
+            color: #00ff00;
+            margin: 0;
+            padding: 20px;
         }
-
         .container {
             max-width: 1200px;
             margin: 0 auto;
         }
-
-        .header {
+        h1 {
             text-align: center;
-            color: white;
-            margin-bottom: 2rem;
+            margin-bottom: 30px;
         }
-
-        .header h1 {
-            font-size: 2.5rem;
-            margin-bottom: 0.5rem;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        h2 {
+            text-align: center;
+            margin: 30px 0 20px 0;
+            font-size: 1.5em;
         }
-
-        .header p {
-            font-size: 1.2rem;
-            opacity: 0.9;
-        }
-
-        .card {
-            background: white;
-            border-radius: 12px;
-            padding: 2rem;
-            box-shadow: 0 8px 16px rgba(0,0,0,0.1);
-            margin-bottom: 2rem;
-        }
-
-        .card h2 {
-            margin-bottom: 1.5rem;
-            color: #667eea;
-            font-size: 1.5rem;
+        .stats {
             display: flex;
-            align-items: center;
-            gap: 0.5rem;
+            justify-content: space-around;
+            margin-bottom: 40px;
         }
-
-        .info-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-            margin-bottom: 1.5rem;
+        .stat-box {
+            text-align: center;
+            padding: 20px;
+            border: 1px solid #00ff00;
+            min-width: 150px;
         }
-
-        .info-item {
-            padding: 1rem;
-            background: #f8f9fa;
-            border-radius: 8px;
-            border-left: 4px solid #667eea;
+        .stat-value {
+            font-size: 2em;
+            margin-top: 10px;
         }
-
-        .info-label {
-            font-size: 0.875rem;
-            color: #666;
-            margin-bottom: 0.25rem;
+        .services-section {
+            margin-bottom: 40px;
+            padding: 20px;
+            border: 1px solid #00ff00;
+            background: #222;
         }
-
-        .info-value {
-            font-size: 1.25rem;
-            font-weight: 600;
-            color: #333;
+        .services-section h3 {
+            margin-top: 0;
+            text-align: center;
+            color: #00ff00;
         }
-
         table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 1rem;
         }
-
-        thead {
-            background: #667eea;
-            color: white;
-        }
-
-        th {
-            padding: 1rem;
+        th, td {
+            padding: 12px;
             text-align: left;
-            font-weight: 600;
+            border-bottom: 1px solid #00ff00;
         }
-
-        td {
-            padding: 1rem;
-            border-bottom: 1px solid #e9ecef;
+        th {
+            background: #0a0a0a;
+            font-weight: bold;
         }
-
-        tbody tr:hover {
-            background: #f8f9fa;
+        tr:hover {
+            background: #0a0a0a;
         }
-
-        .status-badge {
+        .address {
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+        .refresh {
+            text-align: right;
+            margin-bottom: 10px;
+            font-size: 0.9em;
+            opacity: 0.7;
+        }
+        .status-dot {
             display: inline-block;
-            padding: 0.25rem 0.75rem;
-            border-radius: 12px;
-            font-size: 0.875rem;
-            font-weight: 500;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
         }
-
-        .status-online {
-            background: #d4edda;
-            color: #155724;
+        .status-up {
+            background-color: #00ff00;
+            box-shadow: 0 0 5px #00ff00;
         }
-
-        .status-offline {
-            background: #f8d7da;
-            color: #721c24;
+        .status-down {
+            background-color: #ff4444;
+            box-shadow: 0 0 5px #ff4444;
         }
-
-        .empty-state {
+        .service-table {
+            margin-bottom: 20px;
+        }
+        .service-table th {
+            background: #333;
+        }
+        .service-icon-header {
+            width: 2.5em;
+        }
+        .service-icon-cell {
+            width: 2.5em;
             text-align: center;
-            padding: 3rem 1rem;
-            color: #666;
         }
-
-        .empty-state-icon {
-            font-size: 3rem;
-            margin-bottom: 1rem;
-            opacity: 0.5;
+        .proxies-table {
+            width: 100%;
+            border-collapse: collapse;
         }
-
-        @media (max-width: 768px) {
-            .header h1 {
-                font-size: 2rem;
-            }
-
-            .card {
-                padding: 1.5rem;
-            }
-
-            table {
-                font-size: 0.875rem;
-            }
-
-            th, td {
-                padding: 0.75rem 0.5rem;
-            }
+        .proxies-table th,
+        .proxies-table td {
+            padding: 12px;
+            border-bottom: 1px solid #00ff00;
         }
-
-        .refresh-indicator {
-            position: fixed;
-            top: 1rem;
-            right: 1rem;
-            background: white;
-            padding: 0.5rem 1rem;
-            border-radius: 8px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-            font-size: 0.875rem;
-            color: #666;
+        .proxies-icon-header {
+            width: 2.5em;
         }
-
-        .refresh-indicator.updating {
-            color: #667eea;
-            font-weight: 600;
+        .proxies-icon-cell {
+            width: 2.5em;
+            text-align: center;
         }
+        .template-provider-header {
+            text-align: center;
+        }
+        /* {{NAV_ICON_CSS}} */
     </style>
 </head>
 <body>
-    <div class="refresh-indicator" id="refresh-indicator">
-        Last updated: <span id="last-update">never</span>
-    </div>
-
     <div class="container">
-        <div class="header">
-            <h1>⛏️ Pool Dashboard</h1>
-            <p>HashPool Mining Pool Status</p>
+        <h1 class="pickaxe-icon">Hashpool Dashboard</h1>
+
+        <div class="services-section">
+            <h3>Service Connections</h3>
+            <table class="service-table">
+                <thead>
+                    <tr>
+                        <th class="service-icon-header"></th>
+                        <th>Service Name</th>
+                        <th>Service (IP)</th>
+                        <th>Port</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="services-tbody">
+                </tbody>
+            </table>
         </div>
 
-        <div class="card">
-            <h2>📊 Pool Information</h2>
-            <div class="info-grid">
-                <div class="info-item">
-                    <div class="info-label">Listen Address</div>
-                    <div class="info-value" id="listen-address">-</div>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">Connected Proxies</div>
-                    <div class="info-value" id="proxy-count">0</div>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">Active Services</div>
-                    <div class="info-value" id="service-count">0</div>
-                </div>
+        <div class="stats">
+            <div class="stat-box">
+                <div>Connected Proxies</div>
+                <div class="stat-value" id="total-proxies">-</div>
+            </div>
+            <div class="stat-box">
+                <div>Total Shares</div>
+                <div class="stat-value" id="total-shares">-</div>
+            </div>
+            <div class="stat-box">
+                <div>Total Quotes</div>
+                <div class="stat-value" id="total-quotes">-</div>
+            </div>
+            <div class="stat-box">
+                <div>Ehash Mined</div>
+                <div class="stat-value" id="ehash-mined">-</div>
             </div>
         </div>
 
-        <div class="card">
-            <h2>🔌 Services</h2>
-            <div id="services-container">
-                <div class="empty-state">
-                    <div class="empty-state-icon">⏳</div>
-                    <p>Loading services...</p>
-                </div>
-            </div>
-        </div>
+        <div class="refresh" id="refresh-time">Loading...</div>
 
-        <div class="card">
-            <h2>🌐 Connected Proxies</h2>
-            <div id="connections-container">
-                <div class="empty-state">
-                    <div class="empty-state-icon">⏳</div>
-                    <p>Loading connections...</p>
-                </div>
-            </div>
-        </div>
+        <h2>Connected Proxies</h2>
+        <table class="proxies-table">
+            <thead>
+                <tr>
+                    <th class="proxies-icon-header"></th>
+                    <th>ID</th>
+                    <th>Address</th>
+                    <th class="template-provider-header">Template Provider</th>
+                    <th>Channels</th>
+                    <th>Shares</th>
+                    <th>Quotes</th>
+                    <th>Ehash</th>
+                    <th>Last Share</th>
+                </tr>
+            </thead>
+            <tbody id="proxies-tbody">
+            </tbody>
+        </table>
     </div>
 
     <script>
-        let lastUpdateTime = null;
+        function parseAddress(address) {
+            const parts = address.split(':');
+            if (parts.length === 2) {
+                return { ip: parts[0], port: parts[1] };
+            }
+            return { ip: address, port: '-' };
+        }
 
-        async function fetchStats() {
+        function getServiceMetadata(serviceType) {
+            // Service types come in format like "Pool", "JobDeclarator" or "Mint"
+            if (serviceType.includes('Pool')) {
+                return { label: 'Pool', iconClass: 'pickaxe-icon' };
+            }
+            if (serviceType.includes('JobDeclarator')) {
+                return { label: 'Job Declarator', iconClass: 'block-icon' };
+            }
+            if (serviceType.includes('Mint')) {
+                return { label: 'Mint', iconClass: 'coins-icon' };
+            }
+            return { label: serviceType, iconClass: null };
+        }
+
+        async function updateStats() {
             try {
-                const response = await fetch('/api/stats');
-                const data = await response.json();
+                // Fetch services and connections from separate endpoints
+                const [servicesResponse, connectionsResponse] = await Promise.all([
+                    fetch('/api/services'),
+                    fetch('/api/connections')
+                ]);
 
-                // Update pool info
-                document.getElementById('listen-address').textContent = data.listen_address || '-';
-                document.getElementById('proxy-count').textContent = data.downstream_proxies.length;
-                document.getElementById('service-count').textContent = data.services.length;
+                const servicesData = await servicesResponse.json();
+                const connectionsData = await connectionsResponse.json();
+
+                const services = servicesData.services || [];
+                const proxies = connectionsData.proxies || [];
+
+                // Update stats
+                const totalShares = proxies.reduce((sum, p) => sum + p.shares_submitted, 0);
+                const totalQuotes = proxies.reduce((sum, p) => sum + p.quotes_created, 0);
+                const totalEhash = proxies.reduce((sum, p) => sum + p.ehash_mined, 0);
+
+                document.getElementById('total-proxies').textContent = proxies.length;
+                document.getElementById('total-shares').textContent = totalShares.toLocaleString();
+                document.getElementById('total-quotes').textContent = totalQuotes.toLocaleString();
+                document.getElementById('ehash-mined').textContent = totalEhash.toLocaleString() + ' ehash';
 
                 // Update services table
-                updateServicesTable(data.services);
+                const servicesTbody = document.getElementById('services-tbody');
+                servicesTbody.innerHTML = '';
 
-                // Update connections table
-                updateConnectionsTable(data.downstream_proxies);
+                if (services.length === 0) {
+                    servicesTbody.innerHTML = '<tr><td colspan="5" style="text-align: center; opacity: 0.5;">No service connections</td></tr>';
+                } else {
+                    services.forEach(service => {
+                        const row = servicesTbody.insertRow();
+                        const serviceMeta = getServiceMetadata(service.service_type);
+                        const addr = parseAddress(service.address);
 
-                // Update last update indicator
-                lastUpdateTime = new Date();
-                updateRefreshIndicator();
+                        const iconCell = row.insertCell();
+                        iconCell.className = 'service-icon-cell';
+                        iconCell.innerHTML = serviceMeta.iconClass
+                            ? `<span class="${serviceMeta.iconClass}" aria-hidden="true"></span>`
+                            : '';
+
+                        row.insertCell().textContent = serviceMeta.label;
+                        row.insertCell().innerHTML = `<span class="address">${addr.ip}</span>`;
+                        row.insertCell().textContent = addr.port;
+                        row.insertCell().innerHTML = `<span class="status-dot status-up"></span>Up`;
+                    });
+                }
+
+                // Update proxies table
+                const proxiesTbody = document.getElementById('proxies-tbody');
+                proxiesTbody.innerHTML = '';
+
+                if (proxies.length === 0) {
+                    proxiesTbody.innerHTML = '<tr><td colspan="9" style="text-align: center; opacity: 0.5;">No proxies connected</td></tr>';
+                } else {
+                    proxies.forEach(proxy => {
+                        console.log('Proxy:', proxy.id, 'work_selection:', proxy.work_selection, 'type:', typeof proxy.work_selection);
+                        const row = proxiesTbody.insertRow();
+
+                        // Icon column - show block icon if template provider, otherwise miner icon
+                        const iconCell = row.insertCell();
+                        iconCell.className = 'proxies-icon-cell';
+                        if (proxy.work_selection === true) {
+                            iconCell.innerHTML = '<span class="block-icon" aria-hidden="true"></span>';
+                        } else {
+                            iconCell.innerHTML = '<span class="miner-icon" aria-hidden="true"></span>';
+                        }
+
+                        row.insertCell().textContent = proxy.id;
+                        row.insertCell().innerHTML = `<span class="address">${proxy.address}</span>`;
+
+                        // Template Provider column - show Yes or No
+                        const templateCell = row.insertCell();
+                        templateCell.style.textAlign = 'center';
+                        templateCell.textContent = proxy.work_selection === true ? 'Yes' : 'No';
+
+                        row.insertCell().textContent = proxy.channels.length > 0 ? proxy.channels.join(', ') : 'None';
+                        row.insertCell().textContent = proxy.shares_submitted.toLocaleString();
+                        row.insertCell().textContent = proxy.quotes_created.toLocaleString();
+                        row.insertCell().textContent = proxy.ehash_mined.toLocaleString();
+                        row.insertCell().textContent = proxy.last_share_at || 'Never';
+                    });
+                }
+
+                document.getElementById('refresh-time').textContent =
+                    'Updated: ' + new Date().toLocaleTimeString();
             } catch (error) {
                 console.error('Failed to fetch stats:', error);
+                document.getElementById('refresh-time').textContent = 'Error loading data';
             }
         }
 
-        function updateServicesTable(services) {
-            const container = document.getElementById('services-container');
-
-            if (services.length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state">
-                        <div class="empty-state-icon">🔌</div>
-                        <p>No services connected</p>
-                    </div>
-                `;
-                return;
-            }
-
-            const html = `
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Service Type</th>
-                            <th>Address</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${services.map(service => `
-                            <tr>
-                                <td>${service.service_type}</td>
-                                <td>${service.address}</td>
-                                <td><span class="status-badge status-online">Online</span></td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            `;
-            container.innerHTML = html;
-        }
-
-        function updateConnectionsTable(proxies) {
-            const container = document.getElementById('connections-container');
-
-            if (proxies.length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state">
-                        <div class="empty-state-icon">🌐</div>
-                        <p>No proxies connected</p>
-                    </div>
-                `;
-                return;
-            }
-
-            const html = `
-                <table>
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Address</th>
-                            <th>Channels</th>
-                            <th>Shares</th>
-                            <th>Quotes</th>
-                            <th>eHash Mined</th>
-                            <th>Last Share</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${proxies.map(proxy => `
-                            <tr>
-                                <td>${proxy.id}</td>
-                                <td>${proxy.address}</td>
-                                <td>${proxy.channels.length}</td>
-                                <td>${proxy.shares_submitted.toLocaleString()}</td>
-                                <td>${proxy.quotes_created.toLocaleString()}</td>
-                                <td>${proxy.ehash_mined.toLocaleString()}</td>
-                                <td>${proxy.last_share_at || '-'}</td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            `;
-            container.innerHTML = html;
-        }
-
-        function updateRefreshIndicator() {
-            const indicator = document.getElementById('refresh-indicator');
-            const updateSpan = document.getElementById('last-update');
-
-            if (!lastUpdateTime) {
-                updateSpan.textContent = 'never';
-                return;
-            }
-
-            const now = new Date();
-            const elapsed = Math.floor((now - lastUpdateTime) / 1000);
-
-            if (elapsed < 60) {
-                updateSpan.textContent = `${elapsed}s ago`;
-            } else {
-                updateSpan.textContent = `${Math.floor(elapsed / 60)}m ago`;
-            }
-        }
-
-        // Fetch stats immediately
-        fetchStats();
-
-        // Refresh every 5 seconds
-        setInterval(fetchStats, 5000);
-
-        // Update "last update" indicator every second
-        setInterval(updateRefreshIndicator, 1000);
+        // Update immediately and then every 3 seconds
+        updateStats();
+        setInterval(updateStats, 3000);
     </script>
 </body>
 </html>

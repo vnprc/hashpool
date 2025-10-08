@@ -437,7 +437,23 @@ pub async fn start_sv2_translator(upstream: SocketAddr) -> SocketAddr {
     };
     let config =
         translator_sv2::proxy_config::ProxyConfig::new(upstream_conf, downstream_conf, wallet_config, 2, 2, 8);
-    let translator_v2 = translator_sv2::TranslatorSv2::new(config, None);
+
+    // Create minimal global config for test
+    let global_config = shared_config::MinerGlobalConfig {
+        mint: shared_config::MintConfig {
+            url: "http://127.0.0.1:3338".to_string(),
+        },
+        pool: shared_config::PoolConfig {
+            port: 34254,
+        },
+        proxy: shared_config::ProxyConfig {
+            port: 34255,
+        },
+        ehash: None,
+        faucet: None,
+    };
+
+    let translator_v2 = translator_sv2::TranslatorSv2::new(config, global_config);
     tokio::spawn(async move {
         translator_v2.start().await;
     });

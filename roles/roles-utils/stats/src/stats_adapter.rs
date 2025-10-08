@@ -49,6 +49,7 @@ pub struct ServiceConnection {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ServiceType {
+    Pool,
     Mint,
     JobDeclarator,
 }
@@ -62,6 +63,14 @@ pub struct ProxyConnection {
     pub quotes_created: u64,
     pub ehash_mined: u64,
     pub last_share_at: Option<u64>,
+    pub work_selection: bool,
+}
+
+// JD Server snapshot types - just a heartbeat
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JdsSnapshot {
+    pub listen_address: String,
+    pub timestamp: u64,
 }
 
 #[cfg(test)]

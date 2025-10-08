@@ -75,7 +75,6 @@ pub struct Downstream {
     last_job_id: String, // we usually receive a String on SV1 messages, no need to cast to u32
     miner_tracker: Arc<miner_stats::MinerTracker>,
     miner_id: u32,
-    stats_handle: Option<super::super::stats_client::StatsHandle>,
     redact_ip: bool,
 }
 
@@ -96,7 +95,7 @@ impl Downstream {
         last_job_id: String,
         miner_tracker: Arc<miner_stats::MinerTracker>,
         miner_id: u32,
-        stats_handle: Option<super::super::stats_client::StatsHandle>,
+        redact_ip: bool,
     ) -> Self {
         Downstream {
             connection_id,
@@ -113,7 +112,7 @@ impl Downstream {
             last_job_id,
             miner_tracker,
             miner_id,
-            stats_handle,
+            redact_ip,
         }
     }
     /// Instantiate a new `Downstream`.
@@ -132,7 +131,6 @@ impl Downstream {
         upstream_difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
         miner_tracker: Arc<miner_stats::MinerTracker>,
-        stats_handle: Option<super::super::stats_client::StatsHandle>,
         redact_ip: bool,
     ) {
         // Get peer address before moving stream into Arc
@@ -151,22 +149,6 @@ impl Downstream {
         let miner_name = format!("miner-{}", connection_id);
         let miner_id = miner_tracker.add_miner(peer_addr, miner_name.clone()).await;
 
-        // Send stats for new miner connection
-        if let Some(ref handle) = stats_handle {
-            use super::super::stats_client::StatsMessage;
-            let address = if redact_ip {
-                None
-            } else {
-                Some(peer_addr.to_string())
-            };
-            handle.send_stats(StatsMessage::DownstreamConnected {
-                downstream_id: miner_id,
-                flags: 0,
-                name: miner_name,
-                address,
-            });
-        }
-
         let downstream = Arc::new(Mutex::new(Downstream {
             connection_id,
             authorized_names: vec![],
@@ -183,7 +165,6 @@ impl Downstream {
             last_job_id: "".to_string(),
             miner_tracker: miner_tracker.clone(),
             miner_id,
-            stats_handle: stats_handle.clone(),
             redact_ip,
         }));
         let self_ = downstream.clone();
@@ -241,27 +222,6 @@ impl Downstream {
                                         // Track share submission for this miner with current hashrate from difficulty mgmt
                                         let current_hashrate = self_.safe_lock(|s| s.difficulty_mgmt.min_individual_miner_hashrate).unwrap();
                                         miner_tracker_reader.increment_shares(miner_id, current_hashrate).await;
-
-                                        // Send stats for share submission
-                                        let stats_handle = self_.safe_lock(|s| s.stats_handle.clone()).unwrap();
-                                        if let Some(handle) = stats_handle {
-                                            use super::super::stats_client::StatsMessage;
-                                            let timestamp = std::time::SystemTime::now()
-                                                .duration_since(std::time::UNIX_EPOCH)
-                                                .unwrap()
-                                                .as_millis() as u64;
-                                            handle.send_stats(StatsMessage::ShareSubmitted {
-                                                downstream_id: miner_id,
-                                                timestamp,
-                                            });
-                                            // Send hashrate update - even if 0, so dashboard shows current state
-                                            let hashrate = miner_tracker_reader.get_hashrate(miner_id).await.unwrap_or(0.0);
-                                            handle.send_stats(StatsMessage::HashrateUpdate {
-                                                downstream_id: miner_id,
-                                                hashrate,
-                                                timestamp,
-                                            });
-                                        }
                                     }
                                 }
 
@@ -289,15 +249,6 @@ impl Downstream {
             // Remove miner from tracker when connection closes
             miner_tracker_reader.remove_miner(miner_id).await;
             info!("📤 Removed miner {} from tracker", miner_id);
-
-            // Send stats for miner disconnection
-            let stats_handle = self_.safe_lock(|s| s.stats_handle.clone()).unwrap();
-            if let Some(handle) = stats_handle {
-                use super::super::stats_client::StatsMessage;
-                handle.send_stats(StatsMessage::DownstreamDisconnected {
-                    downstream_id: miner_id,
-                });
-            }
 
             kill(&tx_shutdown_clone).await;
             warn!("Downstream: Shutting down sv1 downstream reader");
@@ -414,22 +365,8 @@ impl Downstream {
 
                             // Update miner tracker with real calculated hashrate
                             if let Some(hashrate) = new_hashrate {
-                                let (miner_tracker, miner_id, stats_handle) = downstream.safe_lock(|d| (d.miner_tracker.clone(), d.miner_id, d.stats_handle.clone())).unwrap();
+                                let (miner_tracker, miner_id) = downstream.safe_lock(|d| (d.miner_tracker.clone(), d.miner_id)).unwrap();
                                 miner_tracker.update_hashrate(miner_id, hashrate as f64).await;
-
-                                // Send stats update with new hashrate
-                                if let Some(handle) = stats_handle {
-                                    use super::super::stats_client::StatsMessage;
-                                    let timestamp = std::time::SystemTime::now()
-                                        .duration_since(std::time::UNIX_EPOCH)
-                                        .unwrap()
-                                        .as_millis() as u64;
-                                    handle.send_stats(StatsMessage::HashrateUpdate {
-                                        downstream_id: miner_id,
-                                        hashrate: hashrate as f64,
-                                        timestamp,
-                                    });
-                                }
                             }
 
                             let sv1_mining_notify_msg = handle_result!(tx_status_notify, res);
@@ -481,7 +418,6 @@ impl Downstream {
         upstream_difficulty_config: Arc<Mutex<UpstreamDifficultyConfig>>,
         task_collector: Arc<Mutex<Vec<(AbortHandle, String)>>>,
         miner_tracker: Arc<miner_stats::MinerTracker>,
-        stats_handle: Option<super::super::stats_client::StatsHandle>,
         redact_ip: bool,
     ) {
         let task_collector_downstream = task_collector.clone();
@@ -517,7 +453,6 @@ impl Downstream {
                             upstream_difficulty_config.clone(),
                             task_collector_downstream.clone(),
                             miner_tracker.clone(),
-                            stats_handle.clone(),
                             redact_ip,
                         )
                         .await;
@@ -676,26 +611,8 @@ impl IsServer<'static> for Downstream {
         let miner_tracker = self.miner_tracker.clone();
         let miner_id = self.miner_id;
         let worker_name = request.name.clone();
-        let stats_handle = self.stats_handle.clone();
-        let redact_ip = self.redact_ip;
         tokio::spawn(async move {
             miner_tracker.update_miner_name(miner_id, worker_name.clone()).await;
-
-            // Send updated name to stats service
-            if let Some(handle) = stats_handle {
-                use super::super::stats_client::StatsMessage;
-                let address = if redact_ip {
-                    None
-                } else {
-                    miner_tracker.get_address(miner_id).await
-                };
-                handle.send_stats(StatsMessage::DownstreamConnected {
-                    downstream_id: miner_id,
-                    flags: 0,
-                    name: worker_name,
-                    address,
-                });
-            }
         });
 
         true

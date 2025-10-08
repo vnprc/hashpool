@@ -187,7 +187,8 @@ async fn get_connections(storage: Arc<SnapshotStorage>) -> serde_json::Value {
                         "shares_submitted": p.shares_submitted,
                         "quotes_created": p.quotes_created,
                         "ehash_mined": p.ehash_mined,
-                        "last_share_at": last_share
+                        "last_share_at": last_share,
+                        "work_selection": p.work_selection
                     })
                 })
                 .collect();
