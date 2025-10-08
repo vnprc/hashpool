@@ -1,7 +1,7 @@
 # Prompt Loop
 
 1. Read `AGENTS.md` for the repository overview.
-2. Read ``docs/stats-refactor-plan.md to understand the current development plan and status.
+2. Read ``docs/pool-stats.md to understand the current development plan and status.
 3. Continue executing the plan.
 4. After each phase:
    - Run `cargo build` for the impacted workspace.

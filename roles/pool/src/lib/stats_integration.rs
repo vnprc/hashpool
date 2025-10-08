@@ -1,5 +1,7 @@
 use super::mining_pool::Pool;
-use stats::stats_adapter::{PoolSnapshot, ProxyConnection, ServiceConnection, ServiceType, StatsSnapshotProvider};
+use stats::stats_adapter::{
+    PoolSnapshot, ProxyConnection, ServiceConnection, ServiceType, StatsSnapshotProvider,
+};
 use std::time::SystemTime;
 
 fn unix_timestamp() -> u64 {
@@ -30,41 +32,42 @@ impl StatsSnapshotProvider for Pool {
             });
         }
 
+        // Get stats snapshot from registry
+        let stats_snapshot = self.stats_registry.snapshot();
+
         // Separate JD connections from proxy connections
         let mut downstream_proxies = Vec::new();
 
         for (id, downstream) in &self.downstreams {
             // Try to get downstream info - if it fails, use defaults
-            if let Ok((address, is_jd, channels, shares, quotes, ehash, last_share, work_selection)) = downstream
-                .safe_lock(|d| {
-                    // Get channel IDs for this downstream
-                    let channels: Vec<u32> = self
-                        .channel_to_downstream
-                        .iter()
-                        .filter_map(|(channel_id, downstream_id)| {
-                            if downstream_id == id {
-                                Some(*channel_id)
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
+            if let Ok((address, is_jd, channels, work_selection)) = downstream.safe_lock(|d| {
+                // Get channel IDs for this downstream
+                let channels: Vec<u32> = self
+                    .channel_to_downstream
+                    .iter()
+                    .filter_map(|(channel_id, downstream_id)| {
+                        if downstream_id == id {
+                            Some(*channel_id)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
 
-                    let is_jd = d.is_job_declarator();
-                    tracing::debug!("Downstream {} ({}) - is_jd: {}", id, d.address, is_jd);
+                let is_jd = d.is_job_declarator();
+                tracing::debug!("Downstream {} ({}) - is_jd: {}", id, d.address, is_jd);
 
-                    (
-                        d.address.to_string(),
-                        is_jd, // true = JD, false = proxy
-                        channels,
-                        0u64, // shares_submitted - TODO: track this
-                        0u64, // quotes_created - TODO: track this
-                        0u64, // ehash_mined - TODO: track this
-                        None, // last_share_at - TODO: track this
-                        d.has_work_selection(),
-                    )
-                })
-            {
+                (
+                    d.address.to_string(),
+                    is_jd, // true = JD, false = proxy
+                    channels,
+                    d.has_work_selection(),
+                )
+            }) {
+                // Lookup stats from registry
+                let (shares, quotes, ehash, last_share) =
+                    stats_snapshot.get(id).copied().unwrap_or((0, 0, 0, None));
+
                 if is_jd {
                     // This is a Job Declarator - add to services
                     services.push(ServiceConnection {

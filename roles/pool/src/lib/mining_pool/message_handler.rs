@@ -267,6 +267,13 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::SendSubmitShareUpstream(_) => unreachable!(),
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::RelaySubmitShareUpstream => unreachable!(),
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetBitcoinTarget((share,t_id,coinbase,_)) => {
+                    // Record standard share in stats
+                    if let Ok(stats_registry) = self.pool.safe_lock(|p| p.stats_registry.clone()) {
+                        if let Some(stats) = stats_registry.get_stats(self.id) {
+                            stats.record_share();
+                        }
+                    }
+
                     if let Some(template_id) = t_id {
                         let solution = SubmitSolution {
                             template_id,
@@ -291,7 +298,14 @@ impl ParseDownstreamMiningMessages<(), NullDownstreamMiningSelector, NoRouting> 
 
                 },
                 roles_logic_sv2::channel_logic::channel_factory::OnNewShare::ShareMeetDownstreamTarget => {
-                 let success = SubmitSharesSuccess {
+                    // Record standard share in stats
+                    if let Ok(stats_registry) = self.pool.safe_lock(|p| p.stats_registry.clone()) {
+                        if let Some(stats) = stats_registry.get_stats(self.id) {
+                            stats.record_share();
+                        }
+                    }
+
+                    let success = SubmitSharesSuccess {
                         channel_id: m.channel_id,
                         last_sequence_number: m.sequence_number,
                         new_submits_accepted_count: 1,

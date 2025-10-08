@@ -1,7 +1,7 @@
 pub mod error;
 pub mod mining_pool;
-pub mod status;
 pub mod stats_integration;
+pub mod status;
 pub mod template_receiver;
 
 use std::net::SocketAddr;
@@ -10,7 +10,7 @@ use async_channel::{bounded, unbounded};
 
 use error::PoolError;
 use mining_pool::{get_coinbase_output, Configuration, Pool};
-use shared_config::{Sv2MessagingConfig, EhashConfig};
+use shared_config::{EhashConfig, Sv2MessagingConfig};
 use template_receiver::TemplateRx;
 use tracing::{error, info, warn};
 
@@ -36,7 +36,11 @@ impl std::fmt::Debug for PoolSv2 {
 }
 
 impl PoolSv2 {
-    pub fn new(config: Configuration, sv2_messaging_config: Option<Sv2MessagingConfig>, ehash_config: Option<EhashConfig>) -> PoolSv2 {
+    pub fn new(
+        config: Configuration,
+        sv2_messaging_config: Option<Sv2MessagingConfig>,
+        ehash_config: Option<EhashConfig>,
+    ) -> PoolSv2 {
         PoolSv2 {
             config,
             sv2_messaging_config,
@@ -55,7 +59,7 @@ impl PoolSv2 {
         let coinbase_output_len = coinbase_output_result?.len() as u32;
         let tp_authority_public_key = config.tp_authority_public_key;
         let tp_address: SocketAddr = config.tp_address.parse().unwrap();
-        
+
         // Debugging information
         dbg!(&tp_address, &tp_authority_public_key, &coinbase_output_len);
 

@@ -55,6 +55,7 @@ futures = "0.3"
 ehash = { path = "../../protocols/ehash" }
 hex = "0.4.3"
 stats = { path = "../roles-utils/stats" }
+pool-stats = { path = "../roles-utils/pool-stats" }
 
 
 [dev-dependencies]

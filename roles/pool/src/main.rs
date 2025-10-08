@@ -3,8 +3,8 @@
 mod lib;
 use ext_config::{Config, File, FileFormat};
 pub use lib::{mining_pool::Configuration, status, PoolSv2};
-use tracing::error;
 use shared_config::PoolGlobalConfig;
+use tracing::error;
 
 mod args {
     use std::path::PathBuf;
@@ -22,16 +22,16 @@ mod args {
 
         pub fn from_args() -> Result<Self, String> {
             let args: Vec<String> = std::env::args().collect();
-        
+
             if args.len() == 1 {
                 println!("Using default config path: {}", Self::DEFAULT_CONFIG_PATH);
                 println!("{}\n", Self::HELP_MSG);
             }
-        
+
             let mut config_path = None;
             let mut global_config_path = None;
             let mut iter = args.into_iter().skip(1);
-        
+
             while let Some(arg) = iter.next() {
                 match arg.as_str() {
                     "-c" | "--config" => {
@@ -44,15 +44,16 @@ mod args {
                     _ => {}
                 }
             }
-        
-            let config_path = config_path.unwrap_or_else(|| PathBuf::from(Self::DEFAULT_CONFIG_PATH));
+
+            let config_path =
+                config_path.unwrap_or_else(|| PathBuf::from(Self::DEFAULT_CONFIG_PATH));
             let global_config_path = global_config_path.ok_or("Missing -g/--global <path>")?;
-        
+
             Ok(Self {
                 config_path,
                 global_config_path,
             })
-        }            
+        }
     }
 }
 
@@ -69,7 +70,10 @@ async fn main() {
     };
 
     let config_path = args.config_path.to_str().expect("Invalid config path");
-    let global_path = args.global_config_path.to_str().expect("Invalid global config path");
+    let global_path = args
+        .global_config_path
+        .to_str()
+        .expect("Invalid global config path");
 
     // Load local config
     let mut config: Configuration = match Config::builder()
@@ -97,7 +101,6 @@ async fn main() {
         }
     };
 
-    
     let mut pool = PoolSv2::new(config, global_config.sv2_messaging, global_config.ehash);
     let _ = pool.start().await;
 }

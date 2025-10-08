@@ -3839,6 +3839,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pool-stats"
+version = "0.1.0"
+dependencies = [
+ "parking_lot",
+ "quote-dispatcher",
+]
+
+[[package]]
 name = "pool_sv2"
 version = "0.1.2"
 dependencies = [
@@ -3868,6 +3876,7 @@ dependencies = [
  "network_helpers_sv2",
  "nohash-hasher",
  "noise_sv2",
+ "pool-stats",
  "quote-dispatcher",
  "rand 0.8.5",
  "roles_logic_sv2",

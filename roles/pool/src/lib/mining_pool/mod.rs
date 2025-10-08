@@ -225,6 +225,7 @@ pub struct Pool {
     pub listen_address: String,
     pub minimum_difficulty: u32,
     mint_message_hub: Arc<MintPoolMessageHub>,
+    pub stats_registry: Arc<pool_stats::PoolStatsRegistry>,
 }
 
 impl Downstream {
@@ -259,16 +260,26 @@ impl Downstream {
             true => channel_factory.safe_lock(|c| c.new_standard_id_for_hom())?,
         };
 
-        // Create quote dispatcher
-        let (hub, minimum_difficulty) = pool
-            .safe_lock(|p| (p.mint_message_hub.clone(), p.minimum_difficulty))
+        // Create quote dispatcher with stats callback
+        let (hub, stats_registry, minimum_difficulty) = pool
+            .safe_lock(|p| {
+                (
+                    p.mint_message_hub.clone(),
+                    p.stats_registry.clone(),
+                    p.minimum_difficulty,
+                )
+            })
             .map_err(|e| PoolError::PoisonLock(e.to_string()))?;
 
-        let quote_dispatcher = quote_dispatcher::QuoteDispatcher::new(
-            hub,
-            sv2_config.clone(),
-            minimum_difficulty,
-        );
+        // Register this downstream with stats
+        let downstream_stats = stats_registry.register_downstream(id);
+
+        // Create stats callback
+        let stats_callback = Arc::new(pool_stats::StatsCallback::new(downstream_stats));
+
+        let quote_dispatcher =
+            quote_dispatcher::QuoteDispatcher::new(hub, sv2_config.clone(), minimum_difficulty)
+                .with_callback(stats_callback);
 
         let self_ = Arc::new(Mutex::new(Downstream {
             id,
@@ -322,7 +333,10 @@ impl Downstream {
                     }
                     _ => {
                         let res = pool
-                            .safe_lock(|p| p.downstreams.remove(&id))
+                            .safe_lock(|p| {
+                                p.stats_registry.unregister_downstream(id);
+                                p.downstreams.remove(&id)
+                            })
                             .map_err(|e| PoolError::PoisonLock(e.to_string()));
                         handle_result!(status_tx, res);
                         error!("Downstream {} disconnected", id);
@@ -995,6 +1009,8 @@ impl Pool {
 
         let mint_message_hub = MintPoolMessageHub::new(messaging_config);
 
+        let stats_registry = pool_stats::PoolStatsRegistry::new();
+
         let pool = Arc::new(Mutex::new(Pool {
             downstreams: HashMap::with_hasher(BuildNoHashHasher::default()),
             solution_sender,
@@ -1008,6 +1024,7 @@ impl Pool {
             listen_address: config.listen_address.clone(),
             minimum_difficulty,
             mint_message_hub: mint_message_hub.clone(),
+            stats_registry: stats_registry.clone(),
         }));
 
         let cloned = pool.clone();
@@ -1171,9 +1188,10 @@ impl Pool {
 
         // Start new snapshot-based stats polling loop
         if let Some(stats_addr) = stats_addr_opt {
-            use stats::stats_adapter::StatsSnapshotProvider;
-            use stats::stats_adapter::PoolSnapshot;
-            use stats::stats_client::StatsClient;
+            use stats::{
+                stats_adapter::{PoolSnapshot, StatsSnapshotProvider},
+                stats_client::StatsClient,
+            };
 
             let stats_client = StatsClient::<PoolSnapshot>::new(stats_addr.clone());
             let pool_clone = cloned3.clone();
@@ -1187,15 +1205,14 @@ impl Pool {
                     interval.tick().await;
 
                     // Get snapshot via trait - need to lock pool to call get_snapshot
-                    let snapshot = match pool_clone.safe_lock(|p| {
-                        StatsSnapshotProvider::get_snapshot(p)
-                    }) {
-                        Ok(s) => s,
-                        Err(e) => {
-                            error!("Failed to lock pool for stats snapshot: {}", e);
-                            continue;
-                        }
-                    };
+                    let snapshot =
+                        match pool_clone.safe_lock(|p| StatsSnapshotProvider::get_snapshot(p)) {
+                            Ok(s) => s,
+                            Err(e) => {
+                                error!("Failed to lock pool for stats snapshot: {}", e);
+                                continue;
+                            }
+                        };
 
                     // Send to stats service
                     if let Err(e) = stats_client.send_snapshot(snapshot).await {
@@ -1214,6 +1231,7 @@ impl Pool {
     /// the downstream. This is going to be rare and will won't cause any issues as the attempt
     /// to communicate will fail but continue with the next downstream.
     pub fn remove_downstream(&mut self, downstream_id: u32) {
+        self.stats_registry.unregister_downstream(downstream_id);
         self.downstreams.remove(&downstream_id);
     }
 
