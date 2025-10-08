@@ -16,6 +16,9 @@ coinbase_outputs = [
 # JD Server listening address
 listen_jd_address = "127.0.0.1:34264"
 
+# Template Provider listening address for JDC connections
+listen_tp_address = "127.0.0.1:8442"
+
 # Stats server config (TCP address for stats-pool service)
 stats_server_address = "127.0.0.1:4000"
 

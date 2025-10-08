@@ -20,6 +20,8 @@ coinbase_outputs = [
 
 # SRI Pool JD config
 listen_jd_address = "127.0.0.1:34264"
+# Template Provider listen address for JDC
+listen_tp_address = "127.0.0.1:8442"
 # Stats server config (TCP address for stats-pool)
 stats_server_address = "127.0.0.1:9083"
 # RPC config for mempool (it can be also the same TP if correctly configured)

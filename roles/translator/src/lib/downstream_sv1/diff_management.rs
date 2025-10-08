@@ -120,8 +120,10 @@ impl Downstream {
                 DownstreamMessages::SetDownstreamTarget(update_target_msg),
             )
             .await?;
+            Ok(Some(new_hash_rate))
+        } else {
+            Ok(None)
         }
-        Ok(None)
     }
 
     /// calculates the target according to the current stored hashrate of the miner
