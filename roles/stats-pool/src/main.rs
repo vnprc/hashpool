@@ -5,7 +5,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tracing::{error, info};
 
 mod config;
-mod web;
+mod api;
 
 use config::Config;
 use stats_pool::db::StatsData;
@@ -30,11 +30,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tcp_listener = TcpListener::bind(&config.tcp_address).await?;
     info!("TCP server listening on {}", config.tcp_address);
 
-    // HTTP server exposes snapshots to web layer / dashboards
+    // HTTP API server exposes snapshots to web services
     let http_address = config.http_address.clone();
     let stats_for_http = stats.clone();
     tokio::spawn(async move {
-        if let Err(e) = web::run_http_server(http_address, stats_for_http).await {
+        if let Err(e) = api::run_http_server(http_address, stats_for_http).await {
             error!("HTTP server error: {}", e);
         }
     });

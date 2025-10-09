@@ -5,7 +5,7 @@ use tokio::io::AsyncReadExt;
 use tracing::{error, info};
 
 mod config;
-mod web;
+mod api;
 
 use config::Config;
 use stats_proxy::db::StatsData;
@@ -35,16 +35,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tcp_listener = TcpListener::bind(&config.tcp_address).await?;
     info!("TCP server listening on {}", config.tcp_address);
 
-    // Start HTTP server for dashboard
+    // Start HTTP API server
     let http_address = config.http_address.clone();
-    let downstream_address = config.downstream_address.clone();
-    let downstream_port = config.downstream_port;
     let redact_ip = config.redact_ip;
-    let faucet_enabled = config.faucet_enabled;
-    let faucet_url = config.faucet_url.clone();
     let db_clone = db.clone();
     tokio::spawn(async move {
-        if let Err(e) = web::run_http_server(http_address, db_clone, downstream_address, downstream_port, redact_ip, faucet_enabled, faucet_url).await {
+        if let Err(e) = api::run_http_server(http_address, db_clone, redact_ip).await {
             error!("HTTP server error: {}", e);
         }
     });

@@ -54,8 +54,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn poll_stats_proxy(storage: Arc<SnapshotStorage>, stats_proxy_url: String, poll_interval_secs: u64) {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .pool_idle_timeout(Duration::from_secs(300))
+        .pool_max_idle_per_host(1)
+        .build()
+        .unwrap();
     let mut interval = time::interval(Duration::from_secs(poll_interval_secs));
+    let mut last_success = false;
 
     loop {
         interval.tick().await;
@@ -67,15 +72,24 @@ async fn poll_stats_proxy(storage: Arc<SnapshotStorage>, stats_proxy_url: String
         {
             Ok(response) => match response.json::<ProxySnapshot>().await {
                 Ok(snapshot) => {
-                    info!("Successfully fetched snapshot from stats-proxy");
+                    if !last_success {
+                        info!("Successfully fetched snapshot from stats-proxy");
+                        last_success = true;
+                    }
                     storage.update(snapshot);
                 }
                 Err(e) => {
-                    error!("Failed to parse snapshot JSON: {}", e);
+                    if last_success {
+                        error!("Failed to parse snapshot JSON: {}", e);
+                        last_success = false;
+                    }
                 }
             },
             Err(e) => {
-                error!("Failed to fetch from stats-proxy: {}", e);
+                if last_success {
+                    error!("Failed to fetch from stats-proxy: {}", e);
+                    last_success = false;
+                }
             }
         }
     }

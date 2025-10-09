@@ -42,8 +42,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn poll_stats_pool(storage: Arc<SnapshotStorage>, stats_pool_url: String) {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .pool_idle_timeout(Duration::from_secs(300))
+        .pool_max_idle_per_host(1)
+        .build()
+        .unwrap();
     let mut interval = time::interval(Duration::from_secs(POLL_INTERVAL_SECS));
+    let mut last_success = false;
 
     loop {
         interval.tick().await;
@@ -55,15 +60,24 @@ async fn poll_stats_pool(storage: Arc<SnapshotStorage>, stats_pool_url: String) 
         {
             Ok(response) => match response.json::<PoolSnapshot>().await {
                 Ok(snapshot) => {
-                    info!("Successfully fetched snapshot from stats-pool");
+                    if !last_success {
+                        info!("Successfully fetched snapshot from stats-pool");
+                        last_success = true;
+                    }
                     storage.update(snapshot);
                 }
                 Err(e) => {
-                    error!("Failed to parse snapshot JSON: {}", e);
+                    if last_success {
+                        error!("Failed to parse snapshot JSON: {}", e);
+                        last_success = false;
+                    }
                 }
             },
             Err(e) => {
-                error!("Failed to fetch from stats-pool: {}", e);
+                if last_success {
+                    error!("Failed to fetch from stats-pool: {}", e);
+                    last_success = false;
+                }
             }
         }
     }

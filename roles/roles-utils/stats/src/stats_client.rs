@@ -1,13 +1,16 @@
 use serde::Serialize;
 use std::marker::PhantomData;
+use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
+use tokio::sync::Mutex;
 use tracing::{debug, warn};
 
 /// TCP client that sends JSON snapshots to stats service
 /// Generic over snapshot type
 pub struct StatsClient<T> {
     address: String,
+    stream: Arc<Mutex<Option<TcpStream>>>,
     _phantom: PhantomData<T>,
 }
 
@@ -19,13 +22,14 @@ where
     pub fn new(address: String) -> Self {
         Self {
             address,
+            stream: Arc::new(Mutex::new(None)),
             _phantom: PhantomData,
         }
     }
 
     /// Send a snapshot to the stats service
     /// Uses newline-delimited JSON format
-    /// Auto-reconnects on failure
+    /// Maintains persistent connection, auto-reconnects on failure
     pub async fn send_snapshot(&self, snapshot: T) -> Result<(), StatsClientError> {
         // Serialize to JSON
         let json = serde_json::to_string(&snapshot)
@@ -34,7 +38,7 @@ where
         // Add newline delimiter
         let message = format!("{}\n", json);
 
-        // Try to connect and send
+        // Try to send using existing connection, reconnect if needed
         match self.try_send(&message).await {
             Ok(_) => {
                 debug!("Successfully sent snapshot to {}", self.address);
@@ -51,22 +55,44 @@ where
     }
 
     async fn try_send(&self, message: &str) -> Result<(), StatsClientError> {
-        // Connect to stats service
-        let mut stream = TcpStream::connect(&self.address)
+        let mut stream_guard = self.stream.lock().await;
+
+        // Try to use existing connection first
+        if let Some(ref mut stream) = *stream_guard {
+            match stream.write_all(message.as_bytes()).await {
+                Ok(_) => {
+                    if let Err(e) = stream.flush().await {
+                        warn!("Flush failed, reconnecting: {}", e);
+                        *stream_guard = None;
+                    } else {
+                        return Ok(());
+                    }
+                }
+                Err(e) => {
+                    warn!("Write failed, reconnecting: {}", e);
+                    *stream_guard = None;
+                }
+            }
+        }
+
+        // Connection doesn't exist or failed, establish new one
+        let mut new_stream = TcpStream::connect(&self.address)
             .await
             .map_err(|e| StatsClientError::ConnectionError(e.to_string()))?;
 
-        // Write message
-        stream
+        // Send message on new connection
+        new_stream
             .write_all(message.as_bytes())
             .await
             .map_err(|e| StatsClientError::WriteError(e.to_string()))?;
 
-        // Flush to ensure data is sent
-        stream
+        new_stream
             .flush()
             .await
             .map_err(|e| StatsClientError::WriteError(e.to_string()))?;
+
+        // Store the connection for reuse
+        *stream_guard = Some(new_stream);
 
         Ok(())
     }

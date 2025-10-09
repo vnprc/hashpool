@@ -19,6 +19,14 @@
   translatorWalletDb = "${config.devenv.root}/.devenv/state/translator/wallet.sqlite";
   mintDb = "${config.devenv.root}/.devenv/state/mint/mint.sqlite";
 
+  # Service ports
+  statsPoolTcpPort = 9083;
+  statsPoolHttpPort = 9084;
+  statsProxyTcpPort = 8082;
+  statsProxyHttpPort = 8084;
+  webPoolPort = 8081;
+  webProxyPort = 3030;
+
   poolConfig = builtins.fromTOML (builtins.readFile ./config/shared/pool.toml);
   minerConfig = builtins.fromTOML (builtins.readFile ./config/shared/miner.toml);
 
@@ -197,16 +205,16 @@ in {
     stats-pool = {
       exec = withLogging ''
         cargo -C roles/stats-pool -Z unstable-options run -- \
-          --tcp-address 127.0.0.1:9083 \
-          --http-address 127.0.0.1:9084
+          --tcp-address 127.0.0.1:${toString statsPoolTcpPort} \
+          --http-address 127.0.0.1:${toString statsPoolHttpPort}
       '' "stats_pool.log";
     };
 
     stats-proxy = {
       exec = withLogging ''
         cargo -C roles/stats-proxy -Z unstable-options run -- \
-          --tcp-address 127.0.0.1:8082 \
-          --http-address 127.0.0.1:8084 \
+          --tcp-address 127.0.0.1:${toString statsProxyTcpPort} \
+          --http-address 127.0.0.1:${toString statsProxyHttpPort} \
           --db-path ${config.devenv.root}/.devenv/state/stats-proxy.db \
           --config ${config.devenv.root}/config/tproxy.config.toml \
           --shared-config ${config.devenv.root}/config/shared/miner.toml
@@ -215,19 +223,19 @@ in {
 
     web-pool = {
       exec = withLogging ''
-        ${waitForPort 9084 "Stats-Pool HTTP"}
+        ${waitForPort statsPoolTcpPort "Stats-Pool"}
         cargo -C roles/web-pool -Z unstable-options run -- \
-          --stats-pool-url http://127.0.0.1:9084 \
-          --web-address 127.0.0.1:8081
+          --stats-pool-url http://127.0.0.1:${toString statsPoolHttpPort} \
+          --web-address 127.0.0.1:${toString webPoolPort}
       '' "web_pool.log";
     };
 
     web-proxy = {
       exec = withLogging ''
-        ${waitForPort 8084 "Stats-Proxy HTTP"}
+        ${waitForPort statsProxyTcpPort "Stats-Proxy"}
         cargo -C roles/web-proxy -Z unstable-options run -- \
-          --stats-proxy-url http://127.0.0.1:8084 \
-          --web-address 127.0.0.1:3030 \
+          --stats-proxy-url http://127.0.0.1:${toString statsProxyHttpPort} \
+          --web-address 127.0.0.1:${toString webProxyPort} \
           --config ${config.devenv.root}/config/tproxy.config.toml \
           --shared-config ${config.devenv.root}/config/shared/miner.toml
       '' "web_proxy.log";
