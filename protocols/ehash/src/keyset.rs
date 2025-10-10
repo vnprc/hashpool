@@ -123,7 +123,7 @@ pub fn build_cdk_keyset(
     let keys = signing_keys_to_cdk(signing_keys)?;
     Ok(KeySet {
         id,
-        unit: CurrencyUnit::Hash,
+        unit: CurrencyUnit::Custom("HASH".to_string()),
         keys,
         final_expiry: None,
     })

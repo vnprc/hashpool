@@ -37,6 +37,12 @@ find . -name Cargo.toml | while read -r file; do
           resolved = get_realpath(cdk_path, crate)
           print "cdk-" m[1] " = { path = \"" resolved "\" }"
         }
+        else if ($0 ~ /^cdk-[a-z0-9_-]+ = \{ git = "https:\/\/github.com\/vnprc\/cdk/) {
+          match($0, /^(cdk-[a-z0-9_-]+) = /, m)
+          crate = m[1]
+          resolved = get_realpath(cdk_path, crate)
+          print crate " = { path = \"" resolved "\" }"
+        }
         else {
           print
         }

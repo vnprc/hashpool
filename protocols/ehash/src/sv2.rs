@@ -231,7 +231,7 @@ mod tests {
 
         let keyset = KeySet {
             id,
-            unit: cdk::nuts::CurrencyUnit::Hash,
+            unit: cdk::nuts::CurrencyUnit::Custom("HASH".to_string()),
             keys,
             final_expiry: None,
         };
