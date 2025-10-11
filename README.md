@@ -15,7 +15,7 @@ devenv shell
 devenv up
 ```
 
-![Screenshot from 2025-06-14 08-01-06](https://github.com/user-attachments/assets/f26ca6ed-9178-419e-bfa4-25ba4fb022cf)
+<img width="1705" height="1294" alt="Screenshot from 2025-10-11 08-37-22" src="https://github.com/user-attachments/assets/1a1cd855-be1a-419c-a517-f5ed8b0c265c" />
 
 ## Development Environment Setup
 
