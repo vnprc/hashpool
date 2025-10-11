@@ -57,14 +57,27 @@ The development environment initializes a containerized system with the followin
    - generate ehash and ecash tokens
    - redeem ehash and ecash tokens
 
-8. `redis` - **Redis Daemon**
-   - in-memory key-value store
-   - serves as an async message queue for mint operations
-   - caches the mint keyset
+8. `stats-pool` - **Stats Service (Pool Side)**
+   - collects and serves pool-side mining statistics
+   - TCP interface to collect stats from Sv2 services
+   - HTTP APIs to serve stats to the web service
 
-9. `lightning-cln` - **CLN Lightning Node**
-   - receive mining rewards
-   - make and receive lightning payments on behalf of the mint
+9. `stats-proxy` - **Stats Service (Proxy Side)**
+   - collects and serves proxy-side mining statistics
+   - TCP interface to collect stats from Sv2 services
+   - HTTP APIs to serve stats to the web service
+
+10. `web-pool` - **Web Dashboard (Pool Side)**
+    - web interface for pool statistics and monitoring
+    - displays pool hashrate, services, and connected proxies
+    - deployed at [pool.hashpool.dev](https://pool.hashpool.dev/)
+
+11. `web-proxy` - **Web Dashboard (Proxy Side)**
+    - web interface for proxy statistics and monitoring
+    - wallet page displays ehash balance and an ehash faucet
+    - miners page displays miner connection info and connected miners
+    - pool page displays upstream pool and blockchain stats
+    - deployed at [proxy.hashpool.dev](https://proxy.hashpool.dev/)
 
 ---
 
