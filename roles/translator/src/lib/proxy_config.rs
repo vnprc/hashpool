@@ -101,6 +101,13 @@ impl ProxyConfig {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct DownstreamDifficultyConfig {
+    /// Minimum hashrate for individual miners - automatically calculated from minimum_difficulty
+    ///
+    /// This field is NOT read from config due to `#[serde(skip)]`. It is always calculated
+    /// from `minimum_difficulty` in the shared config to ensure proxy difficulty matches
+    /// ehash requirements. If this field appears in a config file, it will be ignored.
+    /// See `set_min_hashrate_from_difficulty()` for the calculation.
+    #[serde(skip)]
     pub min_individual_miner_hashrate: f32,
     pub shares_per_minute: f32,
     #[serde(default = "u32::default")]
@@ -122,6 +129,23 @@ impl DownstreamDifficultyConfig {
             submits_since_last_update,
             timestamp_of_last_update,
         }
+    }
+
+    /// Calculate and set min_individual_miner_hashrate from minimum_difficulty
+    ///
+    /// The minimum hashrate is derived from the ehash minimum difficulty requirement
+    /// using the formula: hashrate = 2^minimum_difficulty / (60 / shares_per_minute)
+    ///
+    /// This ensures that shares meeting the proxy's difficulty target will always
+    /// earn at least 1 ehash unit (no more 0 ehash shares).
+    pub fn set_min_hashrate_from_difficulty(&mut self, minimum_difficulty: u32) {
+        // Calculate hashrate needed to produce shares at minimum_difficulty
+        // Formula: hashrate = 2^difficulty / time_between_shares
+        let time_between_shares = 60.0 / self.shares_per_minute as f64;
+        let target_hashes = 2_f64.powi(minimum_difficulty as i32);
+        let hashrate = target_hashes / time_between_shares;
+
+        self.min_individual_miner_hashrate = hashrate as f32;
     }
 }
 impl PartialEq for DownstreamDifficultyConfig {

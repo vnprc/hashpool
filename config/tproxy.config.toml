@@ -34,9 +34,9 @@ stats_server_address = "127.0.0.1:8082"
 
 # Difficulty params
 [downstream_difficulty_config]
-# hashes/s of the weakest miner that will be connecting (e.g.: 10 Th/s = 10_000_000_000_000.0)
-min_individual_miner_hashrate=10_000_000.0
 # target number of shares per minute the miner should be sending
+# Note: min_individual_miner_hashrate is automatically calculated from
+# minimum_difficulty in shared config to ensure all shares earn ehash
 shares_per_minute = 6.0
 
 [upstream_difficulty_config]

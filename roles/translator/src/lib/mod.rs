@@ -133,11 +133,26 @@ fn extract_mint_url(config: &ProxyConfig) -> String {
 }
 
 impl TranslatorSv2 {
-    pub fn new(config: ProxyConfig, global_config: shared_config::MinerGlobalConfig) -> Self {
+    pub fn new(mut config: ProxyConfig, global_config: shared_config::MinerGlobalConfig) -> Self {
         let mut rng = rand::thread_rng();
         let mint_url = extract_mint_url(&config);
         let wait_time = rng.gen_range(0..=3000);
         let mint_client = HttpClient::new(MintUrl::from_str(&mint_url).unwrap(), None);
+
+        // Calculate min_individual_miner_hashrate from minimum_difficulty
+        // This ensures proxy difficulty matches ehash minimum requirements
+        let minimum_difficulty = global_config.ehash
+            .as_ref()
+            .map(|c| c.minimum_difficulty)
+            .unwrap_or(32);
+
+        config.downstream_difficulty_config.set_min_hashrate_from_difficulty(minimum_difficulty);
+
+        info!(
+            "Derived min_individual_miner_hashrate = {} H/s from minimum_difficulty = {} bits",
+            config.downstream_difficulty_config.min_individual_miner_hashrate,
+            minimum_difficulty
+        );
 
         Self {
             config: config.clone(),
