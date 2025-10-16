@@ -2,7 +2,7 @@ use std::sync::Arc;
 use cdk::mint::Mint;
 use roles_logic_sv2::parsers::PoolMessages;
 use codec_sv2::StandardEitherFrame;
-use const_sv2::{MESSAGE_TYPE_MINT_QUOTE_REQUEST, MESSAGE_TYPE_MINT_QUOTE_RESPONSE, MESSAGE_TYPE_MINT_QUOTE_ERROR};
+use mint_pool_messaging::MessageType;
 use tracing::info;
 use anyhow::Result;
 
@@ -61,7 +61,7 @@ async fn process_sv2_message(
     
     tracing::debug!("Received message type: 0x{:02x}, payload length: {} bytes", message_type, payload.len());
     
-    if is_mint_quote_message(message_type) {
+    if MessageType::is_mint_quote_message(message_type) {
         process_mint_quote_message(mint.clone(), message_type, payload, sender).await
     } else {
         tracing::warn!("Received non-mint-quote message type: 0x{:02x}", message_type);
@@ -69,8 +69,3 @@ async fn process_sv2_message(
     }
 }
 
-/// Check if a message type is a mint quote message
-// TODO remove duplicate function, also defined in /home/evan/work/hashpool/roles/pool/src/lib/mining_pool/mod.rs
-fn is_mint_quote_message(message_type: u8) -> bool {
-    matches!(message_type, MESSAGE_TYPE_MINT_QUOTE_REQUEST | MESSAGE_TYPE_MINT_QUOTE_RESPONSE | MESSAGE_TYPE_MINT_QUOTE_ERROR)
-}

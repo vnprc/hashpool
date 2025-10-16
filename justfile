@@ -101,6 +101,19 @@ balance:
          FROM proof WHERE state = 'UNSPENT' GROUP BY unit;" \
         2>/dev/null || echo "Error: Could not read wallet database"
 
+# set minimum difficulty in dev shared configs (1-256)
+set-min-diff DIFFICULTY:
+    @if [ "{{DIFFICULTY}}" -lt 1 ] || [ "{{DIFFICULTY}}" -gt 256 ]; then \
+        echo "Error: DIFFICULTY must be between 1 and 256"; \
+        exit 1; \
+    fi
+    @echo "Setting minimum_difficulty = {{DIFFICULTY}} in dev configs..."
+    @sed -i 's/^minimum_difficulty = [0-9]\+$/minimum_difficulty = {{DIFFICULTY}}/' \
+        config/shared/miner.toml config/shared/pool.toml
+    @echo "✅ Updated config/shared/miner.toml"
+    @echo "✅ Updated config/shared/pool.toml"
+    @echo "Note: Production configs unchanged. Restart services for changes to take effect."
+
 # delete persistent storage; options: cashu, regtest, testnet4, stats, logs
 clean TYPE="":
     @if [ "{{TYPE}}" = "cashu" ]; then \

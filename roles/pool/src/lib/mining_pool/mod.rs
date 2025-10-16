@@ -8,8 +8,8 @@ use codec_sv2::{HandshakeRole, Responder, StandardEitherFrame, StandardSv2Frame}
 use error_handling::handle_result;
 use key_utils::{Secp256k1PublicKey, Secp256k1SecretKey, SignatureService};
 use mint_pool_messaging::{
-    MessagingConfig, MintPoolMessageHub, MintQuoteError, MintQuoteResponse, ParsedMintQuoteRequest,
-    Role,
+    MessageType, MessagingConfig, MintPoolMessageHub, MintQuoteError, MintQuoteResponse,
+    ParsedMintQuoteRequest, Role,
 };
 use network_helpers_sv2::noise_connection_tokio::Connection;
 use nohash_hasher::BuildNoHashHasher;
@@ -655,7 +655,7 @@ impl Pool {
                 );
 
                 // Check if this is a mint quote message
-                if Self::is_mint_quote_message(message_type) {
+                if MessageType::is_mint_quote_message(message_type) {
                     Self::process_mint_quote_frame(pool, message_type, payload).await?;
                 } else {
                     debug!(
@@ -796,21 +796,6 @@ impl Pool {
         }
     }
 
-    /// Check if a message type is a mint quote message
-    // TODO remove duplicate function, also defined in
-    // roles/mint/src/lib/sv2_connection/message_handler.rs
-    fn is_mint_quote_message(message_type: u8) -> bool {
-        use const_sv2::{
-            MESSAGE_TYPE_MINT_QUOTE_ERROR, MESSAGE_TYPE_MINT_QUOTE_REQUEST,
-            MESSAGE_TYPE_MINT_QUOTE_RESPONSE,
-        };
-        matches!(
-            message_type,
-            MESSAGE_TYPE_MINT_QUOTE_REQUEST
-                | MESSAGE_TYPE_MINT_QUOTE_RESPONSE
-                | MESSAGE_TYPE_MINT_QUOTE_ERROR
-        )
-    }
 
     /// Get an active mint connection sender for sending messages
     pub fn get_mint_connection(&self) -> Option<Sender<EitherFrame>> {

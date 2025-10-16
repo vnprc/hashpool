@@ -25,6 +25,16 @@ impl MessageType {
     pub fn as_u8(&self) -> u8 {
         *self as u8
     }
+
+    /// Check if a message type is a mint quote message
+    pub fn is_mint_quote_message(message_type: u8) -> bool {
+        matches!(
+            message_type,
+            MESSAGE_TYPE_MINT_QUOTE_REQUEST
+                | MESSAGE_TYPE_MINT_QUOTE_RESPONSE
+                | MESSAGE_TYPE_MINT_QUOTE_ERROR
+        )
+    }
 }
 
 /// Simple message codec for mint-quote messages
