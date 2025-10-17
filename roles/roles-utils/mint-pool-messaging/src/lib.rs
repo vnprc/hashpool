@@ -30,7 +30,7 @@ mod message_codec;
 mod message_hub;
 
 pub use channel_manager::{ChannelError, ChannelManager};
-pub use message_codec::{MessageCodec, MessageType};
+pub use message_codec::{MessageCodec, MessageType, MintQuoteMessage};
 pub use message_hub::{
     MessageHubStats, MintPoolMessageHub, MintQuoteResponseEvent, PendingQuoteContext,
 };

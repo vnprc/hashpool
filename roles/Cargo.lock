@@ -1929,6 +1929,7 @@ dependencies = [
  "binary_sv2",
  "cdk",
  "cdk-common",
+ "const_sv2",
  "derive_codec_sv2",
  "mint_quote_sv2",
  "thiserror 1.0.69",
