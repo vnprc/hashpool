@@ -172,15 +172,50 @@
         updateWalletDisplay();
         setInterval(updateWalletDisplay, 3000);
 
+        let countdownTimer = null;
+
+        function setButtonClockState(btn, label) {
+            btn.innerHTML = `<span class="clock-icon" aria-hidden="true"></span><span>${label}</span>`;
+        }
+
+        function startCountdown(seconds, btn, status) {
+            // Clear any existing countdown
+            if (countdownTimer) {
+                clearInterval(countdownTimer);
+            }
+
+            let remaining = seconds;
+            btn.disabled = true;
+            status.textContent = '';
+            status.className = 'status';
+
+            function updateCountdown() {
+                if (remaining <= 0) {
+                    // Countdown finished
+                    clearInterval(countdownTimer);
+                    btn.disabled = false;
+                    btn.innerHTML = '<span class="qr-icon"></span>Mint';
+                    status.textContent = '';
+                    status.className = 'status';
+                    countdownTimer = null;
+                } else {
+                    // Update button with countdown
+                    setButtonClockState(btn, `Wait ${remaining}s`);
+                    remaining--;
+                }
+            }
+
+            // Start immediately and then every second
+            updateCountdown();
+            countdownTimer = setInterval(updateCountdown, 1000);
+        }
+
         async function requestDrip() {
             const btn = document.getElementById('drip-btn');
             const status = document.getElementById('status');
             const qrContainer = document.getElementById('qr-container');
 
             btn.disabled = true;
-            btn.textContent = 'Minting...';
-            status.textContent = 'Creating your ehash tokens...';
-            status.className = 'status';
             qrContainer.classList.remove('visible');
             document.getElementById('qr-instruction').style.opacity = '0';
 
@@ -202,6 +237,16 @@
                     throw new Error(data.error || 'Unknown error');
                 }
             } catch (error) {
+                // Check if it's a rate limit error with remaining time
+                if (error.message.includes('Rate limited') && error.message.includes('seconds')) {
+                    const match = error.message.match(/(\d+) seconds/);
+                    if (match) {
+                        startCountdown(parseInt(match[1]), btn, status);
+                        return;
+                    }
+                }
+
+                // For non-rate-limit errors, show error message
                 status.textContent = `Error: ${error.message}`;
                 status.className = 'status error';
                 btn.disabled = false;

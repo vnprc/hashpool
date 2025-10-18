@@ -197,8 +197,9 @@ impl TranslatorSv2 {
             if faucet_config.enabled {
                 let faucet_wallet = wallet.clone();
                 let faucet_port = faucet_config.port;
+                let faucet_timeout = faucet_config.faucet_timeout;
                 tokio::spawn(async move {
-                    faucet_api::run_faucet_api(faucet_port, faucet_wallet).await;
+                    faucet_api::run_faucet_api(faucet_port, faucet_wallet, faucet_timeout).await;
                 });
             }
         }

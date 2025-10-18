@@ -15,18 +15,17 @@ use serde_json::json;
 use cdk::wallet::Wallet;
 use cdk::Amount;
 
-// Rate limiting: 30 second global cooldown
-const RATE_LIMIT_DURATION: Duration = Duration::from_secs(30);
-
 #[derive(Debug)]
 struct RateLimiter {
     last_request: Mutex<Option<Instant>>,
+    timeout: Duration,
 }
 
 impl RateLimiter {
-    fn new() -> Self {
+    fn new(timeout_secs: u64) -> Self {
         Self {
             last_request: Mutex::new(None),
+            timeout: Duration::from_secs(timeout_secs),
         }
     }
 
@@ -36,8 +35,8 @@ impl RateLimiter {
 
         if let Some(last) = *last_request {
             let elapsed = now.duration_since(last);
-            if elapsed < RATE_LIMIT_DURATION {
-                let remaining = RATE_LIMIT_DURATION - elapsed;
+            if elapsed < self.timeout {
+                let remaining = self.timeout - elapsed;
                 return Err(remaining);
             }
         }
@@ -148,6 +147,7 @@ async fn handle_request(
 pub async fn run_faucet_api(
     port: u16,
     wallet: Arc<Wallet>,
+    timeout_secs: u64,
 ) {
     let addr = format!("127.0.0.1:{}", port);
     let listener = match TcpListener::bind(&addr).await {
@@ -158,9 +158,9 @@ pub async fn run_faucet_api(
         }
     };
 
-    info!("🚰 Faucet API listening on http://{}", addr);
+    info!("🚰 Faucet API listening on http://{} (timeout: {}s)", addr, timeout_secs);
 
-    let rate_limiter = Arc::new(RateLimiter::new());
+    let rate_limiter = Arc::new(RateLimiter::new(timeout_secs));
 
     loop {
         let (stream, _) = match listener.accept().await {

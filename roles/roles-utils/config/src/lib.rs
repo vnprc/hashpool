@@ -84,6 +84,8 @@ pub struct EhashConfig {
 pub struct FaucetConfig {
     pub enabled: bool,
     pub port: u16,
+    #[serde(default)]
+    pub faucet_timeout: u64,
 }
 
 #[derive(Debug, Deserialize, Clone)]

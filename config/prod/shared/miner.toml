@@ -18,3 +18,4 @@ minimum_difficulty = 32
 enabled = true
 host = "127.0.0.1"
 port = 8083
+faucet_timeout = 3
