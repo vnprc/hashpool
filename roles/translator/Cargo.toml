@@ -56,8 +56,8 @@ anyhow = "1.0"
 hex = "0.4"
 ehash = { path = "../../protocols/ehash" }
 
-cdk = { git = "https://github.com/vnprc/cdk.git", package = "cdk", rev = "fc055291" }
-cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", package = "cdk-sqlite", rev = "fc055291" }
+cdk = { git = "https://github.com/vnprc/cdk.git", package = "cdk", rev = "3334112d" }
+cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", package = "cdk-sqlite", rev = "3334112d" }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 hyper = { version = "1.0", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }

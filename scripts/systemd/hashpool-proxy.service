@@ -10,6 +10,7 @@ Group=hashpool
 WorkingDirectory=/opt/hashpool
 Environment="CDK_WALLET_DB_PATH=/opt/hashpool/.devenv/state/translator/wallet.sqlite"
 Environment="BITCOIND_NETWORK=testnet4"
+Environment="RUST_LOG=info"
 ExecStart=/opt/hashpool/bin/translator_sv2 \
   -c /opt/hashpool/config/tproxy.config.toml \
   -g /opt/hashpool/config/shared/miner.toml

@@ -538,17 +538,17 @@ impl TranslatorSv2 {
     }
 
     async fn process_stored_quotes(
-        wallet: &Arc<Wallet>, 
+        wallet: &Arc<Wallet>,
         locking_privkey: Option<&str>
     ) -> Result<u64> {
-        let all_quotes = match wallet.localstore.get_mint_quotes().await {
+        let pending_quotes = match wallet.get_pending_mint_quotes().await {
             Ok(quotes) => quotes,
             Err(e) => {
-                tracing::error!("Failed to fetch quotes from wallet: {}", e);
+                tracing::error!("Failed to fetch pending quotes from wallet: {}", e);
                 return Ok(0);
             }
         };
-        
+
         // Log wallet balance first
         match wallet.total_balance().await {
             Ok(balance) => {
@@ -558,13 +558,9 @@ impl TranslatorSv2 {
                 tracing::error!("Failed to get wallet balance: {}", e);
             }
         }
-        
-        let pending_quotes: Vec<_> = all_quotes.into_iter()
-            .filter(|q| matches!(q.state, MintQuoteState::Paid) && q.amount_mintable() > Amount::ZERO)
-            .collect();
-        
-        tracing::info!("📋 Found {} quotes in Paid state with mintable amount", pending_quotes.len());
-        
+
+        tracing::info!("📋 Found {} pending quotes with mintable amount", pending_quotes.len());
+
         let quote_ids: Vec<String> = pending_quotes.iter().map(|q| q.id.clone()).collect();
 
         if quote_ids.is_empty() {

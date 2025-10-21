@@ -10,8 +10,8 @@ binary_sv2 = { version = "^1.0.0", path = "../v2/binary-sv2/binary-sv2" }
 const_sv2 = { version = "^3.0.0", path = "../v2/const-sv2" }
 mint_quote_sv2 = { version = "^1.0.0", path = "../v2/subprotocols/mint-quote" }
 thiserror = "1"
-cdk = { git = "https://github.com/vnprc/cdk", rev = "fc055291" }
-cdk-common = { git = "https://github.com/vnprc/cdk", rev = "fc055291" }
+cdk = { git = "https://github.com/vnprc/cdk", rev = "3334112d" }
+cdk-common = { git = "https://github.com/vnprc/cdk", rev = "3334112d" }
 derive_codec_sv2 = { version = "^1.0.0", path = "../v2/binary-sv2/no-serde-sv2/derive_codec" }
 
 [dev-dependencies]
