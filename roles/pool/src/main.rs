@@ -101,6 +101,20 @@ async fn main() {
         }
     };
 
+    // Load snapshot polling interval from shared config
+    // Try to read the shared config file to get the stats.snapshot_poll_interval_secs
+    if let Ok(shared_config_str) = std::fs::read_to_string(global_path) {
+        if let Ok(shared_config) = toml::from_str::<toml::Value>(&shared_config_str) {
+            if let Some(interval) = shared_config
+                .get("stats")
+                .and_then(|s| s.get("snapshot_poll_interval_secs"))
+                .and_then(|v| v.as_integer())
+            {
+                config.snapshot_poll_interval_secs = interval as u64;
+            }
+        }
+    }
+
     let mut pool = PoolSv2::new(config, global_config.sv2_messaging, global_config.ehash);
     let _ = pool.start().await;
 }

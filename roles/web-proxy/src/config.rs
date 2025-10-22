@@ -24,24 +24,97 @@ struct TproxyConfig {
     upstream_port: u16,
 }
 
+#[derive(Debug, Deserialize)]
+struct WebProxyConfig {
+    #[serde(default)]
+    server: ServerConfig,
+    #[serde(default)]
+    stats_proxy: StatsProxyConfig,
+    #[serde(default)]
+    http_client: HttpClientConfig,
+}
+
+#[derive(Debug, Deserialize)]
+struct ServerConfig {
+    listen_address: Option<String>,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            listen_address: Some("127.0.0.1:3030".to_string()),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct StatsProxyConfig {
+    url: Option<String>,
+}
+
+impl Default for StatsProxyConfig {
+    fn default() -> Self {
+        Self {
+            url: Some("http://127.0.0.1:8084".to_string()),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct HttpClientConfig {
+    pool_idle_timeout_secs: Option<u64>,
+    request_timeout_secs: Option<u64>,
+}
+
+impl Default for HttpClientConfig {
+    fn default() -> Self {
+        Self {
+            pool_idle_timeout_secs: Some(300),
+            request_timeout_secs: Some(60),
+        }
+    }
+}
+
 impl Config {
     pub fn from_args() -> Result<Self, Box<dyn std::error::Error>> {
         let args: Vec<String> = env::args().collect();
 
-        // Parse command line arguments
+        // Load web-proxy config file (can be overridden via CLI)
+        let web_proxy_config_path = args
+            .iter()
+            .position(|arg| arg == "--web-proxy-config")
+            .and_then(|i| args.get(i + 1))
+            .map(|s| s.as_str())
+            .unwrap_or("config/web-proxy.config.toml");
+
+        let web_proxy_config_str = fs::read_to_string(web_proxy_config_path)
+            .unwrap_or_default();
+        let web_proxy_config: WebProxyConfig = if web_proxy_config_str.is_empty() {
+            WebProxyConfig {
+                server: ServerConfig::default(),
+                stats_proxy: StatsProxyConfig::default(),
+                http_client: HttpClientConfig::default(),
+            }
+        } else {
+            toml::from_str(&web_proxy_config_str)?
+        };
+
+        // Parse command line arguments (with config file as fallback)
         let stats_proxy_url = args
             .iter()
             .position(|arg| arg == "--stats-proxy-url" || arg == "-s")
             .and_then(|i| args.get(i + 1))
             .cloned()
-            .ok_or("Missing required argument: --stats-proxy-url")?;
+            .or_else(|| web_proxy_config.stats_proxy.url)
+            .ok_or("Missing required config: stats_proxy.url")?;
 
         let web_server_address = args
             .iter()
             .position(|arg| arg == "--web-address" || arg == "-w")
             .and_then(|i| args.get(i + 1))
             .cloned()
-            .ok_or("Missing required argument: --web-address")?;
+            .or_else(|| web_proxy_config.server.listen_address)
+            .ok_or("Missing required config: server.listen_address")?;
 
         // Load tproxy config to get downstream connection info
         let config_path = args

@@ -83,6 +83,30 @@ There is **NO** direct communication between:
    - Talks to bitcoind (pool side) for block templates
    - Configuration: `config/jds.config.toml`
 
+#### Important: Job Declarator Client (JDC) vs Job Declarator Server (JDS)
+
+**These are NOT the same component.** This distinction is critical for understanding the stats architecture.
+
+Per [SV2 Protocol Overview (section 3, roles)](../../sv2-spec/03-Protocol-Overview.md):
+- **Job Declarator Server (JDS)** - Pool-side service that negotiates custom job terms with miners
+- **Job Declarator Client (JDC)** - Miner-side service that declares custom jobs to the pool
+
+**Critical difference for dashboard display:**
+- **JDS** (pool-side) = Appears in "Service Connections" section as a **service** entry
+- **JDC** (miner-side) = Appears in "Connected Proxies" section as a **downstream proxy** entry (not a service)
+
+This is because:
+1. JDC connects to the pool using the **Job Declaration Protocol** over a separate connection
+2. JDC communicates with mining devices using the **Mining Protocol** (like any proxy)
+3. From the pool's perspective, JDC IS a downstream connection/proxy that handles mining work
+4. JDC is semantically a "miner" that has negotiated custom templates via the Job Declaration Protocol
+
+**In the pool's PoolSnapshot:**
+- `services` list = Pool, Mint, JDS (and any other upstream services)
+- `downstream_proxies` list = Translator, JDC, or any other downstream mining clients
+
+See [SV2 Job Declaration Protocol (section 6)](../../sv2-spec/06-Job-Declaration-Protocol.md) for full protocol details and role descriptions.
+
 4. **stats-pool** (`roles/stats-pool/`)
    - Receives snapshot-based stats from Pool via TCP
    - Stores latest snapshot in memory (no database)
@@ -107,9 +131,12 @@ There is **NO** direct communication between:
    - Configuration: `config/tproxy.config.toml`, `config/shared/miner.toml`
 
 2. **JD-Client** (`roles/jd-client/`)
-   - Job Declarator Client for custom job selection
+   - Job Declarator Client (JDC) for custom job selection
    - Talks to bitcoind (miner side) for block template construction
+   - **Appears in pool dashboard "Connected Proxies" table** (is a downstream connection from pool perspective)
+   - Uses both Mining Protocol and Job Declaration Protocol for communication with pool
    - Configuration: `config/jdc.config.toml`
+   - See note above for JDC vs JDS distinction
 
 3. **stats-proxy** (`roles/stats-proxy/`)
    - Receives snapshot-based stats from Translator via TCP

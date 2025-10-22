@@ -21,6 +21,8 @@ pub struct ProxyConfig {
     pub stats_server_address: Option<String>,
     #[serde(default = "default_redact_ip")]
     pub redact_ip: bool,
+    #[serde(default = "default_snapshot_poll_interval_secs")]
+    pub snapshot_poll_interval_secs: u64,
 }
 
 fn default_redact_ip() -> bool {
@@ -29,6 +31,10 @@ fn default_redact_ip() -> bool {
 
 fn default_web_port() -> u16 {
     3030
+}
+
+fn default_snapshot_poll_interval_secs() -> u64 {
+    5
 }
 
 pub struct UpstreamConfig {
@@ -94,6 +100,7 @@ impl ProxyConfig {
             wallet,
             web_port: default_web_port(),
             stats_server_address: None,
+            snapshot_poll_interval_secs: default_snapshot_poll_interval_secs(),
             redact_ip: default_redact_ip(),
         }
     }

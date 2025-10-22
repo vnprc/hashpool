@@ -1,0 +1,16 @@
+# Web-Proxy Configuration
+# Pulls snapshots from stats-proxy via HTTP, serves to browser
+# Polling intervals come from config/shared/miner.toml [web_proxy]
+
+[server]
+# HTTP server: where browser and other clients fetch dashboard
+listen_address = "127.0.0.1:3030"
+
+[stats_proxy]
+# HTTP endpoint where stats-proxy serves snapshots
+url = "http://127.0.0.1:8084"
+
+[http_client]
+# When web-proxy pulls from stats-proxy
+pool_idle_timeout_secs = 300
+request_timeout_secs = 60

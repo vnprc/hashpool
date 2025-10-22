@@ -1,0 +1,16 @@
+# Web-Pool Configuration (Production)
+# Pulls snapshots from stats-pool via HTTP, serves to browser
+# Polling intervals come from config/prod/shared/pool.toml [web_pool]
+
+[server]
+# HTTP server: where browser and other clients fetch dashboard
+listen_address = "127.0.0.1:8081"
+
+[stats_pool]
+# HTTP endpoint where stats-pool serves snapshots
+url = "http://127.0.0.1:9084"
+
+[http_client]
+# When web-pool pulls from stats-pool
+pool_idle_timeout_secs = 300
+request_timeout_secs = 60

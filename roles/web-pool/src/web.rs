@@ -16,15 +16,21 @@ use web_assets::icons::{nav_icon_css, pickaxe_favicon_inline_svg};
 use std::sync::Arc;
 
 static DASHBOARD_PAGE_HTML: OnceLock<String> = OnceLock::new();
+static CLIENT_POLL_INTERVAL_SECS: OnceLock<u64> = OnceLock::new();
 
 const DASHBOARD_PAGE_TEMPLATE: &str = include_str!("../templates/dashboard.html");
 
 pub async fn run_http_server(
     address: String,
     storage: Arc<SnapshotStorage>,
+    client_poll_interval_secs: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(&address).await?;
     info!("🌐 Web pool listening on http://{}", address);
+    info!("Client polling interval: {} seconds", client_poll_interval_secs);
+
+    // Store the polling interval for use in dashboard_page
+    let _ = CLIENT_POLL_INTERVAL_SECS.set(client_poll_interval_secs);
 
     loop {
         let (stream, _) = listener.accept().await?;
@@ -111,8 +117,13 @@ fn serve_favicon() -> Response<Full<Bytes>> {
 }
 
 fn dashboard_page() -> Bytes {
+    let interval_ms = CLIENT_POLL_INTERVAL_SECS.get().copied().unwrap_or(3) * 1000;
     let html = DASHBOARD_PAGE_HTML
-        .get_or_init(|| DASHBOARD_PAGE_TEMPLATE.replace("/* {{NAV_ICON_CSS}} */", nav_icon_css()));
+        .get_or_init(|| {
+            DASHBOARD_PAGE_TEMPLATE
+                .replace("/* {{NAV_ICON_CSS}} */", nav_icon_css())
+                .replace("{client_poll_interval_ms}", &interval_ms.to_string())
+        });
     Bytes::from(html.clone())
 }
 

@@ -212,11 +212,13 @@ impl TranslatorSv2 {
 
             let stats_client = StatsClient::<ProxySnapshot>::new(stats_addr.clone());
             let translator_clone = self.clone();
+            let poll_interval = Duration::from_secs(self.config.snapshot_poll_interval_secs);
 
-            info!("Starting stats polling loop, sending to {}", stats_addr);
+            info!("Starting stats polling loop, sending to {} every {} seconds",
+                  stats_addr, self.config.snapshot_poll_interval_secs);
 
             tokio::spawn(async move {
-                let mut interval = tokio::time::interval(Duration::from_secs(5));
+                let mut interval = tokio::time::interval(poll_interval);
 
                 loop {
                     interval.tick().await;

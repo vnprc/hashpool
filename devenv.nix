@@ -19,7 +19,12 @@
   translatorWalletDb = "${config.devenv.root}/.devenv/state/translator/wallet.sqlite";
   mintDb = "${config.devenv.root}/.devenv/state/mint/mint.sqlite";
 
-  # Service ports
+  # Service ports (now loaded from config files)
+  # These are kept for compatibility but the actual ports are defined in:
+  # - config/stats-pool.config.toml
+  # - config/stats-proxy.config.toml
+  # - config/web-pool.config.toml
+  # - config/web-proxy.config.toml
   statsPoolTcpPort = 9083;
   statsPoolHttpPort = 9084;
   statsProxyTcpPort = 8082;
@@ -205,18 +210,15 @@ in {
     stats-pool = {
       exec = withLogging ''
         cargo -C roles/stats-pool -Z unstable-options run -- \
-          --tcp-address 127.0.0.1:${toString statsPoolTcpPort} \
-          --http-address 127.0.0.1:${toString statsPoolHttpPort}
+          --config ${config.devenv.root}/config/stats-pool.config.toml
       '' "stats_pool.log";
     };
 
     stats-proxy = {
       exec = withLogging ''
         cargo -C roles/stats-proxy -Z unstable-options run -- \
-          --tcp-address 127.0.0.1:${toString statsProxyTcpPort} \
-          --http-address 127.0.0.1:${toString statsProxyHttpPort} \
-          --db-path ${config.devenv.root}/.devenv/state/stats-proxy.db \
-          --config ${config.devenv.root}/config/tproxy.config.toml \
+          --config ${config.devenv.root}/config/stats-proxy.config.toml \
+          --tproxy-config ${config.devenv.root}/config/tproxy.config.toml \
           --shared-config ${config.devenv.root}/config/shared/miner.toml
       '' "stats_proxy.log";
     };
@@ -225,8 +227,8 @@ in {
       exec = withLogging ''
         ${waitForPort statsPoolTcpPort "Stats-Pool"}
         cargo -C roles/web-pool -Z unstable-options run -- \
-          --stats-pool-url http://127.0.0.1:${toString statsPoolHttpPort} \
-          --web-address 127.0.0.1:${toString webPoolPort}
+          --web-pool-config ${config.devenv.root}/config/web-pool.config.toml \
+          --shared-config ${config.devenv.root}/config/shared/pool.toml
       '' "web_pool.log";
     };
 
@@ -234,8 +236,7 @@ in {
       exec = withLogging ''
         ${waitForPort statsProxyTcpPort "Stats-Proxy"}
         cargo -C roles/web-proxy -Z unstable-options run -- \
-          --stats-proxy-url http://127.0.0.1:${toString statsProxyHttpPort} \
-          --web-address 127.0.0.1:${toString webProxyPort} \
+          --web-proxy-config ${config.devenv.root}/config/web-proxy.config.toml \
           --config ${config.devenv.root}/config/tproxy.config.toml \
           --shared-config ${config.devenv.root}/config/shared/miner.toml
       '' "web_proxy.log";

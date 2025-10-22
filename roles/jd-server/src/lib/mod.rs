@@ -127,6 +127,9 @@ impl JobDeclaratorServer {
         let mempool_cloned = mempool.clone();
         let (sender_add_txs_to_mempool, receiver_add_txs_to_mempool) = unbounded();
 
+        // Extract snapshot polling interval before moving config
+        let snapshot_poll_interval_secs = config.snapshot_poll_interval_secs;
+
         // Start JobDeclarator and get reference for stats
         let jd = JobDeclarator::start(
             cloned,
@@ -164,7 +167,8 @@ impl JobDeclaratorServer {
                     listen_address: listen_addr,
                 }));
 
-                stats::stats_poller::start_stats_polling(provider, stats_client).await;
+                let poll_interval = Duration::from_secs(snapshot_poll_interval_secs);
+                stats::stats_poller::start_stats_polling(provider, stats_client, poll_interval).await;
             });
         }
         task::spawn(async move {
@@ -294,6 +298,8 @@ pub struct Configuration {
     pub core_rpc_pass: String,
     #[serde(deserialize_with = "duration_from_toml")]
     pub mempool_update_interval: Duration,
+    #[serde(default = "default_snapshot_poll_interval_secs")]
+    pub snapshot_poll_interval_secs: u64,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -338,12 +344,17 @@ impl Configuration {
             core_rpc_user: core_rpc.user,
             core_rpc_pass: core_rpc.pass,
             mempool_update_interval,
+            snapshot_poll_interval_secs: default_snapshot_poll_interval_secs(),
         }
     }
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_snapshot_poll_interval_secs() -> u64 {
+    5
 }
 
 fn duration_from_toml<'de, D>(deserializer: D) -> Result<Duration, D::Error>

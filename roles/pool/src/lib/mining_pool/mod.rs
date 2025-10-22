@@ -95,6 +95,10 @@ impl TryFrom<&CoinbaseOutput> for CoinbaseOutput_ {
     }
 }
 
+fn default_snapshot_poll_interval_secs() -> u64 {
+    5
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct Configuration {
     pub listen_address: String,
@@ -106,6 +110,8 @@ pub struct Configuration {
     pub coinbase_outputs: Vec<CoinbaseOutput>,
     pub pool_signature: String,
     pub stats_server_address: Option<String>,
+    #[serde(default = "default_snapshot_poll_interval_secs")]
+    pub snapshot_poll_interval_secs: u64,
     #[cfg(feature = "test_only_allow_unencrypted")]
     pub test_only_listen_adress_plain: String,
 }
@@ -174,6 +180,7 @@ impl Configuration {
             coinbase_outputs,
             pool_signature: pool_connection.signature,
             stats_server_address: None,
+            snapshot_poll_interval_secs: 5,
             #[cfg(feature = "test_only_allow_unencrypted")]
             test_only_listen_adress_plain,
         }
@@ -1079,8 +1086,9 @@ impl Pool {
             });
         }
 
-        // Extract stats_server_address before config is moved
+        // Extract stats configuration before config is moved
         let stats_addr_opt = config.stats_server_address.clone();
+        let stats_poll_interval = config.snapshot_poll_interval_secs;
 
         info!("Starting up pool listener");
         let status_tx_clone = status_tx.clone();
@@ -1181,10 +1189,11 @@ impl Pool {
             let stats_client = StatsClient::<PoolSnapshot>::new(stats_addr.clone());
             let pool_clone = cloned3.clone();
 
-            info!("Starting stats polling loop, sending to {}", stats_addr);
+            info!("Starting stats polling loop, sending to {} every {} seconds",
+                  stats_addr, stats_poll_interval);
 
             task::spawn(async move {
-                let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(stats_poll_interval));
 
                 loop {
                     interval.tick().await;

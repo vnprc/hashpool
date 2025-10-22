@@ -3,7 +3,7 @@
 # SV2 messaging configuration for pool-mint communication
 enabled = true
 # TCP listener for mint connections (separate from mining device listener)
-mint_listen_address = "127.0.0.1:34260" 
+mint_listen_address = "127.0.0.1:34260"
 broadcast_buffer_size = 1000
 mpsc_buffer_size = 100
 max_retries = 3
@@ -29,3 +29,13 @@ portTestnet = "48332"
 # TODO: This should be retrieved dynamically from the mint
 # Minimum difficulty (leading zero bits) required to earn 1 unit of ehash
 minimum_difficulty = 32
+
+[stats]
+# Interval for pool to generate and push snapshots to stats-pool (seconds)
+snapshot_poll_interval_secs = 5
+
+[web_pool]
+# Interval in seconds for web-pool to pull from stats-pool (seconds)
+stats_poll_interval_secs = 3
+# Interval in seconds for browser to poll web-pool API (seconds)
+client_poll_interval_secs = 3

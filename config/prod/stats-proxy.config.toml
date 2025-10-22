@@ -1,0 +1,19 @@
+# Stats-Proxy Configuration (Production)
+# Receives TCP snapshots from Translator, exposes HTTP API for web-proxy
+
+[server]
+# TCP server: where Translator connects and pushes snapshots
+tcp_listen_address = "127.0.0.1:8082"
+
+# HTTP server: where web-proxy pulls snapshots via HTTP GET /api/stats
+http_listen_address = "127.0.0.1:8084"
+
+[snapshot_storage]
+# Threshold in seconds for marking data as stale in /health endpoint
+# Used by monitoring systems to detect if Translator stopped sending updates
+staleness_threshold_secs = 15
+
+[http_client]
+# When stats-proxy makes HTTP requests to other services
+pool_idle_timeout_secs = 300
+request_timeout_secs = 60

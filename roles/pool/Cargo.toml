@@ -30,6 +30,7 @@ roles_logic_sv2 = { version = "^1.0.0", path = "../../protocols/v2/roles-logic-s
 serde = { version = "1.0.89", features = ["derive", "alloc"], default-features = false }
 tokio = { version = "1", features = ["full"] }
 ext-config = { version = "0.14.0", features = ["toml"], package = "config" }
+toml = "0.8"
 tracing = { version = "0.1" }
 tracing-subscriber = "0.3"
 async-recursion = "1.0.0"

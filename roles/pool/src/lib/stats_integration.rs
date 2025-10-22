@@ -35,12 +35,12 @@ impl StatsSnapshotProvider for Pool {
         // Get stats snapshot from registry
         let stats_snapshot = self.stats_registry.snapshot();
 
-        // Separate JD connections from proxy connections
+        // Collect all downstream proxy connections
         let mut downstream_proxies = Vec::new();
 
         for (id, downstream) in &self.downstreams {
             // Try to get downstream info - if it fails, use defaults
-            if let Ok((address, is_jd, channels, work_selection)) = downstream.safe_lock(|d| {
+            if let Ok((address, channels, work_selection)) = downstream.safe_lock(|d| {
                 // Get channel IDs for this downstream
                 let channels: Vec<u32> = self
                     .channel_to_downstream
@@ -54,12 +54,10 @@ impl StatsSnapshotProvider for Pool {
                     })
                     .collect();
 
-                let is_jd = d.is_job_declarator();
-                tracing::debug!("Downstream {} ({}) - is_jd: {}, has_work_selection: {}", id, d.address, is_jd, d.has_work_selection());
+                tracing::debug!("Downstream {} ({}) - has_work_selection: {}", id, d.address, d.has_work_selection());
 
                 (
                     d.address.to_string(),
-                    is_jd, // true = JD, false = proxy
                     channels,
                     d.has_work_selection(),
                 )
@@ -68,25 +66,18 @@ impl StatsSnapshotProvider for Pool {
                 let (shares, quotes, ehash, last_share) =
                     stats_snapshot.get(id).copied().unwrap_or((0, 0, 0, None));
 
-                if is_jd {
-                    // This is a Job Declarator - add to services
-                    services.push(ServiceConnection {
-                        service_type: ServiceType::JobDeclarator,
-                        address,
-                    });
-                } else {
-                    // This is a regular proxy - add to downstream_proxies
-                    downstream_proxies.push(ProxyConnection {
-                        id: *id,
-                        address,
-                        channels,
-                        shares_submitted: shares,
-                        quotes_created: quotes,
-                        ehash_mined: ehash,
-                        last_share_at: last_share,
-                        work_selection,
-                    });
-                }
+                // All downstream connections (whether using Mining or Job Declaration protocol)
+                // are tracked as proxies in the downstream_proxies list
+                downstream_proxies.push(ProxyConnection {
+                    id: *id,
+                    address,
+                    channels,
+                    shares_submitted: shares,
+                    quotes_created: quotes,
+                    ehash_mined: ehash,
+                    last_share_at: last_share,
+                    work_selection,
+                });
             }
         }
 

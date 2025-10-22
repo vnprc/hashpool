@@ -7,8 +7,6 @@ use stats::stats_adapter::PoolSnapshot;
 
 use web_pool::{SnapshotStorage, config::Config};
 
-const POLL_INTERVAL_SECS: u64 = 5;
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing
@@ -24,6 +22,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting web-pool service");
     info!("Stats pool URL: {}", config.stats_pool_url);
     info!("Web server address: {}", config.web_server_address);
+    info!("Stats polling interval: {} seconds", config.stats_poll_interval_secs);
+    info!("Client polling interval: {} seconds", config.client_poll_interval_secs);
 
     // Create shared snapshot storage
     let storage = Arc::new(SnapshotStorage::new());
@@ -31,23 +31,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Spawn polling loop
     let storage_clone = storage.clone();
     let stats_pool_url = config.stats_pool_url.clone();
+    let poll_interval = config.stats_poll_interval_secs;
+    let request_timeout = config.request_timeout_secs;
+    let pool_idle_timeout = config.pool_idle_timeout_secs;
     tokio::spawn(async move {
-        poll_stats_pool(storage_clone, stats_pool_url).await;
+        poll_stats_pool(storage_clone, stats_pool_url, poll_interval, request_timeout, pool_idle_timeout).await;
     });
 
-    // Start HTTP server
-    start_web_server(config.web_server_address, storage).await?;
+    // Start HTTP server with client polling interval
+    start_web_server(config.web_server_address, storage, config.client_poll_interval_secs).await?;
 
     Ok(())
 }
 
-async fn poll_stats_pool(storage: Arc<SnapshotStorage>, stats_pool_url: String) {
+async fn poll_stats_pool(storage: Arc<SnapshotStorage>, stats_pool_url: String, poll_interval_secs: u64, request_timeout_secs: u64, pool_idle_timeout_secs: u64) {
     let client = reqwest::Client::builder()
-        .pool_idle_timeout(Duration::from_secs(300))
+        .pool_idle_timeout(Duration::from_secs(pool_idle_timeout_secs))
         .pool_max_idle_per_host(1)
         .build()
         .unwrap();
-    let mut interval = time::interval(Duration::from_secs(POLL_INTERVAL_SECS));
+    let mut interval = time::interval(Duration::from_secs(poll_interval_secs));
     let mut last_success = false;
 
     loop {
@@ -86,6 +89,7 @@ async fn poll_stats_pool(storage: Arc<SnapshotStorage>, stats_pool_url: String) 
 async fn start_web_server(
     address: String,
     storage: Arc<SnapshotStorage>,
+    client_poll_interval_secs: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    web_pool::web::run_http_server(address, storage).await
+    web_pool::web::run_http_server(address, storage, client_poll_interval_secs).await
 }

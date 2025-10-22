@@ -6,15 +6,16 @@ use tokio::sync::Mutex;
 use tracing::{debug, error};
 
 /// Generic polling loop that works with any StatsSnapshotProvider
-/// Polls every 5 seconds and sends snapshots to the stats service
+/// Polls at the specified interval and sends snapshots to the stats service
 pub async fn start_stats_polling<T>(
     provider: Arc<Mutex<T>>,
     client: StatsClient<T::Snapshot>,
+    poll_interval: Duration,
 ) where
     T: StatsSnapshotProvider + Send + 'static,
     T::Snapshot: Send + 'static,
 {
-    let mut interval = tokio::time::interval(Duration::from_secs(5));
+    let mut interval = tokio::time::interval(poll_interval);
 
     loop {
         interval.tick().await;
