@@ -190,3 +190,196 @@ impl Config {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_server_config() {
+        let config = ServerConfig::default();
+        assert_eq!(config.listen_address, Some("127.0.0.1:3030".to_string()));
+    }
+
+    #[test]
+    fn test_default_stats_proxy_config() {
+        let config = StatsProxyConfig::default();
+        assert_eq!(config.url, Some("http://127.0.0.1:8084".to_string()));
+    }
+
+    #[test]
+    fn test_default_http_client_config() {
+        let config = HttpClientConfig::default();
+        assert_eq!(config.pool_idle_timeout_secs, Some(300));
+        assert_eq!(config.request_timeout_secs, Some(60));
+    }
+
+    #[test]
+    fn test_server_config_deserialization() {
+        let toml_str = r#"
+            listen_address = "0.0.0.0:3333"
+        "#;
+        let config: ServerConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.listen_address, Some("0.0.0.0:3333".to_string()));
+    }
+
+    #[test]
+    fn test_stats_proxy_config_deserialization() {
+        let toml_str = r#"
+            url = "http://custom-stats-proxy:8084"
+        "#;
+        let config: StatsProxyConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.url, Some("http://custom-stats-proxy:8084".to_string()));
+    }
+
+    #[test]
+    fn test_http_client_config_deserialization() {
+        let toml_str = r#"
+            pool_idle_timeout_secs = 350
+            request_timeout_secs = 70
+        "#;
+        let config: HttpClientConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.pool_idle_timeout_secs, Some(350));
+        assert_eq!(config.request_timeout_secs, Some(70));
+    }
+
+    #[test]
+    fn test_tproxy_config_deserialization() {
+        let toml_str = r#"
+            downstream_address = "192.168.1.1"
+            downstream_port = 4444
+            upstream_address = "10.0.0.1"
+            upstream_port = 5555
+        "#;
+        let config: TproxyConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.downstream_address, "192.168.1.1");
+        assert_eq!(config.downstream_port, 4444);
+        assert_eq!(config.upstream_address, "10.0.0.1");
+        assert_eq!(config.upstream_port, 5555);
+    }
+
+    #[test]
+    fn test_full_web_proxy_config_deserialization() {
+        let toml_str = r#"
+            [server]
+            listen_address = "127.0.0.1:4000"
+
+            [stats_proxy]
+            url = "http://stats.example.com:8084"
+
+            [http_client]
+            pool_idle_timeout_secs = 400
+            request_timeout_secs = 85
+        "#;
+        let config: WebProxyConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.server.listen_address, Some("127.0.0.1:4000".to_string()));
+        assert_eq!(config.stats_proxy.url, Some("http://stats.example.com:8084".to_string()));
+        assert_eq!(config.http_client.pool_idle_timeout_secs, Some(400));
+        assert_eq!(config.http_client.request_timeout_secs, Some(85));
+    }
+
+    #[test]
+    fn test_partial_web_proxy_config_uses_defaults() {
+        let toml_str = r#"
+            [server]
+            listen_address = "127.0.0.1:4000"
+        "#;
+        let config: WebProxyConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.server.listen_address, Some("127.0.0.1:4000".to_string()));
+        assert_eq!(config.stats_proxy.url, None);
+        assert_eq!(config.http_client.pool_idle_timeout_secs, None);
+    }
+
+    #[test]
+    fn test_empty_web_proxy_config_has_all_defaults() {
+        let config = WebProxyConfig {
+            server: ServerConfig::default(),
+            stats_proxy: StatsProxyConfig::default(),
+            http_client: HttpClientConfig::default(),
+        };
+        assert_eq!(config.server.listen_address, Some("127.0.0.1:3030".to_string()));
+        assert_eq!(config.stats_proxy.url, Some("http://127.0.0.1:8084".to_string()));
+        assert_eq!(config.http_client.pool_idle_timeout_secs, Some(300));
+        assert_eq!(config.http_client.request_timeout_secs, Some(60));
+    }
+
+    #[test]
+    fn test_config_with_faucet_disabled() {
+        let config = Config {
+            stats_proxy_url: "http://127.0.0.1:8084".to_string(),
+            web_server_address: "127.0.0.1:3030".to_string(),
+            downstream_address: "127.0.0.1".to_string(),
+            downstream_port: 22,
+            upstream_address: "pool.example.com".to_string(),
+            upstream_port: 3333,
+            faucet_enabled: false,
+            faucet_url: None,
+            stats_poll_interval_secs: 3,
+            client_poll_interval_secs: 3,
+        };
+
+        assert!(!config.faucet_enabled);
+        assert_eq!(config.faucet_url, None);
+    }
+
+    #[test]
+    fn test_config_with_faucet_enabled() {
+        let config = Config {
+            stats_proxy_url: "http://127.0.0.1:8084".to_string(),
+            web_server_address: "127.0.0.1:3030".to_string(),
+            downstream_address: "127.0.0.1".to_string(),
+            downstream_port: 22,
+            upstream_address: "pool.example.com".to_string(),
+            upstream_port: 3333,
+            faucet_enabled: true,
+            faucet_url: Some("http://faucet.example.com:8000".to_string()),
+            stats_poll_interval_secs: 3,
+            client_poll_interval_secs: 3,
+        };
+
+        assert!(config.faucet_enabled);
+        assert_eq!(config.faucet_url, Some("http://faucet.example.com:8000".to_string()));
+    }
+
+    #[test]
+    fn test_config_polling_intervals() {
+        let config = Config {
+            stats_proxy_url: "http://127.0.0.1:8084".to_string(),
+            web_server_address: "127.0.0.1:3030".to_string(),
+            downstream_address: "127.0.0.1".to_string(),
+            downstream_port: 22,
+            upstream_address: "pool.example.com".to_string(),
+            upstream_port: 3333,
+            faucet_enabled: false,
+            faucet_url: None,
+            stats_poll_interval_secs: 5,
+            client_poll_interval_secs: 10,
+        };
+
+        assert_eq!(config.stats_poll_interval_secs, 5);
+        assert_eq!(config.client_poll_interval_secs, 10);
+    }
+
+    #[test]
+    fn test_config_with_custom_addresses() {
+        let config = Config {
+            stats_proxy_url: "http://stats.example.com:8084".to_string(),
+            web_server_address: "0.0.0.0:3030".to_string(),
+            downstream_address: "192.168.1.100".to_string(),
+            downstream_port: 443,
+            upstream_address: "upstream.pool.io".to_string(),
+            upstream_port: 7777,
+            faucet_enabled: true,
+            faucet_url: Some("http://faucet.io:9000".to_string()),
+            stats_poll_interval_secs: 3,
+            client_poll_interval_secs: 3,
+        };
+
+        assert_eq!(config.stats_proxy_url, "http://stats.example.com:8084");
+        assert_eq!(config.web_server_address, "0.0.0.0:3030");
+        assert_eq!(config.downstream_address, "192.168.1.100");
+        assert_eq!(config.downstream_port, 443);
+        assert_eq!(config.upstream_address, "upstream.pool.io");
+        assert_eq!(config.upstream_port, 7777);
+    }
+}
