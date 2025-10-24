@@ -1,61 +1,93 @@
-# Minimal Fast Migration: Hashpool to SRI 1.5.0
+# SRI 1.5.0 Migration: Reapply Hashpool Changes
 
-**Objective:** Get hashpool running on SRI 1.5.0 in **days, not weeks**
-**Strategy:** Modify ONLY what's necessary; defer everything else to Phase 2
-**Philosophy:** Better to have working minimum on 1.5.0 than perfect code on old version
-
----
-
-## The Core Insight: Extension Messages Work!
-
-Hashpool already uses **extension messages** to send `MintQuoteNotification` without modifying the mining protocol. This means:
-
-- ✅ No changes to SRI mining protocol needed
-- ✅ No MintQuoteNotification added to mining_sv2
-- ✅ Ehash integration is entirely in **hashpool code**, not SRI code
-- ✅ We can handle extension messages in Pool and Translator without touching SRI internals
+**Objective:** Get hashpool running on SRI 1.5.0 with **clean commit history**
+**Strategy:** Start fresh from SRI 1.5.0, then manually reapply hashpool changes
+**Philosophy:** SRI 1.5.0 is the base; hashpool changes layer on top
 
 ---
 
-## Phase 0: Pre-Flight Check (1 hour)
+## Critical Context: Major SRI Changes from 1.2 → 1.5.0
 
-Before starting the rebase, verify SRI 1.5.0 supports what we need:
+Between the SRI 1.2.0 baseline (when hashpool forked) and 1.5.0:
+
+- **Translator completely rewritten** (PR #1791): New modular architecture with channel aggregation and failover
+- **Pool APIs changed**: Message dispatch, channel tracking, and routing logic
+- **Job dispatch logic refactored**: New JDC (Job Dispatch Controller) with static dispatch
+- **Error handling refactored**: Many new error types in roles_logic_sv2
+- **Vardiff**: Changed from dynamic to static dispatch
+
+**This means:** You cannot simply cherry-pick or rebase hashpool commits. You must **manually reapply hashpool logic on top of the new SRI 1.5.0 architecture**.
+
+---
+
+## Git Strategy: Fresh Base + Reapplication
+
+**Start point:** SRI v1.5.0 (clean state)
+**Work location:** hashpool repo, branch `migrate/sri-1.5.0`
+**Commits:** All commits stay in hashpool (you control them)
 
 ```bash
-# Switch to SRI 1.5.0 repo
-cd /home/evan/work/stratum
+cd /home/evan/work/hashpool
 
-# Check: Does translator handle extension messages?
-grep -r "extension_message" roles/translator --include="*.rs"
+# 1. Add SRI as a remote (one time)
+git remote add sri https://github.com/stratum-mining/stratum.git
 
-# Check: Does Pool expose message dispatch mechanism?
-grep -r "Message::.*message_type\|route.*message" roles/pool --include="*.rs"
+# 2. Fetch SRI v1.5.0
+git fetch sri v1.5.0
 
-# Check: Can we extend Mining protocol with custom message types?
-grep -r "impl.*From\|pub enum Message" protocols/v2/subprotocols/mining/src/ | head -10
+# 3. Create migration branch
+git checkout -b migrate/sri-1.5.0 sri/v1.5.0
+
+# 4. At this point you're on SRI 1.5.0 clean state
+# The commits that follow will be hashpool-only
 ```
 
-If SRI 1.5.0 doesn't have extension message infrastructure, we may need to add it (but only in hashpool's fork, as a thin wrapper).
+**Expected commit history after migration:**
 
----
-
-## Phase 1: Base Branch & Validation (30 min)
-
-```bash
-git checkout -b migrate/sri-1.5.0-minimal v1.5.0
-cargo build --workspace
-cargo test --lib --workspace
+```
+SRI v1.5.0 (base from upstream)
+    ↓
++1. Add hashpool-only protocols (ehash, mint-quote, stats-sv2)
++2. Add hashpool-only roles (mint, utilities)
++3. Reapply Pool integration: quote routing and channel tracking
++4. Reapply Translator integration: handle quotes and route to miners
++5. Add hashpool configuration system
++6. Integration tests and validation
 ```
 
-**Expected result:** Clean build, all tests pass.
+All commits numbered "+1" through "+6" are new (yours), reapplying hashpool logic.
 
 ---
 
-## Phase 2: Copy Hashpool-Only Crates (45 min)
-
-Copy ONLY the crates that are 100% new (no SRI equivalents):
+## Phase 0: Setup Branch (5 min)
 
 ```bash
+cd /home/evan/work/hashpool
+
+# Add SRI remote if not present
+git remote add sri https://github.com/stratum-mining/stratum.git 2>/dev/null || true
+
+# Fetch SRI v1.5.0
+git fetch sri v1.5.0
+
+# Create branch on top of SRI 1.5.0
+git checkout -b migrate/sri-1.5.0 sri/v1.5.0
+
+# Verify you're on clean SRI 1.5.0
+cargo build --workspace 2>&1 | head -20
+cargo test --lib --workspace 2>&1 | head -20
+```
+
+**Expected:** Clean build, all tests pass.
+
+---
+
+## Phase 1: Add Hashpool-Only Protocols & Roles (1-2 hours)
+
+These crates are **100% new** (no SRI equivalents), so copy them directly:
+
+```bash
+# Copy hashpool-only code from master
 git checkout master -- \
   protocols/ehash/ \
   protocols/v2/subprotocols/mint-quote/ \
@@ -67,289 +99,158 @@ git checkout master -- \
   roles/roles-utils/config/
 
 # Update Cargo.toml workspace members
-# Edit protocols/Cargo.toml and roles/Cargo.toml to add new members
+# Edit protocols/Cargo.toml to add new crate members
+# Edit roles/Cargo.toml to add new role and utility members
 
+# Build and validate
 cargo build --workspace
 cargo test --lib --workspace
 ```
 
-**Nothing controversial here.** These are entirely new and don't conflict with SRI code.
+**Commit:**
+```
+git add protocols/ roles/roles-utils/
+git commit -m "Add hashpool-only protocols and roles (ehash, mint, stats-sv2)"
+```
+
+**Expected:** Clean build, all new crate tests pass.
 
 ---
 
-## Phase 3: Minimal Pool Integration (2-3 hours)
+## Phase 2: Reapply Pool Integration (3-4 hours)
 
-**Goal:** Pool can send quotes to Mint and route responses to Translator.
-**Strategy:** Add code, don't modify existing SRI structures.
+**Goal:** Pool routes mint quotes to Translator, handles quote responses.
+**Strategy:** Read SRI 1.5.0 Pool code, understand new architecture, then reapply hashpool logic.
 
-### 3a. Add extension message handler to Pool
+### 2a. Study the new Pool Architecture
 
-Create `roles/pool/src/lib/mining_pool/extension_message_handler.rs`:
-
-```rust
-use mining_sv2::MintQuoteNotification;
-
-pub async fn handle_mint_quote_response(
-    pool: &mut Pool,
-    response: QuoteResponse,
-) -> Result<()> {
-    // 1. Build MintQuoteNotification from response
-    let notification = MintQuoteNotification {
-        channel_id: response.channel_id,
-        sequence_number: response.sequence_number,
-        share_hash: response.share_hash,
-        quote_id: response.quote_id,
-        amount: response.amount,
-    };
-
-    // 2. Find the downstream that owns this channel
-    if let Some(downstream_id) = pool.channel_to_downstream.get(&response.channel_id) {
-        // 3. Send extension message to downstream
-        pool.send_extension_message_to_downstream(
-            *downstream_id,
-            response.channel_id,
-            &notification,
-        ).await?;
-    }
-
-    Ok(())
-}
-```
-
-### 3b. Integrate into Pool message loop
-
-Edit `roles/pool/src/lib/mining_pool/mod.rs`:
-
-Add to Pool struct (4 new fields):
-```rust
-pub struct Pool {
-    // ... existing fields ...
-
-    // NEW: Ehash support
-    quote_dispatcher: QuoteDispatcher,
-    channel_to_downstream: HashMap<u32, u32>,
-    pending_quotes: HashMap<String, PendingQuote>,
-    mint_connection: Arc<MintConnection>,
-}
-```
-
-Add to Pool initialization:
-```rust
-impl Pool {
-    pub async fn new(...) -> Self {
-        // ... existing init ...
-
-        // NEW: Initialize ehash
-        let mint_connection = Arc::new(
-            MintConnection::new(config.mint_url).await?
-        );
-
-        Self {
-            // ... existing fields ...
-            quote_dispatcher: QuoteDispatcher::new(),
-            channel_to_downstream: HashMap::new(),
-            pending_quotes: HashMap::new(),
-            mint_connection,
-        }
-    }
-}
-```
-
-Add message handling in main loop:
-```rust
-// In Pool's message handling loop, add:
-Event::MintQuoteResponse(response) => {
-    extension_message_handler::handle_mint_quote_response(self, response).await?;
-}
-```
-
-**Lines added:** ~200
-**SRI code modified:** 0 (only inside Pool struct which is hashpool code)
-
-### 3c. Add channel tracking
-
-Edit `roles/pool/src/lib/mining_pool/message_handler.rs` to track channel→downstream mapping:
-
-```rust
-// When a downstream opens a channel:
-fn handle_open_mining_channel(...) {
-    // ... existing code ...
-
-    // NEW: Track channel ownership for quote routing
-    self.channel_to_downstream.insert(channel_id, downstream_id);
-}
-
-// When a channel closes:
-fn handle_close_channel(...) {
-    // ... existing code ...
-
-    // NEW: Clean up tracking
-    self.channel_to_downstream.remove(&channel_id);
-}
-```
-
-**Lines added:** ~20
-**SRI code modified:** 0
-
-**Validation:**
 ```bash
-cargo build -p pool_sv2
-cargo test -p pool_sv2 --lib
+# Understand SRI 1.5.0 Pool structure
+grep -n "pub struct Pool" roles/pool/src/lib.rs
+grep -n "pub async fn.*message\|fn.*handle" roles/pool/src/lib.rs | head -20
+
+# Understand message routing
+grep -n "enum Message\|impl.*Message" roles/pool/src/lib.rs | head -20
+
+# Understand channel tracking
+grep -n "channel\|downstream" roles/pool/src/lib.rs | head -30
 ```
 
----
+### 2b. Identify Integration Points
 
-## Phase 4: Minimal Translator Integration (2-3 hours)
+Compare with hashpool's current Pool code:
 
-**Goal:** Translator can receive extension messages from Pool and route quotes to Wallet.
-**Strategy:** Add handler module, don't touch core bridge logic yet.
-
-### 4a. Add extension message handler to Translator
-
-Create `roles/translator/src/lib/upstream_sv2/extension_handler.rs`:
-
-```rust
-use mining_sv2::MintQuoteNotification;
-
-pub async fn handle_extension_message(
-    translator: &mut Translator,
-    message_type: u8,
-    payload: &[u8],
-) -> Result<()> {
-    match message_type {
-        // Custom type for MintQuoteNotification
-        0xF0 => handle_mint_quote_notification(translator, payload).await,
-        _ => Err(format!("Unknown extension message type: {}", message_type)),
-    }
-}
-
-async fn handle_mint_quote_notification(
-    translator: &mut Translator,
-    payload: &[u8],
-) -> Result<()> {
-    // Parse the notification
-    let notification: MintQuoteNotification = binary_sv2::from_bytes(&mut &payload[..])?;
-
-    // Find which SV1 miner owns this channel
-    if let Some(sv1_connection) = translator.get_sv1_downstream(notification.channel_id) {
-        // Send quote to miner (via JSON-RPC or custom message)
-        let quote_msg = build_quote_message(&notification);
-        sv1_connection.send(quote_msg).await?;
-    }
-
-    // Track quote in wallet
-    if let Some(wallet) = &translator.wallet {
-        wallet.add_pending_quote(
-            notification.quote_id,
-            notification.amount,
-            notification.share_hash,
-        ).await?;
-    }
-
-    Ok(())
-}
-```
-
-### 4b. Integrate into Translator upstream message loop
-
-Edit `roles/translator/src/lib/upstream_sv2/upstream.rs`:
-
-```rust
-// In upstream message handling, add:
-Message::Unknown(type_id, payload) => {
-    // Route extension messages
-    if is_extension_message(*type_id) {
-        extension_handler::handle_extension_message(self, *type_id, payload).await?;
-    } else {
-        // Unknown message type - ignore or log
-        eprintln!("Ignoring unknown message type: {}", type_id);
-    }
-}
-
-fn is_extension_message(type_id: u8) -> bool {
-    type_id >= 0xF0  // Reserve 0xF0+ for extension messages
-}
-```
-
-### 4c. Add minimal wallet integration
-
-Edit `roles/translator/src/lib/mod.rs`:
-
-```rust
-pub struct Translator {
-    // ... existing fields ...
-
-    // NEW: Ehash wallet (optional)
-    wallet: Option<Arc<Wallet>>,
-}
-
-impl Translator {
-    pub async fn new(..., wallet_config: Option<WalletConfig>) -> Self {
-        let wallet = if let Some(cfg) = wallet_config {
-            Some(Arc::new(Wallet::new(cfg).await?))
-        } else {
-            None
-        };
-
-        Self {
-            // ... existing fields ...
-            wallet,
-        }
-    }
-}
-```
-
-**Lines added:** ~300
-**SRI code modified:** 0
-
-**Validation:**
 ```bash
-cargo build -p translator
-cargo test -p translator --lib
+# What does hashpool Pool currently do?
+git show master:roles/pool/src/lib/mining_pool/mod.rs | head -100
+```
+
+Key questions:
+- How does SRI 1.5.0 Pool handle downstream connections?
+- Where does message dispatching happen?
+- What's the new channel tracking mechanism?
+- How are messages routed to translators?
+
+### 2c. Manually Add Hashpool Integration
+
+Create new modules for hashpool-specific logic:
+
+```bash
+# Create hashpool integration modules
+touch roles/pool/src/lib/mining_pool/ehash_handler.rs
+touch roles/pool/src/lib/mining_pool/quote_dispatcher_integration.rs
+```
+
+Then edit `roles/pool/src/lib/mining_pool/mod.rs`:
+
+1. Add new fields to Pool struct (quote dispatcher, mint connection, channel tracking)
+2. Initialize them in Pool::new()
+3. Add message handlers for mint quote responses
+4. Add channel tracking when downstreams connect/disconnect
+
+**Critical:** Don't modify SRI Pool code—only add new modules and delegate to them.
+
+### 2d. Handle SRI 1.5.0 Breaking Changes
+
+Expected issues and solutions:
+
+| Issue | Solution |
+|-------|----------|
+| Pool struct API changed | Extend Pool with new fields, don't modify SRI struct fields |
+| Message dispatch is different | Create wrapper handler that fits new message dispatch |
+| Channel tracking different | Track channels in new hashpool module, not SRI code |
+| Translator message format changed | Adapt to new Translator message types |
+
+**Commit:**
+```
+git add roles/pool/
+git commit -m "Reapply Pool integration for SRI 1.5.0
+
+- Add quote dispatcher and mint connection management
+- Handle mint quote responses and route to translators
+- Track channel ownership for quote routing
+- Integrate with new SRI 1.5.0 message dispatch"
 ```
 
 ---
 
-## Phase 5: Minimal Configuration (1 hour)
+## Phase 3: Reapply Translator Integration (3-4 hours)
 
-Add config support for ehash (no SRI changes):
+**Goal:** Translator receives quote responses from Pool, routes to SV1 miners.
+**Strategy:** Similar to Phase 2—study new architecture, then reapply.
 
-Create `roles/roles-utils/config/src/lib.rs`:
+### 3a. Study the New Translator Architecture
 
-```rust
-pub struct EhashConfig {
-    pub enabled: bool,
-    pub mint_url: String,
-    pub difficulty_multiplier: f64,
-}
+```bash
+# Understand new translator structure
+grep -n "pub struct Translator\|pub struct.*Translator" roles/translator/src/lib.rs
+grep -n "fn.*message\|pub async fn" roles/translator/src/lib.rs | head -20
 
-pub struct Sv2MessagingConfig {
-    pub enabled: bool,
-    pub mint_listen_address: String,
-}
+# Understand new upstream/downstream handling
+grep -n "upstream\|downstream" roles/translator/src/lib.rs | head -30
 
-// Parse from TOML
+# Understand message flow
+grep -n "Message::" roles/translator/src/lib.rs | head -20
 ```
 
-Update `config/pool.config.toml`:
+### 3b. Identify Integration Points
 
-```toml
-[ehash]
-enabled = true
-mint_url = "http://127.0.0.1:3012"
-difficulty_multiplier = 2.0
+Key questions:
+- How does new Translator structure differ from SRI 1.2.0?
+- What's the new message handling pattern?
+- How are SV1 connections managed?
+- How does it connect to Pool?
 
-[sv2_messaging]
-enabled = true
-mint_listen_address = "127.0.0.1:34260"
+### 3c. Manually Add Hashpool Integration
+
+Similar to Pool:
+
+```bash
+touch roles/translator/src/lib/upstream_sv2/quote_handler.rs
+touch roles/translator/src/lib/wallet_integration.rs
 ```
 
-**Lines added:** ~150
-**SRI code modified:** 0
+Then edit core Translator code to:
+
+1. Add wallet field (for quote tracking)
+2. Add quote response handler
+3. Route quotes to miners
+4. Handle quote confirmations
+
+**Commit:**
+```
+git add roles/translator/
+git commit -m "Reapply Translator integration for SRI 1.5.0
+
+- Handle quote notifications from Pool
+- Route quotes to SV1 miners
+- Integrate wallet for quote tracking
+- Adapt to new SRI 1.5.0 message dispatch architecture"
+```
 
 ---
 
-## Phase 6: Minimal Tests & Smoke Test (2-3 hours)
+## Phase 4: Integration Tests & Validation (2-3 hours)
 
 ```bash
 # Build everything
@@ -394,102 +295,104 @@ These can all happen **after** we're on 1.5.0.
 
 | Phase | Duration | Output |
 |-------|----------|--------|
-| Phase 0 | 1 hr | Verify SRI 1.5.0 infrastructure |
-| Phase 1 | 30 min | Clean v1.5.0 baseline |
-| Phase 2 | 45 min | New hashpool crates added |
-| Phase 3 | 3 hrs | Pool integration done |
-| Phase 4 | 3 hrs | Translator integration done |
-| Phase 5 | 1 hr | Config in place |
-| Phase 6 | 2-3 hrs | Smoke test |
-| **TOTAL** | **~11 hours over 2-3 days** | **Hashpool on 1.5.0** |
+| Phase 0 | 5 min | Migration branch created |
+| Phase 1 | 1-2 hrs | Hashpool-only crates added |
+| Phase 2 | 3-4 hrs | Pool integration reapplied |
+| Phase 3 | 3-4 hrs | Translator integration reapplied |
+| Phase 4 | 2-3 hrs | Integration tests and validation |
+| **TOTAL** | **~12-17 hours over 2-3 days** | **Hashpool on 1.5.0** |
 
 ---
 
 ## Success Criteria
 
-Minimal viable product succeeds when:
+Migration succeeds when:
 
+✅ Branch `migrate/sri-1.5.0` is created from SRI v1.5.0
 ✅ `cargo build --workspace` succeeds
-✅ `cargo test --lib --workspace` passes
+✅ `cargo test --lib --workspace` passes all tests
+✅ All hashpool-only crates compile correctly
+✅ Pool compiles with new integration logic
+✅ Translator compiles with new integration logic
 ✅ devenv stack starts without fatal errors
 ✅ Miner can connect and submit shares
 ✅ Pool routes shares correctly
-✅ No hardcoded SRI code changes (only in hashpool modules)
+✅ Clean commit history: each commit does one logical thing
 
 **NOT required for Phase 1:**
 - ❌ Full quote→sweep flow working
 - ❌ Web dashboards responsive
 - ❌ Stats collection working
+- ❌ Stats snapshots
 - ❌ Advanced reliability features
 
 ---
 
-## Git Commits
+## Expected Commit History
 
-Keep it simple:
+After completing all phases, `git log sri/v1.5.0..migrate/sri-1.5.0` should show:
 
-```bash
-git add protocols/
-git commit -m "Add ehash, mint-quote, stats-sv2 protocols"
-
-git add roles/
-git commit -m "Add mint service and utility crates"
-
-git add roles/pool/
-git commit -m "Add minimal ehash support to Pool
-
-- Handle mint quote responses
-- Route quotes to downstream translators
-- Track channel ownership for routing"
-
-git add roles/translator/
-git commit -m "Add minimal ehash support to Translator
-
-- Handle extension messages from Pool
-- Route quotes to SV1 miners
-- Integrate wallet support"
-
-git add roles/roles-utils/config/ config/
-git commit -m "Add ehash configuration"
-
-git add .
-git commit -m "Add integration tests and validation"
 ```
++6 Integration tests and validation
++5 Reapply Translator integration for SRI 1.5.0
++4 Reapply Pool integration for SRI 1.5.0
++3 Add hashpool-only protocols and roles
+```
+
+Each commit is a complete, working state. No commits break the build.
 
 ---
 
-## Critical: Avoid SRI Code Modifications
+## Why Not Rebase? Lessons Learned
+
+The initial plan attempted to rebase hashpool commits on SRI v1.5.0. This failed because:
+
+1. **Breaking API changes**: SRI 1.2 → 1.5.0 has major architectural changes (Translator rewrite, Pool dispatch refactor)
+2. **Rebase conflicts multiply**: 3 years of divergent development creates cascading conflicts
+3. **Git history becomes unreadable**: Rebasing on top of SRI means mixing "what SRI did" with "what hashpool added"
+4. **Losing control**: If SRI is a remote upstream, you're constantly fighting upstream history
+
+**This approach solves all of these:**
+
+- ✅ Start from clean SRI v1.5.0 (no conflicts)
+- ✅ Manually reapply hashpool logic (you control each piece)
+- ✅ Clean commit history (each commit is yours, clear intent)
+- ✅ Full ownership (all commits in hashpool repo)
+- ✅ Easy to review (diff against SRI 1.5.0 baseline)
+
+---
+
+## Critical Principles
 
 **DO NOT:**
-- ❌ Modify `roles-logic-sv2` error handling (use wrapper Result type)
-- ❌ Modify `Pool` struct from SRI (only add hashpool-specific code)
-- ❌ Modify message handlers in SRI core (wrap in new module)
+- ❌ Try to rebase hashpool commits on top of SRI
+- ❌ Modify SRI's core code (Pool, Translator, roles_logic_sv2)
 - ❌ Change SRI test files
+- ❌ Cherry-pick SRI commits
 - ❌ Refactor SRI architecture
 
 **DO:**
-- ✅ Add new files/modules for hashpool-specific code
-- ✅ Extend SRI types with traits when needed
-- ✅ Use composition over modification
+- ✅ Add new modules for hashpool-specific code
+- ✅ Extend SRI types with new fields when needed
+- ✅ Use composition: wrap SRI components, don't modify them
 - ✅ Keep hashpool code clearly separated
+- ✅ Make clean, reviewable commits with clear intent
 
 ---
 
-## Next: Get on 1.5.0 THEN Improve
+## Phase 4 Success = Ready for Phase 2
 
-Once hashpool works on 1.5.0:
+When Phase 4 passes:
+- ✅ `cargo build --workspace` succeeds
+- ✅ `cargo test --lib --workspace` passes
+- ✅ devenv stack starts without fatal errors
+- ✅ Miner can connect and submit shares
+- ✅ Pool routes shares correctly
 
-1. Contribute improvements back to SRI
-2. Implement proper stats snapshots (with SRI hooks if possible)
-3. Build web dashboards
-4. Add comprehensive testing
-5. Optimize error handling
-6. Profile and optimize performance
-
-This way you're **contributing to SRI evolution** instead of patching hashpool in isolation.
+You're ready for **Phase 2: Enhance & Deploy** (see docs/SRI-1.5.0-migration/PHASE_2.md)
 
 ---
 
 **Created:** 2025-10-24
-**Focus:** Speed, Minimal Footprint, Pragmatism
-**Next:** Start Phase 0 verification
+**Strategy:** Manual reapplication on clean SRI 1.5.0 base
+**Next:** Phase 0 setup, then Phase 2

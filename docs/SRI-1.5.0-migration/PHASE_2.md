@@ -1,18 +1,24 @@
-# Phase 2: Migrate Existing Features to SRI 1.5.0
+# Phase 2: Port Features from Master to SRI 1.5.0
 
-**Objective:** Port all features from current hashpool master to the SRI 1.5.0 baseline
+**Objective:** Add back all features from hashpool master into the `migrate/sri-1.5.0` branch
 **Duration:** 1-2 weeks
-**Approach:** Copy working code from master, adapt to 1.5.0 architecture
-**Focus:** Functionality only - no refactoring, testing, docs, or benchmarking
+**Approach:** Copy code from master branch, adapt to 1.5.0 APIs
+**Focus:** Functionality only - no refactoring, comprehensive testing, or docs
 
 ---
 
-## Overview
+## Starting Point
 
-After Phase 1, you have a minimal working hashpool on SRI 1.5.0. Phase 2 adds back all the features you have today in master by systematically copying and adapting the code.
+You've completed Phase 1 with:
+- ✅ Branch `migrate/sri-1.5.0` created from SRI v1.5.0
+- ✅ Minimal hashpool integration (Pool + Translator + Mint) working
+- ✅ Miner can connect and submit shares
+- ✅ devenv stack running without fatal errors
 
-**What's In:** Everything that currently works
-**What's Out:** Tests, docs, example configs, benchmarking
+Phase 2 adds all the additional features from master by selectively copying code.
+
+**What You'll Add:** Stats, web dashboards, wallet, config system, remaining utilities
+**What You'll Skip:** Tests, docs, benchmarking (Phase 3 material)
 
 ---
 
@@ -582,19 +588,27 @@ Don't get stuck on any one thing. If a feature is problematic, comment it out an
 
 ---
 
-## Success Criteria
+## Phase 2 Complete: Feature Parity Achieved
 
-Hashpool is fully on SRI 1.5.0 with all current features when:
+When Phase 2 passes:
+- ✅ All roles compile and build
+- ✅ devenv stack starts without fatal errors
+- ✅ Pool connects to mint
+- ✅ Translator connects to pool
+- ✅ Miners can submit shares and get quotes
+- ✅ Web dashboards accessible and displaying data
+- ✅ Stats services running and exporting metrics
+- ✅ Wallet sweeping quotes to tokens
+- ✅ Full feature parity with master
 
-- [ ] All roles compile and build
-- [ ] devenv stack starts and runs
-- [ ] Pool connects to mint
-- [ ] Translator connects to pool
-- [ ] Miners can submit shares
-- [ ] Quotes are generated for high-difficulty shares
-- [ ] Web dashboards are accessible
-- [ ] Stats services export metrics
-- [ ] Wallet sweeps quotes to tokens
+You now have **hashpool fully running on SRI 1.5.0** with all current functionality.
 
-No comprehensive testing required. If it builds and basic flow works, you're good.
+---
+
+## Next Steps
+
+After Phase 2, consider Phase 3 (docs/SRI-1.5.0-migration/PHASE_3.md) for:
+- Enhanced testing and validation
+- Performance profiling
+- Production deployment readiness
 
