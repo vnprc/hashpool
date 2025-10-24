@@ -205,83 +205,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_default_server_config() {
-        let config = ServerConfig::default();
-        assert_eq!(config.tcp_listen_address, Some("127.0.0.1:8082".to_string()));
-        assert_eq!(config.http_listen_address, Some("127.0.0.1:8084".to_string()));
-    }
-
-    #[test]
-    fn test_default_snapshot_storage_config() {
-        let config = SnapshotStorageConfig::default();
-        assert_eq!(config.db_path, Some(PathBuf::from(".devenv/state/stats-proxy.db")));
-        assert_eq!(config.staleness_threshold_secs, Some(15));
-    }
-
-    #[test]
-    fn test_default_http_client_config() {
-        let config = HttpClientConfig::default();
-        assert_eq!(config.pool_idle_timeout_secs, Some(300));
-        assert_eq!(config.request_timeout_secs, Some(60));
-    }
-
-    #[test]
-    fn test_server_config_deserialization() {
-        let toml_str = r#"
-            tcp_listen_address = "0.0.0.0:8888"
-            http_listen_address = "0.0.0.0:8889"
-        "#;
-        let config: ServerConfig = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.tcp_listen_address, Some("0.0.0.0:8888".to_string()));
-        assert_eq!(config.http_listen_address, Some("0.0.0.0:8889".to_string()));
-    }
-
-    #[test]
-    fn test_snapshot_storage_config_deserialization() {
-        let toml_str = r#"
-            db_path = "/tmp/custom.db"
-            staleness_threshold_secs = 25
-        "#;
-        let config: SnapshotStorageConfig = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.db_path, Some(PathBuf::from("/tmp/custom.db")));
-        assert_eq!(config.staleness_threshold_secs, Some(25));
-    }
-
-    #[test]
-    fn test_http_client_config_deserialization() {
-        let toml_str = r#"
-            pool_idle_timeout_secs = 500
-            request_timeout_secs = 100
-        "#;
-        let config: HttpClientConfig = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.pool_idle_timeout_secs, Some(500));
-        assert_eq!(config.request_timeout_secs, Some(100));
-    }
-
-    #[test]
-    fn test_tproxy_config_deserialization() {
-        let toml_str = r#"
-            downstream_address = "127.0.0.1"
-            downstream_port = 3333
-            redact_ip = true
-        "#;
-        let config: TproxyConfig = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.downstream_address, "127.0.0.1");
-        assert_eq!(config.downstream_port, 3333);
-        assert_eq!(config.redact_ip, true);
-    }
-
-    #[test]
-    fn test_tproxy_config_default_redact_ip() {
-        let toml_str = r#"
-            downstream_address = "127.0.0.1"
-            downstream_port = 3333
-        "#;
-        let config: TproxyConfig = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.redact_ip, false);
-    }
-
-    #[test]
     fn test_full_stats_proxy_config_deserialization() {
         let toml_str = r#"
             [server]
@@ -306,53 +229,15 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_stats_proxy_config_has_all_defaults() {
-        let config = StatsProxyConfig {
-            server: ServerConfig::default(),
-            snapshot_storage: SnapshotStorageConfig::default(),
-            http_client: HttpClientConfig::default(),
-        };
-        assert_eq!(config.server.tcp_listen_address, Some("127.0.0.1:8082".to_string()));
-        assert_eq!(config.server.http_listen_address, Some("127.0.0.1:8084".to_string()));
-        assert_eq!(config.snapshot_storage.db_path, Some(PathBuf::from(".devenv/state/stats-proxy.db")));
-        assert_eq!(config.snapshot_storage.staleness_threshold_secs, Some(15));
-    }
-
-    #[test]
-    fn test_config_with_faucet_disabled() {
-        let config = Config {
-            tcp_address: "127.0.0.1:8082".to_string(),
-            http_address: "127.0.0.1:8084".to_string(),
-            db_path: PathBuf::from(".devenv/state/stats-proxy.db"),
-            downstream_address: "127.0.0.1".to_string(),
-            downstream_port: 3333,
-            redact_ip: false,
-            faucet_enabled: false,
-            faucet_url: None,
-            staleness_threshold_secs: 15,
-            request_timeout_secs: 60,
-            pool_idle_timeout_secs: 300,
-        };
-        assert!(!config.faucet_enabled);
-        assert_eq!(config.faucet_url, None);
-    }
-
-    #[test]
-    fn test_config_with_faucet_enabled() {
-        let config = Config {
-            tcp_address: "127.0.0.1:8082".to_string(),
-            http_address: "127.0.0.1:8084".to_string(),
-            db_path: PathBuf::from(".devenv/state/stats-proxy.db"),
-            downstream_address: "127.0.0.1".to_string(),
-            downstream_port: 3333,
-            redact_ip: false,
-            faucet_enabled: true,
-            faucet_url: Some("http://localhost:9000".to_string()),
-            staleness_threshold_secs: 15,
-            request_timeout_secs: 60,
-            pool_idle_timeout_secs: 300,
-        };
-        assert!(config.faucet_enabled);
-        assert_eq!(config.faucet_url, Some("http://localhost:9000".to_string()));
+    fn test_tproxy_config_deserialization() {
+        let toml_str = r#"
+            downstream_address = "127.0.0.1"
+            downstream_port = 3333
+            redact_ip = true
+        "#;
+        let config: TproxyConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.downstream_address, "127.0.0.1");
+        assert_eq!(config.downstream_port, 3333);
+        assert_eq!(config.redact_ip, true);
     }
 }

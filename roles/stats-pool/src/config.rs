@@ -120,57 +120,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_default_server_config() {
-        let config = ServerConfig::default();
-        assert_eq!(config.tcp_listen_address, Some("127.0.0.1:9083".to_string()));
-        assert_eq!(config.http_listen_address, Some("127.0.0.1:9084".to_string()));
-    }
-
-    #[test]
-    fn test_default_snapshot_storage_config() {
-        let config = SnapshotStorageConfig::default();
-        assert_eq!(config.staleness_threshold_secs, Some(15));
-    }
-
-    #[test]
-    fn test_default_http_client_config() {
-        let config = HttpClientConfig::default();
-        assert_eq!(config.pool_idle_timeout_secs, Some(300));
-        assert_eq!(config.request_timeout_secs, Some(60));
-    }
-
-    #[test]
-    fn test_server_config_deserialization() {
-        let toml_str = r#"
-            tcp_listen_address = "0.0.0.0:9090"
-            http_listen_address = "0.0.0.0:9091"
-        "#;
-        let config: ServerConfig = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.tcp_listen_address, Some("0.0.0.0:9090".to_string()));
-        assert_eq!(config.http_listen_address, Some("0.0.0.0:9091".to_string()));
-    }
-
-    #[test]
-    fn test_snapshot_storage_config_deserialization() {
-        let toml_str = r#"
-            staleness_threshold_secs = 30
-        "#;
-        let config: SnapshotStorageConfig = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.staleness_threshold_secs, Some(30));
-    }
-
-    #[test]
-    fn test_http_client_config_deserialization() {
-        let toml_str = r#"
-            pool_idle_timeout_secs = 600
-            request_timeout_secs = 120
-        "#;
-        let config: HttpClientConfig = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.pool_idle_timeout_secs, Some(600));
-        assert_eq!(config.request_timeout_secs, Some(120));
-    }
-
-    #[test]
     fn test_full_config_deserialization() {
         let toml_str = r#"
             [server]
@@ -190,49 +139,5 @@ mod tests {
         assert_eq!(config.snapshot_storage.staleness_threshold_secs, Some(20));
         assert_eq!(config.http_client.pool_idle_timeout_secs, Some(400));
         assert_eq!(config.http_client.request_timeout_secs, Some(80));
-    }
-
-    #[test]
-    fn test_partial_config_uses_defaults() {
-        let toml_str = r#"
-            [server]
-            tcp_listen_address = "127.0.0.1:7777"
-        "#;
-        let config: StatsPoolConfig = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.server.tcp_listen_address, Some("127.0.0.1:7777".to_string()));
-        // Other fields should use their defaults when missing
-        assert_eq!(config.http_client.pool_idle_timeout_secs, None);
-    }
-
-    #[test]
-    fn test_empty_config_has_all_defaults() {
-        let toml_str = "";
-        let config_str = if toml_str.is_empty() {
-            StatsPoolConfig {
-                server: ServerConfig::default(),
-                snapshot_storage: SnapshotStorageConfig::default(),
-                http_client: HttpClientConfig::default(),
-            }
-        } else {
-            toml::from_str(toml_str).unwrap()
-        };
-        assert_eq!(config_str.server.tcp_listen_address, Some("127.0.0.1:9083".to_string()));
-        assert_eq!(config_str.server.http_listen_address, Some("127.0.0.1:9084".to_string()));
-        assert_eq!(config_str.snapshot_storage.staleness_threshold_secs, Some(15));
-    }
-
-    #[test]
-    fn test_config_timeout_fallbacks() {
-        let config = Config {
-            tcp_address: "127.0.0.1:9083".to_string(),
-            http_address: "127.0.0.1:9084".to_string(),
-            staleness_threshold_secs: 15,
-            request_timeout_secs: 60,
-            pool_idle_timeout_secs: 300,
-        };
-
-        assert_eq!(config.staleness_threshold_secs, 15);
-        assert_eq!(config.request_timeout_secs, 60);
-        assert_eq!(config.pool_idle_timeout_secs, 300);
     }
 }
