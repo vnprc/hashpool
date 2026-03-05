@@ -38,7 +38,7 @@
   minerConfig = builtins.fromTOML (builtins.readFile ./config/shared/miner.toml);
 
   # supported values: "regtest", "testnet4"
-  bitcoinNetwork = "testnet4";
+  bitcoinNetwork = "regtest";
   # Set the default bitcoind RPC port, based on the network
   bitcoindRpcPort =
     if bitcoinNetwork == "regtest"
@@ -196,19 +196,17 @@ in {
       '' "bitcoind-${config.env.BITCOIND_NETWORK}.log";
     };
 
-    # miner = {
-    #   exec = withLogging ''
-    #     ${waitForPort minerConfig.proxy.port "Proxy"}
-    #     cd roles/test-utils/mining-device-sv1
-    #     while true; do
-    #       stdbuf -oL cargo run 2>&1 | tee -a ${config.devenv.root}/logs/miner.log
-    #       echo "Miner crashed. Restarting..." >> ${config.devenv.root}/logs/miner.log
-    #       sleep 5
-    #     done
-    #   '' "miner.log";
-    # };
-
-    # mint process removed - Phase 3 deferred until SRI spec provides PoolMessages and plain_connection_tokio APIs
+    miner = {
+      exec = withLogging ''
+        ${waitForPort minerConfig.proxy.port "Proxy"}
+        cd roles/test-utils/mining-device-sv1
+        while true; do
+          stdbuf -oL cargo run 2>&1 | tee -a ${config.devenv.root}/logs/miner.log
+          echo "Miner crashed. Restarting..." >> ${config.devenv.root}/logs/miner.log
+          sleep 5
+        done
+      '' "miner.log";
+    };
 
     stats_pool = {
       exec = withLogging ''

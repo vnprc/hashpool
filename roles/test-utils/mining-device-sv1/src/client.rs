@@ -6,7 +6,6 @@ use primitive_types::U256;
 use std::{
     convert::TryInto,
     net::SocketAddr,
-    ops::Div,
     sync::Arc,
     time::{self, Duration},
 };
@@ -208,12 +207,11 @@ impl Client {
                     warn!("Share channel is not available");
                     break;
                 }
-                // Introduce a delay of 0.2 seconds after sending a share
-                std::thread::sleep(Duration::from_millis(200));
             }
             miner_cloned
                 .safe_lock(|m| m.header.as_mut().map(|h| h.nonce += 1))
                 .unwrap();
+            std::thread::sleep(Duration::from_millis(200)); // ~5 H/s
         });
         // Task to receive relevant candidate block header values needed to construct a
         // `mining.submit` message. This message is contructed as a `client_to_server::Submit` and
@@ -365,8 +363,16 @@ impl IsClient<'static> for Client {
         &mut self,
         notify: server_to_client::Notify<'static>,
     ) -> Result<(), Error<'static>> {
-        let mut extranonce: Vec<u8> = self.extranonce1.clone().unwrap().into();
-        for _ in 0..self.extranonce2_size.unwrap() {
+        let extranonce1 = match self.extranonce1.clone() {
+            Some(e) => e,
+            None => return Ok(()), // notify arrived before subscribe response, ignore
+        };
+        let extranonce2_size = match self.extranonce2_size {
+            Some(s) => s,
+            None => return Ok(()),
+        };
+        let mut extranonce: Vec<u8> = extranonce1.into();
+        for _ in 0..extranonce2_size {
             extranonce.push(0)
         }
 
@@ -510,23 +516,20 @@ impl IsClient<'static> for Client {
 }
 
 fn target_from_difficulty(diff: f64) -> Option<U256> {
-    let pdiff = 26959946667150639794667015087019630673637144422540572481103610249215.0;
+    // Use 2^256 reference to match SV2 difficulty scale: target = (2^256 - 1) / difficulty
     if diff == 0.0 {
-        Some(U256::from_big_endian(&[0; 32]))
+        return Some(U256::from_big_endian(&[0xff; 32]));
+    }
+    let max_target = BigUint::from_bytes_be(&[0xff; 32]);
+    let diff_as_big = BigUint::from_f64(diff.max(1.0))?;
+    let target_big = max_target / diff_as_big;
+    let mut bytes = target_big.to_bytes_be();
+    if bytes.len() > 32 {
+        None
     } else {
-        let t = pdiff.div(diff);
-        let as_big_int: BigUint = match t > 0.0 {
-            true => BigUint::from_f64(t)?,
-            false => BigUint::from_f64(1.0 / t)?,
-        };
-        let mut bytes = as_big_int.to_bytes_be();
-        if bytes.len() > 32 {
-            None
-        } else {
-            let mut front_padding = vec![0; 32 - bytes.len()];
-            front_padding.append(&mut bytes);
-            let as_u256: [u8; 32] = front_padding.try_into().unwrap();
-            Some(U256::from_big_endian(as_u256.as_ref()))
-        }
+        let mut front_padding = vec![0u8; 32 - bytes.len()];
+        front_padding.append(&mut bytes);
+        let as_u256: [u8; 32] = front_padding.try_into().unwrap();
+        Some(U256::from_big_endian(as_u256.as_ref()))
     }
 }

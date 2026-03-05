@@ -53,7 +53,7 @@ authority_pubkey = "9auqWEzQDVyd2oe1JVGFLMLHZtCo2FFqZwtKA5gd9xbuEu7PH72"
 # Difficulty params
 [downstream_difficulty_config]
 # minimum hashrate expected from an individual miner on the downstream connection (in Hz)
-min_individual_miner_hashrate = 1000.0
+min_individual_miner_hashrate = 5.0
 # target number of shares per minute the miner should be sending
 shares_per_minute = 6.0
 # enable variable difficulty adjustment mechanism
@@ -64,7 +64,7 @@ enable_vardiff = true
 # interval in seconds to elapse before updating channel hashrate with the pool
 channel_diff_update_interval = 60
 # estimated accumulated hashrate of all downstream miners (e.g.: 10 Th/s = 10_000_000_000_000.0)
-channel_nominal_hashrate = 10_000_000.0
+channel_nominal_hashrate = 5.0
 
 [mint]
 url = "http://localhost:3338"

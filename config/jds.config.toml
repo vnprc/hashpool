@@ -18,7 +18,7 @@ listen_tp_address = "127.0.0.1:8442"
 stats_server_address = "127.0.0.1:9083"
 # RPC config for mempool (it can be also the same TP if correctly configured)
 core_rpc_url =  "http://127.0.0.1"
-core_rpc_port = 48332
+core_rpc_port = 18443
 core_rpc_user =  "username"
 core_rpc_pass =  "password"
 # Time interval used for JDS mempool update 
