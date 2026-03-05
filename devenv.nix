@@ -129,6 +129,7 @@ in {
       pkgs.openssl
       pkgs.pkg-config
       pkgs.sqlite # Add SQLite3 for database operations
+      pkgs.protobuf # Required by cdk-signatory (gRPC/protobuf support)
     ]
     ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [pkgs.darwin.apple_sdk.frameworks.Security];
 

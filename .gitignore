@@ -17,7 +17,6 @@ lcov.info
 **/conf/**
 cobertura.xml
 /roles/*/*-config.toml
-/roles/Cargo.lock
 /utils/message-generator/Cargo.lock
 /examples/*/Cargo.lock
 /scripts/sv2.h
