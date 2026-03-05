@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Stats data storage initialized");
 
     // Initialize metrics storage with SQLite backend
-    if let Err(e) = db.init_metrics_storage(None).await {
+    if let Err(e) = db.init_metrics_storage(config.db_path.to_str()).await {
         error!("Failed to initialize metrics storage: {}", e);
     } else {
         info!("Metrics storage initialized");
