@@ -1,8 +1,18 @@
-use alloc::{fmt, vec::Vec};
-use binary_sv2::{binary_codec_sv2, Deserialize, Serialize, Str0255};
+use std::fmt;
+use super::*;
 
-/// Notification sent to downstream when a quote becomes payable
-/// Extension message (0xC0) for the Mining protocol
+/// Message type byte for MintQuoteNotification (extension range 0xC0+)
+pub const MESSAGE_TYPE_MINT_QUOTE_NOTIFICATION: u8 = 0xC0;
+/// Message type byte for MintQuoteFailure (extension range 0xC0+)
+pub const MESSAGE_TYPE_MINT_QUOTE_FAILURE: u8 = 0xC1;
+
+/// Channel bit for MintQuoteNotification — channel-specific message
+pub const CHANNEL_BIT_MINT_QUOTE_NOTIFICATION: bool = true;
+/// Channel bit for MintQuoteFailure — channel-specific message
+pub const CHANNEL_BIT_MINT_QUOTE_FAILURE: bool = true;
+
+/// Notification sent to downstream when a quote becomes payable.
+/// Extension message (0xC0) for the Mining protocol.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MintQuoteNotification<'decoder> {
     /// Channel identifier - required as first field per SV2 spec section 3.2.1
@@ -22,8 +32,8 @@ impl fmt::Display for MintQuoteNotification<'_> {
     }
 }
 
-/// Failure notification if quote cannot be processed
-/// Extension message (0xC1) for the Mining protocol
+/// Failure notification if a quote cannot be processed.
+/// Extension message (0xC1) for the Mining protocol.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MintQuoteFailure<'decoder> {
     /// Channel identifier - required as first field per SV2 spec section 3.2.1

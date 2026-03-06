@@ -13,7 +13,13 @@ pub type CompressedPubKey<'a> = B0255<'a>;
 mod mint_quote_error;
 mod mint_quote_request;
 mod mint_quote_response;
+mod notification;
 
 pub use mint_quote_error::MintQuoteError;
 pub use mint_quote_request::MintQuoteRequest;
 pub use mint_quote_response::MintQuoteResponse;
+pub use notification::{
+    MintQuoteFailure, MintQuoteNotification, CHANNEL_BIT_MINT_QUOTE_FAILURE,
+    CHANNEL_BIT_MINT_QUOTE_NOTIFICATION, MESSAGE_TYPE_MINT_QUOTE_FAILURE,
+    MESSAGE_TYPE_MINT_QUOTE_NOTIFICATION,
+};

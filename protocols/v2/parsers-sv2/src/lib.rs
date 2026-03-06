@@ -40,6 +40,11 @@ pub use error::ParserError;
 use framing_sv2::framing::Sv2Frame;
 use job_declaration_sv2::*;
 use mining_sv2::*;
+use mint_quote_sv2::{
+    MintQuoteFailure, MintQuoteNotification, CHANNEL_BIT_MINT_QUOTE_FAILURE,
+    CHANNEL_BIT_MINT_QUOTE_NOTIFICATION, MESSAGE_TYPE_MINT_QUOTE_FAILURE,
+    MESSAGE_TYPE_MINT_QUOTE_NOTIFICATION,
+};
 use template_distribution_sv2::*;
 
 use common_messages_sv2::{
@@ -52,10 +57,10 @@ use job_declaration_sv2::{
     PushSolution,
 };
 use mining_sv2::{
-    CloseChannel, MintQuoteFailure, MintQuoteNotification, NewExtendedMiningJob, NewMiningJob,
-    OpenExtendedMiningChannel, OpenExtendedMiningChannelSuccess, OpenMiningChannelError,
-    OpenStandardMiningChannel, OpenStandardMiningChannelSuccess, SetCustomMiningJob,
-    SetCustomMiningJobError, SetCustomMiningJobSuccess, SetExtranoncePrefix, SetGroupChannel,
+    CloseChannel, NewExtendedMiningJob, NewMiningJob, OpenExtendedMiningChannel,
+    OpenExtendedMiningChannelSuccess, OpenMiningChannelError, OpenStandardMiningChannel,
+    OpenStandardMiningChannelSuccess, SetCustomMiningJob, SetCustomMiningJobError,
+    SetCustomMiningJobSuccess, SetExtranoncePrefix, SetGroupChannel,
     SetNewPrevHash as MiningSetNewPrevHash, SetTarget, SubmitSharesError, SubmitSharesExtended,
     SubmitSharesStandard, SubmitSharesSuccess, UpdateChannel, UpdateChannelError,
 };

@@ -13,9 +13,9 @@ use super::Downstream;
 use mint_pool_messaging::MintPoolMessageHub;
 use reqwest::{self, StatusCode, Url};
 use std::{collections::HashMap, sync::Arc, time::Instant};
+use mint_quote_sv2::MintQuoteNotification;
 use stratum_common::roles_logic_sv2::{
-    codec_sv2::binary_sv2::Str0255, handlers::mining::SendTo, mining_sv2::MintQuoteNotification,
-    parsers_sv2::Mining,
+    codec_sv2::binary_sv2::Str0255, handlers::mining::SendTo, parsers_sv2::Mining,
 };
 use tokio::time::{interval, sleep, Duration};
 use tracing::{debug, error, info, warn};
