@@ -1,4 +1,4 @@
- Hashpool SRI 1.7.0 Upgrade Plan (v2.2)
+ Hashpool SRI 1.7.0 Upgrade Plan (v2.3)
 
  Context
 
@@ -13,6 +13,32 @@
   ~1,500 LOC of custom hashpool code.
 
  Execution approach: Fork to a feature branch before Phase 2. Validate at each step before proceeding. The Sjors fork remains as the TP throughout Phase 2.
+
+ ---
+ SRI Version History
+
+ | Crate                 | SRI 1.5.0 | SRI 1.6.0 (Nov 2024)  | SRI 1.7.0 (Jan 2025)  |
+ |-----------------------|-----------|-----------------------|-----------------------|
+ | binary_sv2            | 4.0.0     | **5.0.0** (major)     | 5.0.1 (patch)         |
+ | framing_sv2           | 5.0.1     | **6.0.0** (major)     | 6.0.1 (patch)         |
+ | codec_sv2             | 3.0.1     | **4.0.0** (major)     | 4.0.1 (patch)         |
+ | channels_sv2          | 1.0.2     | **2.0.0** (major)     | **3.0.0** (major)     |
+ | mining_sv2            | 5.0.1     | **6.0.0** (major)     | **7.0.0** (major)     |
+ | parsers_sv2           | 0.1.1     | 0.2.0                 | 0.2.1 (patch)         |
+ | handlers_sv2          | 0.1.0     | 0.2.0                 | 0.2.1 (patch)         |
+ | roles_logic_sv2       | 4.0.0     | **DEPRECATED**        | removed from repo     |
+
+ Why 1.7.0 directly (not a 1.6 intermediate):
+ - Most breaking changes are concentrated in 1.5→1.6 (binary, framing, codec, channels 1→2, mining 5→6). A 1.6
+   stop would not reduce the total API surface changed — the same compile errors need fixing either way.
+ - channels_sv2 has two distinct major bumps (1→2 at 1.6, 2→3 at 1.7). They are isolated in Tier D (Step 2.6)
+   so they are debugged separately without needing a 1.6 version stop.
+ - roles_logic_sv2 was deprecated at 1.6.0. Stopping there means dealing with deprecation noise that 1.7.0
+   has already resolved.
+ - 1.6→1.7 is mostly patches. The only non-patch changes (channels_sv2 3.0.0, mining_sv2 7.0.0 wtxid rename)
+   are already explicitly addressed in Steps 2.5–2.7.
+ - A 1.6 intermediate would require editing every Cargo.toml twice (once to 1.6 versions, once to 1.7).
+   The tier-based checkpoints in Steps 2.2–2.7 provide fine-grained isolation without that overhead.
 
  ---
  Phase 0: Audit (Day 1, prerequisite)
@@ -121,57 +147,70 @@
  Decision point: The cleanest approach is to move these types into mint_quote_sv2 (which already handles mint-related message types). They are logically
  related. Rename the crate to hashpool_sv2 or keep as mint_quote_sv2.
 
- Step 2.2 — Switch leaf crates to crates.io (no app code impact)
+ Step 2.2 — Tier A: Leaf crates (binary/const/noise/buffer — no app code impact)
 
- Update protocols/Cargo.toml to use crates.io versions instead of path deps:
+ Update protocols/Cargo.toml to switch the bottom-most dependency tier to crates.io:
  binary_sv2 = "5.0.0"         # was path = "v2/binary-sv2"
  const_sv2 = "latest"
- framing_sv2 = "6.0.0"        # was path = "v2/framing-sv2"
  noise_sv2 = "latest"
- buffer_sv2 = "3.0.0"         # was path = "v2/buffer-sv2"
- Validate: cargo build -p binary_sv2 -p framing_sv2 -p noise_sv2 (in protocols workspace)
+ buffer_sv2 = "latest"        # was path = "v2/buffer-sv2"
+ Checkpoint: cargo build -p binary_sv2 -p noise_sv2 (in protocols workspace)
 
- Step 2.3 — Switch subprotocol crates to crates.io
+ Step 2.3 — Tier B: Framing/codec layer
+
+ framing_sv2 = "6.0.0"        # was path = "v2/framing-sv2"
+ codec_sv2 = "4.0.0"
+ Checkpoint: cargo build -p framing_sv2 -p codec_sv2
+
+ Step 2.4 — Tier C: Subprotocol crates (requires Step 2.1 complete)
 
  common_messages_sv2 = "latest"
  template_distribution_sv2 = "latest"
  job_declaration_sv2 = "latest"       # includes wtxid_list rename
  mining_sv2 = "7.0.0"                 # now clean (Step 2.1 completed)
- channels_sv2 = "3.0.0"
- Validate: cargo build -p mining_sv2 -p template_distribution_sv2
+ Checkpoint: cargo build -p mining_sv2 -p template_distribution_sv2
 
- Step 2.4 — Fix job_declaration_sv2 rename
+ Step 2.5 — Fix job_declaration_sv2 rename (immediately after Tier C)
 
  Mechanical rename of tx_ids_list → wtxid_list in 3 files:
  - roles/jd-server/src/lib/job_declarator/message_handler.rs (lines 87, 237, 238)
  - roles/jd-client/src/lib/channel_manager/template_message_handler.rs (line 338)
 
- Step 2.5 — Update roles_logic_sv2 to crates.io
+ Step 2.6 — Tier D: channels_sv2 (isolated — highest-risk step)
 
- roles_logic_sv2 = "latest"
- This is the facade crate — it re-exports from the component crates above.
+ channels_sv2 = "3.0.0"
+ Isolated to its own step because channels_sv2 has two distinct major bumps (1→2 at SRI 1.6, 2→3 at SRI 1.7)
+ and the 3.0.0 API changes directly affect application code in pool/mod.rs and translator/.
+ Checkpoint: cargo build -p channels_sv2
 
- Step 2.6 — Update parsers_sv2 and handlers_sv2 to use crates.io deps
+ Step 2.7 — Fix channels_sv2 API changes (JobStore owned-return)
 
- These stay as LOCAL crates (in protocols/v2/) but their Cargo.toml internal deps switch from path deps to crates.io deps. They still live in the protocols
- workspace as hashpool-custom code.
-
- Step 2.7 — Update roles/ workspace Cargo.toml files
-
- For each role (pool, translator, jd-client, jd-server, mint):
- - Remove all path = "../../protocols/v2/..." dependencies for upstream SRI crates
- - Add crates.io version imports (same as Step 2.2–2.5)
- - Keep path deps only for: mint_quote_sv2, stats_sv2, ehash, parsers_sv2, handlers_sv2
-
- Step 2.8 — Fix channels_sv2 API changes (JobStore owned-return)
-
- channels_sv2 1.0.2 → 3.0.0 changes JobStore trait methods to return owned types instead of references. Primary impact on:
+ channels_sv2 1.0.2 → 3.0.0 changes JobStore trait methods to return owned types instead of references.
+ This step immediately follows Tier D (Step 2.6) because the two changes are tightly coupled.
+ Primary impact on:
  - roles/pool/src/lib/mining_pool/mod.rs — main consumer of server-side channels_sv2 APIs
  - roles/translator/ — uses ExtendedChannel
 
  Fix pattern: Replace &T with T at callsites, clone where necessary.
 
- Step 2.9 — Fix compilation errors top-down
+ Step 2.8 — Update roles_logic_sv2 to crates.io
+
+ roles_logic_sv2 = "latest"
+ This is the facade crate — it re-exports from the component crates above.
+
+ Step 2.9 — Update parsers_sv2 and handlers_sv2 to use crates.io deps
+
+ These stay as LOCAL crates (in protocols/v2/) but their Cargo.toml internal deps switch from path deps to
+ crates.io deps. They still live in the protocols workspace as hashpool-custom code.
+
+ Step 2.10 — Update roles/ workspace Cargo.toml files
+
+ For each role (pool, translator, jd-client, jd-server, mint):
+ - Remove all path = "../../protocols/v2/..." dependencies for upstream SRI crates
+ - Add crates.io version imports (same as Steps 2.2–2.8)
+ - Keep path deps only for: mint_quote_sv2, stats_sv2, ehash, parsers_sv2, handlers_sv2
+
+ Step 2.11 — Fix compilation errors top-down
 
  Compile in dependency order and fix errors:
  1. protocols/ workspace (all protocol crates)
@@ -185,12 +224,12 @@
 
  Validate: cd roles && cargo build --workspace
 
- Step 2.10 — Replace Sjors fork with Core 30 + sv2_bridge
+ Step 2.12 — Replace Sjors fork with Core 30 + sv2_bridge
 
  Update config/pool.config.toml and config/jds.config.toml to use tp_address = "127.0.0.1:8443" (thin TP). Update devenv.nix pool/jd-server startup to
  depend on tp instead of the old bitcoind. Remove (or disable) the Sjors bitcoind process.
 
- Step 2.11 — Full integration test
+ Step 2.13 — Full integration test
 
  Run devenv up with all processes. Verify:
  - bitcoind30 starts and syncs regtest chain
@@ -235,17 +274,17 @@
  ├─────────────────────────────────────────────────────────────────────┼──────────┼─────────────────────────────────────────────┤
  │ protocols/v2/subprotocols/mining/src/lib.rs                         │ 2.1      │ Remove custom exports                       │
  ├─────────────────────────────────────────────────────────────────────┼──────────┼─────────────────────────────────────────────┤
- │ protocols/v2/parsers-sv2/                                           │ 2.1, 2.6 │ Update import source for custom messages    │
+ │ protocols/v2/parsers-sv2/                                           │ 2.1, 2.9 │ Update import source for custom messages    │
  ├─────────────────────────────────────────────────────────────────────┼──────────┼─────────────────────────────────────────────┤
- │ roles/*/Cargo.toml                                                  │ 2.7      │ Switch to crates.io deps                    │
+ │ roles/*/Cargo.toml                                                  │ 2.10     │ Switch to crates.io deps                    │
  ├─────────────────────────────────────────────────────────────────────┼──────────┼─────────────────────────────────────────────┤
- │ roles/jd-server/src/lib/job_declarator/message_handler.rs           │ 2.4      │ tx_ids_list → wtxid_list                    │
+ │ roles/jd-server/src/lib/job_declarator/message_handler.rs           │ 2.5      │ tx_ids_list → wtxid_list                    │
  ├─────────────────────────────────────────────────────────────────────┼──────────┼─────────────────────────────────────────────┤
- │ roles/jd-client/src/lib/channel_manager/template_message_handler.rs │ 2.4      │ tx_ids_list → wtxid_list                    │
+ │ roles/jd-client/src/lib/channel_manager/template_message_handler.rs │ 2.5      │ tx_ids_list → wtxid_list                    │
  ├─────────────────────────────────────────────────────────────────────┼──────────┼─────────────────────────────────────────────┤
- │ roles/pool/src/lib/mining_pool/mod.rs                               │ 2.8      │ channels_sv2 owned-return fixes             │
+ │ roles/pool/src/lib/mining_pool/mod.rs                               │ 2.7      │ channels_sv2 owned-return fixes             │
  ├─────────────────────────────────────────────────────────────────────┼──────────┼─────────────────────────────────────────────┤
- │ config/pool.config.toml                                             │ 2.10     │ No tp_address change (TP stays at 8442)     │
+ │ config/pool.config.toml                                             │ 2.12     │ No tp_address change (TP stays at 8442)     │
  └─────────────────────────────────────────────────────────────────────┴──────────┴─────────────────────────────────────────────┘
 
  ---
@@ -268,6 +307,6 @@
 
  1. Phase 0 complete: Can build workspace cleanly; have confirmed which crates are unmodified; have bitcoin-core-sv2 config documented [DONE]
  2. Phase 2.1: mining_sv2 compiles clean without custom message types; types importable from new location in mint_quote_sv2 or dedicated crate
- 3. Phase 2.9: Full cargo build --workspace succeeds from roles/
- 4. Phase 2.11: devenv up runs full stack with Sjors TP + migrated crates; miner submits shares; ehash minting produces ecash tokens
+ 3. Phase 2.11: Full cargo build --workspace succeeds from roles/
+ 4. Phase 2.13: devenv up runs full stack with Sjors TP + migrated crates; miner submits shares; ehash minting produces ecash tokens
  5. Phase 1 (deferred): bitcoin-node (multiprocess build) + sv2-tp v1.0.6 replace the Sjors fork; verified in regtest
