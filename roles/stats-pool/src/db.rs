@@ -240,6 +240,7 @@ mod tests {
                 quotes_created: 2,
                 ehash_mined: 50,
                 last_share_at: Some(unix_timestamp()),
+                work_selection: false,
             }],
             listen_address: "0.0.0.0:34254".to_string(),
             timestamp: unix_timestamp(),

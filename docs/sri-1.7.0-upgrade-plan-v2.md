@@ -1,4 +1,4 @@
- Hashpool SRI 1.7.0 Upgrade Plan (Refined)              
+ Hashpool SRI 1.7.0 Upgrade Plan (v2.1)
 
  Context
 
@@ -39,21 +39,37 @@
  cd roles && cargo test --lib --workspace 2>&1 | tee /tmp/baseline-test.log
  Document any pre-existing warnings/failures to distinguish from regressions.
 
- Step 0.4 — Research Bitcoin Core 30 + bitcoin-core-sv2
+ Step 0.4 — Research Bitcoin Core 30 + bitcoin-core-sv2 (COMPLETED)
 
- - Identify the official Bitcoin Core 30.x download URL and platform hashes for Nix derivation
- - Read the bitcoin-core-sv2 README from sv2-apps to understand: config file format, IPC socket configuration, TDP port configuration, and build requirements
- - Identify what bitcoin.conf flags Bitcoin Core 30 needs to enable IPC mining interface (likely ipcbind=unix:/path/to/socket or similar)
+ Findings (Phase 0 audit, 2026-03-06):
+ - bitcoin-core-sv2 is a LIBRARY crate (no binary targets), not a standalone bridge process.
+   The sv2-apps pool embeds it directly and has pool-config-bitcoin-core-ipc-example.toml for
+   direct IPC mode. There is no standalone TDP bridge binary in the SRI 1.7.0 ecosystem.
+ - Bitcoin Core 28/30 IPC is enabled with: -ipcbind=unix:<socket_path>
+   Socket path for regtest: <datadir>/regtest/node.sock (conventional)
+ - capnproto is required at build time for the bitcoin-core-sv2 library (add pkgs.capnproto to devenv)
+ - The sv2-apps pool's direct IPC mode requires SRI 1.7.0 crates, which the current hashpool
+   pool role does not have (SRI 1.5.0). Direct IPC in the pool is a Phase 2 item.
+ - Phase 1 solution: write a thin standalone TP binary in a new tp/ mini-workspace that uses
+   bitcoin-core-sv2 as a library dep and serves standard SV2 TDP over TCP on port 8443.
+   This keeps Phase 1 non-invasive to existing roles and enables end-to-end validation before
+   the Phase 2 crate migration.
 
  Critical files for this phase:
  - protocols/v2/subprotocols/mining/src/mint_quote_notification.rs — custom messages to preserve
  - protocols/v2/subprotocols/mining/src/lib.rs — injection point in mining_sv2
 
  ---
- Phase 1: Bitcoin Core 30 Devenv Process (Days 2–5, iterative)
+ Phase 1: Bitcoin Core 30 + Thin TP Binary (Days 2–7, iterative)
 
- Goal: Add official Bitcoin Core 30 + bitcoin-core-sv2 bridge as new devenv processes. Validate that the bridge generates templates. Do NOT remove the Sjors
- fork yet — keep existing processes intact.
+ Goal: Add official Bitcoin Core 30 (IPC mode) + a thin standalone TP binary as new devenv
+ processes. Validate that the thin TP generates templates from Core 30 and that the existing
+ pool can connect to it. Do NOT remove the Sjors fork yet — keep existing processes intact.
+
+ The thin TP binary lives in tp/ at the project root with its own Cargo.toml and Cargo.lock.
+ It is NOT a member of the roles/ workspace (avoids SRI 1.5.0 vs 1.7.0 dep conflicts).
+ It uses bitcoin-core-sv2 (library) from sv2-apps for IPC, and SRI 1.7.0 TDP crates for
+ serving the standard wire protocol on TCP port 8443.
 
  Step 1.1 — Create bitcoind30.nix
 
@@ -69,11 +85,17 @@
 
  New config file for the Core 30 bitcoind. Differences from config/bitcoin.conf:
  - Remove sv2=1, sv2port=, debug=sv2 (Core 30 does not support these Sjors-fork flags)
- - Add IPC mining interface configuration (flags TBD from Step 0.4 research)
- - Use a different RPC port (e.g., rpcport=18553 for regtest) to avoid conflict with existing bitcoind on 18443
- - Separate data directory (e.g., .devenv/state/bitcoind30/)
+ - Add IPC mining interface: -ipcbind=unix (creates <datadir>/<network>/node.sock)
+ - Use a different RPC port (e.g., rpcport=18553 for regtest) to avoid conflict with existing
+   bitcoind on 18443
+ - Separate data directory (.devenv/state/bitcoind30/)
 
- Step 1.3 — Add bitcoind30 process to devenv.nix
+ Step 1.3 — Add pkgs.capnproto to devenv.nix
+
+ bitcoin-core-sv2 requires capnproto at build time (Cap'n Proto RPC library).
+ Add pkgs.capnproto to the packages list in devenv.nix.
+
+ Step 1.4 — Add bitcoind30 process to devenv.nix
 
  New process entry in devenv.nix alongside existing bitcoind process:
  bitcoind30 = {
@@ -87,68 +109,82 @@
  };
  Add bitcoind30DataDir variable. Add bitcoind30 (from bitcoind30.nix) to the packages list.
 
- Step 1.4 — Validate bitcoind30 starts
+ Step 1.5 — Validate bitcoind30 starts
 
  Run: devenv up bitcoind30 (or equivalent single-process start command)
  Check logs/bitcoind30-regtest.log for:
  - Successful chain initialization
- - IPC socket creation (the specific log line from Step 0.4 research)
+ - IPC socket creation at .devenv/state/bitcoind30/regtest/node.sock
  - No errors about unknown options
 
  Fix and iterate until this works.
 
- Step 1.5 — Build bitcoin-core-sv2 binary
+ Step 1.6 — Create tp/ mini-workspace
 
- Add a new devenv task (similar to build:cdk:cli):
- tasks."build:bitcoin-core-sv2" = {
-   exec = ''
-     SV2_BUILD_DIR=$(mktemp -d)
-     cd "$SV2_BUILD_DIR"
-     git clone https://github.com/stratum-mining/sv2-apps.git .
-     git checkout <pin-commit>
-     cargo build --release --bin bitcoin-core-sv2
-     mkdir -p ${config.devenv.root}/bin
-     cp target/release/bitcoin-core-sv2 ${config.devenv.root}/bin/bitcoin-core-sv2
-     rm -rf "$SV2_BUILD_DIR"
-   '';
-   before = ["devenv:processes:sv2_bridge"];
- };
- Pin to a specific sv2-apps commit (identify latest stable at time of execution).
+ New directory tp/ at the project root with its own Cargo.toml (NOT in roles/ workspace).
+ This isolation prevents SRI 1.7.0 deps from conflicting with roles/ SRI 1.5.0 deps.
 
- Step 1.6 — Create config/sv2-bridge.config.toml
+ tp/Cargo.toml deps:
+ - bitcoin-core-sv2 = { git = "https://github.com/stratum-mining/sv2-apps", rev = "<pin>" }
+ - template_distribution_sv2 = "4.0.0"  # SRI 1.7.0 TDP messages
+ - codec_sv2 = { version = "...", features = ["with_buffer_pool"] }
+ - network_helpers_sv2 = "..."           # TCP server utilities
+ - tokio = { version = "1", features = ["full"] }
+ - serde = { version = "1", features = ["derive"] }
+ - toml = "0.8"
+ - tracing = "0.1"
+ - tracing-subscriber = "0.3"
 
- Configuration for bitcoin-core-sv2:
- - IPC socket path pointing to bitcoind30's socket
- - TDP listen address: 127.0.0.1:8443 (different port from Sjors fork's 8442)
- - Any auth/key configuration required
+ tp/src/main.rs (~150 LOC):
+ - Reads config/tp.config.toml (IPC socket path, TDP listen addr)
+ - Spawns dedicated thread with tokio LocalSet for BitcoinCoreSv2 (required by capnp-rpc)
+ - Creates async channel between IPC thread and TDP TCP server
+ - Accepts TDP TCP connections; on CoinbaseOutputConstraints from downstream, starts
+   forwarding NewTemplate / SetNewPrevHash messages from the IPC channel
 
- Format: Determined from Step 0.4 research into bitcoin-core-sv2 README.
+ Wire format risk: framing_sv2 bumped 5→6 between SRI 1.5.0 and 1.7.0. This is expected
+ to be a Rust API change only (SV2 wire spec is stable), but verify during Step 1.9 smoke
+ test that the pool (SRI 1.5.0) successfully parses templates from the thin TP (SRI 1.7.0).
 
- Step 1.7 — Add sv2_bridge process to devenv.nix
+ Step 1.7 — Create config/tp.config.toml
 
- sv2_bridge = {
+ [ipc]
+ socket_path = ".devenv/state/bitcoind30/regtest/node.sock"
+ fee_threshold = 1000   # satoshis; triggers new template on mempool fee change
+ min_interval = 30      # seconds between consecutive NewTemplate messages
+
+ [listen]
+ address = "127.0.0.1:8443"
+
+ Step 1.8 — Add tp process to devenv.nix
+
+ tp = {
    exec = withLogging ''
-     ${waitForPort 18553 "bitcoind30-RPC"}
-     ${config.devenv.root}/bin/bitcoin-core-sv2 \
-       --config ${config.devenv.root}/config/sv2-bridge.config.toml
-   '' "sv2-bridge.log";
+     # Wait for IPC socket to appear
+     while [ ! -S ${bitcoind30DataDir}/${config.env.BITCOIND_NETWORK}/node.sock ]; do sleep 1; done
+     echo "Bitcoin Core IPC socket ready"
+     cd ${config.devenv.root} && cargo -C tp -Z unstable-options run -- \
+       --config ${config.devenv.root}/config/tp.config.toml
+   '' "tp.log";
  };
- The waitForPort here is a proxy for "bitcoind30 is ready" — use the RPC port, or adapt to check for IPC socket creation.
 
- Step 1.8 — Validate sv2_bridge generates templates
+ Step 1.9 — Validate tp generates templates
 
- Run: devenv up bitcoind30 sv2_bridge
- Check logs/sv2-bridge.log for:
- - Successful connection to Bitcoin Core IPC
- - NewTemplate messages being generated
+ Run: devenv up bitcoind30 tp
+ Check logs/tp.log for:
+ - Successful IPC connection to Bitcoin Core
  - TDP server listening on 127.0.0.1:8443
+ - NewTemplate messages being generated
 
  Fix errors and iterate until this works.
 
- Step 1.9 — Validate end-to-end connectivity (optional smoke test)
+ Step 1.10 — Validate end-to-end connectivity (smoke test)
 
- Temporarily update config/pool.config.toml to point tp_address at 127.0.0.1:8443 (the sv2_bridge TDP port). Start pool alongside bitcoind30 + sv2_bridge.
- Verify pool logs show received templates. Revert the pool config change before proceeding to Phase 2.
+ Temporarily update config/pool.config.toml to point tp_address at 127.0.0.1:8443.
+ Start pool alongside bitcoind30 + tp. Verify pool logs show received templates.
+ If the SRI 1.5.0 pool rejects framing from the 1.7.0 TP (wire format regression), diagnose
+ and pin tp/ to an SRI version whose framing is compatible with 1.5.0.
+ Revert the pool config change before proceeding to Phase 2.
 
  ---
  Phase 2: Crate Migration to crates.io Imports (Feature branch, 2–4 weeks)
@@ -246,14 +282,14 @@
 
  Step 2.10 — Replace Sjors fork with Core 30 + sv2_bridge
 
- Update config/pool.config.toml and config/jds.config.toml to use tp_address = "127.0.0.1:8443" (sv2_bridge). Update devenv.nix pool/jd-server startup to
- depend on sv2_bridge instead of the old bitcoind. Remove (or disable) the Sjors bitcoind process.
+ Update config/pool.config.toml and config/jds.config.toml to use tp_address = "127.0.0.1:8443" (thin TP). Update devenv.nix pool/jd-server startup to
+ depend on tp instead of the old bitcoind. Remove (or disable) the Sjors bitcoind process.
 
  Step 2.11 — Full integration test
 
  Run devenv up with all processes. Verify:
  - bitcoind30 starts and syncs regtest chain
- - sv2_bridge connects and serves templates on 8443
+ - tp (thin TP) connects to bitcoind30 IPC and serves templates on 8443
  - Pool connects and receives templates
  - Miners submit shares
  - Ehash minting produces correct results
@@ -294,9 +330,9 @@
  ├─────────────────────────────────────────────────────────────────────┼──────────┼─────────────────────────────────────────────┤
  │ config/bitcoin30.conf                                               │ 1.2      │ New file: Core 30 IPC config, no sv2=1      │
  ├─────────────────────────────────────────────────────────────────────┼──────────┼─────────────────────────────────────────────┤
- │ config/sv2-bridge.config.toml                                       │ 1.6      │ New file: bitcoin-core-sv2 config           │
+ │ tp/Cargo.toml + tp/src/main.rs                                      │ 1.6      │ New: thin TP mini-workspace binary          │
  ├─────────────────────────────────────────────────────────────────────┼──────────┼─────────────────────────────────────────────┤
- │ devenv.nix                                                          │ 1.3, 1.7 │ Add bitcoind30 and sv2_bridge processes     │
+ │ config/tp.config.toml                                               │ 1.7      │ New file: thin TP config (IPC sock, port)   │
  ├─────────────────────────────────────────────────────────────────────┼──────────┼─────────────────────────────────────────────┤
  │ protocols/v2/subprotocols/mining/src/mint_quote_notification.rs     │ 2.1      │ Move to mint_quote_sv2                      │
  ├─────────────────────────────────────────────────────────────────────┼──────────┼─────────────────────────────────────────────┤
@@ -312,7 +348,9 @@
  ├─────────────────────────────────────────────────────────────────────┼──────────┼─────────────────────────────────────────────┤
  │ roles/pool/src/lib/mining_pool/mod.rs                               │ 2.8      │ channels_sv2 owned-return fixes             │
  ├─────────────────────────────────────────────────────────────────────┼──────────┼─────────────────────────────────────────────┤
- │ config/pool.config.toml                                             │ 2.10     │ Point tp_address at sv2_bridge (8443)       │
+ │ devenv.nix                                                          │ 1.4, 1.8 │ Add bitcoind30 and tp processes             │
+├─────────────────────────────────────────────────────────────────────┤──────────┤─────────────────────────────────────────────┘
+│ config/pool.config.toml                                             │ 2.10     │ Point tp_address at 127.0.0.1:8443 (tp)    │
  └─────────────────────────────────────────────────────────────────────┴──────────┴─────────────────────────────────────────────┘
 
  ---
@@ -343,4 +381,4 @@
  3. Phase 1.8: sv2_bridge connects to bitcoind30, logs show NewTemplate messages being generated on port 8443
  4. Phase 2.1: mining_sv2 compiles clean without custom message types; types importable from new location in mint_quote_sv2 or dedicated crate
  5. Phase 2.9: Full cargo build --workspace succeeds from roles/
- 6. Phase 2.11: devenv up runs full stack with Core 30 + sv2_bridge; miner submits shares; ehash minting produces ecash tokens
+ 6. Phase 2.11: devenv up runs full stack with Core 30 + thin TP; miner submits shares; ehash minting produces ecash tokens
