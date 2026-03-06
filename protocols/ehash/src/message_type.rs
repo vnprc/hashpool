@@ -3,7 +3,7 @@
 //! This module provides protocol-level type checking and identification for
 //! mint-quote messages, independent of any messaging infrastructure.
 
-use const_sv2::{
+use mint_quote_sv2::{
     MESSAGE_TYPE_MINT_QUOTE_ERROR, MESSAGE_TYPE_MINT_QUOTE_REQUEST,
     MESSAGE_TYPE_MINT_QUOTE_RESPONSE,
 };

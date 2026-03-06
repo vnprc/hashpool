@@ -13,9 +13,11 @@ use crate::{
 };
 use async_channel::{Receiver, Sender};
 use cdk::wallet::Wallet;
-use const_sv2::{MESSAGE_TYPE_MINT_QUOTE_FAILURE, MESSAGE_TYPE_MINT_QUOTE_NOTIFICATION};
+use mint_quote_sv2::{
+    MintQuoteFailure, MintQuoteNotification, MESSAGE_TYPE_MINT_QUOTE_FAILURE,
+    MESSAGE_TYPE_MINT_QUOTE_NOTIFICATION,
+};
 use std::sync::{Arc, RwLock};
-use mint_quote_sv2::{MintQuoteFailure, MintQuoteNotification};
 use stratum_common::roles_logic_sv2::{
     channels_sv2::client::extended::ExtendedChannel,
     codec_sv2::Frame,

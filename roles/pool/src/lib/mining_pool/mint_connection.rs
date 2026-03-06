@@ -11,7 +11,7 @@
 
 use async_channel::{Receiver, Sender};
 use binary_sv2::from_bytes;
-use const_sv2::{MESSAGE_TYPE_MINT_QUOTE_ERROR, MESSAGE_TYPE_MINT_QUOTE_RESPONSE};
+use mint_quote_sv2::{MESSAGE_TYPE_MINT_QUOTE_ERROR, MESSAGE_TYPE_MINT_QUOTE_RESPONSE};
 use hex;
 use mint_pool_messaging::{
     quote_request_frame_bytes, MintPoolMessageHub, MintQuoteError, MintQuoteResponse,

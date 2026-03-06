@@ -6,7 +6,7 @@ use crate::{
     utils::{message_from_frame, ShutdownMessage},
 };
 use async_channel::{Receiver, Sender};
-use const_sv2::{MESSAGE_TYPE_MINT_QUOTE_FAILURE, MESSAGE_TYPE_MINT_QUOTE_NOTIFICATION};
+use mint_quote_sv2::{MESSAGE_TYPE_MINT_QUOTE_FAILURE, MESSAGE_TYPE_MINT_QUOTE_NOTIFICATION};
 use key_utils::Secp256k1PublicKey;
 use network_helpers_sv2::noise_connection::Connection;
 use std::{net::SocketAddr, sync::Arc};

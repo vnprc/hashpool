@@ -7,6 +7,19 @@ pub use derive_codec_sv2::{Decodable as Deserialize, Encodable as Serialize};
 
 use core::convert::TryInto;
 
+// Mint-Quote subprotocol protocol discriminant
+pub const SV2_MINT_QUOTE_PROTOCOL_DISCRIMINANT: u8 = 3;
+
+// Mint-Quote subprotocol message types (0x80-0x82)
+pub const MESSAGE_TYPE_MINT_QUOTE_REQUEST: u8 = 0x80;
+pub const MESSAGE_TYPE_MINT_QUOTE_RESPONSE: u8 = 0x81;
+pub const MESSAGE_TYPE_MINT_QUOTE_ERROR: u8 = 0x82;
+
+// Mint-Quote subprotocol channel bits
+pub const CHANNEL_BIT_MINT_QUOTE_REQUEST: bool = true;
+pub const CHANNEL_BIT_MINT_QUOTE_RESPONSE: bool = true;
+pub const CHANNEL_BIT_MINT_QUOTE_ERROR: bool = true;
+
 /// Type alias for a compressed secp256k1 public key (33 bytes).
 pub type CompressedPubKey<'a> = B0255<'a>;
 

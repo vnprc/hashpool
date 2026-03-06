@@ -4176,6 +4176,7 @@ dependencies = [
  "framing_sv2",
  "job_declaration_sv2",
  "mining_sv2",
+ "mint_quote_sv2",
  "template_distribution_sv2",
 ]
 
@@ -6786,6 +6787,7 @@ dependencies = [
  "hyper 1.8.1",
  "hyper-util",
  "key-utils",
+ "mint_quote_sv2",
  "network_helpers_sv2",
  "serde",
  "serde_json",
