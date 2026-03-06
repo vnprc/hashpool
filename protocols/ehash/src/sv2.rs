@@ -9,8 +9,7 @@ use crate::{
     SigningKey,
 };
 
-pub use binary_sv2::binary_codec_sv2::{self, Decodable as Deserialize, Encodable as Serialize, *};
-pub use derive_codec_sv2::{Decodable as Deserialize, Encodable as Serialize};
+use binary_sv2::{Deserialize, Serialize};
 
 /// Wire-format representation of a Cashu signing key used by the SV2 mining protocol.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

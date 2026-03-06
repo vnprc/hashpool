@@ -2,7 +2,7 @@ use anyhow::Result;
 use binary_sv2::Str0255;
 use cdk::mint::Mint;
 use codec_sv2::StandardEitherFrame;
-use const_sv2::MESSAGE_TYPE_MINT_QUOTE_REQUEST;
+use mint_quote_sv2::MESSAGE_TYPE_MINT_QUOTE_REQUEST;
 use hex;
 use mint_pool_messaging::{
     mint_quote_response_from_cdk, parse_mint_quote_request, quote_error_frame_bytes,

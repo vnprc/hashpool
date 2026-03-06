@@ -6,7 +6,7 @@
 use crate::{utils::InputError, vardiff::error::VardiffError};
 use bitcoin::hashes::FromSliceError;
 use channels_sv2::server::error::{ExtendedChannelError, GroupChannelError, StandardChannelError};
-use codec_sv2::binary_sv2::Error as BinarySv2Error;
+use binary_sv2::Error as BinarySv2Error;
 use mining_sv2::ExtendedExtranonceError;
 use parsers_sv2::AnyMessage as AllMessages;
 use std::{

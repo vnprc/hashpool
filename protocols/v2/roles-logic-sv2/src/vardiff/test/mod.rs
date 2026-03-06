@@ -6,7 +6,7 @@ mod classic;
 
 use super::Vardiff;
 use crate::utils::hash_rate_to_target;
-use mining_sv2::Target;
+use bitcoin::Target;
 
 pub const TEST_INITIAL_HASHRATE: f32 = 1000.0;
 pub const TEST_SHARES_PER_MINUTE: f32 = 10.0;
@@ -60,8 +60,7 @@ pub fn test_try_vardiff_stable_hashrate_minimal_change_or_no_change<V: Vardiff>(
     let initial_hashrate = TEST_INITIAL_HASHRATE;
     let iniital_target =
         hash_rate_to_target(initial_hashrate.into(), TEST_SHARES_PER_MINUTE.into())
-            .unwrap()
-            .into();
+            .unwrap();
 
     let simulation_duration_secs = 5;
     let expected_shares_for_duration = 1;
@@ -96,8 +95,7 @@ pub fn test_try_vardiff_low_hashrate_decrease_target<V: Vardiff>(vardiff: &mut V
     let initial_hashrate = TEST_INITIAL_HASHRATE;
     let initial_target =
         hash_rate_to_target(initial_hashrate.into(), TEST_SHARES_PER_MINUTE.into())
-            .unwrap()
-            .into();
+            .unwrap();
 
     let simulation_duration = 16;
     simulate_shares_and_wait(vardiff, 16, simulation_duration);
@@ -116,8 +114,7 @@ pub fn test_try_vardiff_low_hashrate_decrease_target<V: Vardiff>(vardiff: &mut V
     // comes under no special case
     assert_eq!(new_hashrate, 6.0 * initial_hashrate);
     let target: Target = hash_rate_to_target(new_hashrate.into(), TEST_SHARES_PER_MINUTE.into())
-        .unwrap()
-        .into();
+        .unwrap();
     println!("target: {target:?}");
     assert!(
         target < initial_target,
@@ -131,8 +128,7 @@ pub fn test_try_vardiff_with_shares_less_than_30<V: Vardiff>(vardiff: &mut V) {
     let initial_hashrate = TEST_INITIAL_HASHRATE;
     let initial_target =
         hash_rate_to_target(initial_hashrate.into(), TEST_SHARES_PER_MINUTE.into())
-            .unwrap()
-            .into();
+            .unwrap();
 
     let simulation_duration = 16;
     simulate_shares_and_wait(vardiff, 500, simulation_duration);
@@ -150,8 +146,7 @@ pub fn test_try_vardiff_with_shares_less_than_30<V: Vardiff>(vardiff: &mut V) {
     assert_eq!(new_hashrate, 10.0 * initial_hashrate);
 
     let target: Target = hash_rate_to_target(new_hashrate.into(), TEST_SHARES_PER_MINUTE.into())
-        .unwrap()
-        .into();
+        .unwrap();
     assert!(
         target < initial_target,
         "Target should become harder (larger value)"
@@ -164,8 +159,7 @@ pub fn test_try_vardiff_with_shares_30_to_60s<V: Vardiff>(vardiff: &mut V) {
     let initial_hashrate = TEST_INITIAL_HASHRATE;
     let initial_target =
         hash_rate_to_target(initial_hashrate.into(), TEST_SHARES_PER_MINUTE.into())
-            .unwrap()
-            .into();
+            .unwrap();
 
     let simulation_duration = 31;
     simulate_shares_and_wait(vardiff, 5000, simulation_duration);
@@ -182,8 +176,7 @@ pub fn test_try_vardiff_with_shares_30_to_60s<V: Vardiff>(vardiff: &mut V) {
     // This logic checks the `dt < 60` case, which multiple by 5
     assert_eq!(new_hashrate, 5.0 * initial_hashrate);
     let target: Target = hash_rate_to_target(new_hashrate.into(), TEST_SHARES_PER_MINUTE.into())
-        .unwrap()
-        .into();
+        .unwrap();
     assert!(
         target < initial_target,
         "Target should become harder (larger value)"
@@ -196,8 +189,7 @@ pub fn test_try_vardiff_with_shares_more_than_60s<V: Vardiff>(vardiff: &mut V) {
     let initial_hashrate = TEST_INITIAL_HASHRATE;
     let initial_target =
         hash_rate_to_target(initial_hashrate.into(), TEST_SHARES_PER_MINUTE.into())
-            .unwrap()
-            .into();
+            .unwrap();
 
     let simulation_duration = 60;
     simulate_shares_and_wait(vardiff, 1000, simulation_duration);
@@ -214,8 +206,7 @@ pub fn test_try_vardiff_with_shares_more_than_60s<V: Vardiff>(vardiff: &mut V) {
     // This logic checks the `dt >= 60` case, which multiple by 3
     assert_eq!(new_hashrate, 3.0 * initial_hashrate);
     let target: Target = hash_rate_to_target(new_hashrate.into(), TEST_SHARES_PER_MINUTE.into())
-        .unwrap()
-        .into();
+        .unwrap();
     assert!(
         target < initial_target,
         "Target should become harder (larger value)"
@@ -228,8 +219,7 @@ fn test_try_vardiff_no_shares_less_than_30s_decrease<V: Vardiff>(vardiff: &mut V
     let initial_hashrate = TEST_INITIAL_HASHRATE;
     let initial_target =
         hash_rate_to_target(initial_hashrate.into(), TEST_SHARES_PER_MINUTE.into())
-            .unwrap()
-            .into();
+            .unwrap();
 
     let simulation_duration = 16;
     simulate_shares_and_wait(vardiff, 0, simulation_duration);
@@ -256,8 +246,7 @@ fn test_try_vardiff_no_shares_30_to_60s_decrease<V: Vardiff>(vardiff: &mut V) {
     let initial_hashrate = TEST_INITIAL_HASHRATE;
     let initial_target =
         hash_rate_to_target(initial_hashrate.into(), TEST_SHARES_PER_MINUTE.into())
-            .unwrap()
-            .into();
+            .unwrap();
 
     let simulation_duration = 31;
     simulate_shares_and_wait(vardiff, 0, simulation_duration);
@@ -283,8 +272,7 @@ fn test_try_vardiff_no_shares_more_than_60s_decrease<V: Vardiff>(vardiff: &mut V
     let initial_hashrate = TEST_INITIAL_HASHRATE;
     let initial_target =
         hash_rate_to_target(initial_hashrate.into(), TEST_SHARES_PER_MINUTE.into())
-            .unwrap()
-            .into();
+            .unwrap();
 
     let simulation_duration = 60;
     simulate_shares_and_wait(vardiff, 0, simulation_duration);
@@ -309,8 +297,7 @@ fn test_try_vardiff_with_less_spm_than_expected<V: Vardiff>(vardiff: &mut V) {
     let initial_hashrate = TEST_INITIAL_HASHRATE;
     let initial_target =
         hash_rate_to_target(initial_hashrate.into(), TEST_SHARES_PER_MINUTE.into())
-            .unwrap()
-            .into();
+            .unwrap();
 
     assert_eq!(initial_hashrate, 1000.0);
 
@@ -324,8 +311,7 @@ fn test_try_vardiff_with_less_spm_than_expected<V: Vardiff>(vardiff: &mut V) {
         .unwrap();
     let target_after_60s: Target =
         hash_rate_to_target(hashrate_after_60s.into(), TEST_SHARES_PER_MINUTE.into())
-            .unwrap()
-            .into();
+            .unwrap();
 
     assert_eq!(hashrate_after_60s, 400.0);
 
@@ -343,8 +329,7 @@ fn test_try_vardiff_with_less_spm_than_expected<V: Vardiff>(vardiff: &mut V) {
         .unwrap();
     let target_after_120s: Target =
         hash_rate_to_target(hashrate_after_120s.into(), TEST_SHARES_PER_MINUTE.into())
-            .unwrap()
-            .into();
+            .unwrap();
 
     assert_eq!(hashrate_after_120s, 200.0);
 
@@ -362,8 +347,7 @@ fn test_try_vardiff_with_less_spm_than_expected<V: Vardiff>(vardiff: &mut V) {
         .unwrap();
     let target_after_180s: Target =
         hash_rate_to_target(hashrate_after_180s.into(), TEST_SHARES_PER_MINUTE.into())
-            .unwrap()
-            .into();
+            .unwrap();
 
     assert_eq!(hashrate_after_180s, 106.0);
 
@@ -381,8 +365,7 @@ fn test_try_vardiff_with_less_spm_than_expected<V: Vardiff>(vardiff: &mut V) {
         .unwrap();
     let target_after_240s: Target =
         hash_rate_to_target(hashrate_after_240s.into(), TEST_SHARES_PER_MINUTE.into())
-            .unwrap()
-            .into();
+            .unwrap();
 
     assert_eq!(hashrate_after_240s, 74.2);
 

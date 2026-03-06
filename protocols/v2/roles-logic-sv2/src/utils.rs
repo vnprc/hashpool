@@ -14,9 +14,9 @@ use bitcoin::{
     transaction::TxOut,
     Block, CompactTarget, Transaction,
 };
-use codec_sv2::binary_sv2::U256;
+use binary_sv2::U256;
+use bitcoin::Target;
 use job_declaration_sv2::{DeclareMiningJob, PushSolution};
-use mining_sv2::Target;
 use primitive_types::U256 as U256Primitive;
 use std::{
     cmp::max,
@@ -311,7 +311,7 @@ pub enum InputError {
 pub fn hash_rate_to_target(
     hashrate: f64,
     share_per_min: f64,
-) -> Result<U256<'static>, crate::Error> {
+) -> Result<Target, crate::Error> {
     // checks that we are not dividing by zero
     if share_per_min == 0.0 {
         return Err(Error::TargetError(InputError::DivisionByZero));
@@ -350,7 +350,7 @@ pub fn hash_rate_to_target(
 
     let mut target = numerator.div(denominator).to_big_endian();
     target.reverse();
-    Ok(U256::<'static>::from(target))
+    Ok(Target::from_le_bytes(target))
 }
 
 /// Calculates the hashrate (H/s) required to produce a specific number of shares per minute for a
@@ -372,7 +372,7 @@ pub fn hash_rate_to_target(
 /// - `h`: Mining device hashrate (H/s).
 /// - `t`: Target threshold.
 /// - `s`: Shares per minute.
-pub fn hash_rate_from_target(target: U256<'static>, share_per_min: f64) -> Result<f64, Error> {
+pub fn hash_rate_from_target(target: Target, share_per_min: f64) -> Result<f64, Error> {
     // checks that we are not dividing by zero
     if share_per_min == 0.0 {
         return Err(Error::HashrateError(InputError::DivisionByZero));
@@ -380,9 +380,7 @@ pub fn hash_rate_from_target(target: U256<'static>, share_per_min: f64) -> Resul
     if share_per_min.is_sign_negative() {
         return Err(Error::HashrateError(InputError::NegativeInput));
     }
-    let mut target_arr: [u8; 32] = [0; 32];
-    let slice: &mut [u8] = &mut target_arr;
-    slice.copy_from_slice(target.inner_as_ref());
+    let mut target_arr = target.to_le_bytes();
     target_arr.reverse();
     let target = U256Primitive::from_big_endian(target_arr.as_ref());
     // we calculate the numerator 2^256-t
@@ -424,9 +422,7 @@ pub fn target_to_difficulty(target: Target) -> f64 {
     let max_target = U256Primitive::from_little_endian(&max_target_bytes);
 
     // Convert input target to U256Primitive
-    let target_u256: U256<'static> = target.into();
-    let mut target_bytes = [0u8; 32];
-    target_bytes.copy_from_slice(target_u256.inner_as_ref());
+    let target_bytes = target.to_le_bytes();
     let target = U256Primitive::from_little_endian(&target_bytes);
 
     // Calculate difficulty = max_target / target
@@ -876,7 +872,7 @@ impl<'a> From<BlockCreator<'a>> for bitcoin::Block {
 mod tests {
 
     use super::{hash_rate_from_target, hash_rate_to_target, *};
-    use codec_sv2::binary_sv2::{Seq0255, B064K, U256};
+    use binary_sv2::{Seq0255, B064K, U256};
     use rand::Rng;
     use serde::Deserialize;
     use std::{convert::TryInto, num::ParseIntError};
@@ -1052,7 +1048,7 @@ mod tests {
 
         let hr = 10.0; // 10 h/s
         let hrs = hr * 60.0; // number of hashes in 1 minute
-        let mut target = hash_rate_to_target(hr, 1.0).unwrap().to_vec();
+        let mut target = hash_rate_to_target(hr, 1.0).unwrap().to_le_bytes();
         target.reverse();
         let target = U256Primitive::from_big_endian(&target[..]);
 
@@ -1120,7 +1116,7 @@ mod tests {
         // target.
         let mut target_bytes = [0xff; 32];
         target_bytes[0] = 0x7f; // Reduce the magnitude to avoid direct overflow
-        let target_sv2 = U256::from(target_bytes);
+        let target_sv2 = Target::from_le_bytes(target_bytes);
         let share_per_min = 0.001;
         let result = hash_rate_from_target(target_sv2, share_per_min);
 
@@ -1149,7 +1145,7 @@ mod tests {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4c, 0x86, 0x04, 0x00,
             0x00, 0x00, 0x00, 0x00,
         ];
-        let target = Target::from(target_bytes);
+        let target = Target::from_le_bytes(target_bytes);
         let difficulty = target_to_difficulty(target);
 
         // Expected difficulty: 14484.162361
@@ -1168,7 +1164,7 @@ mod tests {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff,
             0x00, 0x00, 0x00, 0x00,
         ];
-        let max_target = Target::from(max_target_bytes);
+        let max_target = Target::from_le_bytes(max_target_bytes);
         let max_difficulty = target_to_difficulty(max_target);
 
         let expected_max_difficulty = 1.0;
@@ -1184,14 +1180,14 @@ mod tests {
 
     #[test]
     fn test_hash_rate_from_target_with_max_target() {
-        use codec_sv2::binary_sv2::U256;
+        use binary_sv2::U256;
         // This is the maximum value for a 256-bit unsigned integer
         let max_u128 = 340282366920938463463374607431768211455u128;
         // Compose the bytes for U256::MAX
         let mut max_bytes = [0u8; 32];
         max_bytes[..16].copy_from_slice(&max_u128.to_be_bytes());
         max_bytes[16..].copy_from_slice(&max_u128.to_be_bytes());
-        let target = U256::from(max_bytes);
+        let target = Target::from_le_bytes(max_bytes);
         let share_per_min = 4.0;
         let result = hash_rate_from_target(target, share_per_min);
         assert!(

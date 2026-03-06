@@ -7,6 +7,5 @@ description = "SV2 stats protocol types for pool and proxy statistics"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-binary_sv2 = { version = "^4.0.0", path = "../../binary-sv2" }
-const_sv2 = { version = "^3.0.0", path = "../../const-sv2" }
-derive_codec_sv2 = { version = "^1.0.0", path = "../../binary-sv2/derive_codec" }
+binary_sv2 = "5.0.1"
+derive_codec_sv2 = "1.1.2"

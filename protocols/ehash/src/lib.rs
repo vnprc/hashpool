@@ -4,6 +4,10 @@
 //! Cashu-specific logic that needs to live inside the upstream Stratum V2
 //! protocol crates.
 
+// Re-export binary_sv2 as a named module so derive_codec_sv2 1.1.2 generated code
+// (which uses `super::binary_sv2::...` paths) can resolve correctly.
+pub use binary_sv2;
+
 use std::fmt;
 
 pub mod keyset;
