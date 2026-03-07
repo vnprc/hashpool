@@ -9,17 +9,14 @@
 //! non-blocking behavior.
 
 use crate::Error;
-use codec_sv2::{
-    binary_sv2::{Deserialize, GetSize, Serialize},
-    noise_sv2::INITIATOR_EXPECTED_HANDSHAKE_MESSAGE_SIZE,
-    HandshakeRole, NoiseEncoder, StandardNoiseDecoder, State,
-};
+use binary_sv2::{Deserialize, GetSize, Serialize};
+use codec_sv2::{HandshakeRole, NoiseEncoder, StandardNoiseDecoder, State, StandardEitherFrame};
+use framing_sv2::framing::HandShakeFrame;
+use noise_sv2::{ELLSWIFT_ENCODING_SIZE, INITIATOR_EXPECTED_HANDSHAKE_MESSAGE_SIZE};
 use tokio::net::{
     tcp::{OwnedReadHalf, OwnedWriteHalf},
     TcpStream,
 };
-
-use codec_sv2::{noise_sv2::ELLSWIFT_ENCODING_SIZE, HandShakeFrame, StandardEitherFrame};
 use std::convert::TryInto;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{debug, error};

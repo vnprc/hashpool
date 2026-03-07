@@ -32,12 +32,12 @@ shared_config = { path = "../roles-utils/config" }
 mint_pool_messaging = { path = "../roles-utils/mint-pool-messaging" }
 network_helpers_sv2 = { path = "../roles-utils/network-helpers" }
 roles_logic_sv2 = { path = "../../protocols/v2/roles-logic-sv2" }
-codec_sv2 = { path = "../../protocols/v2/codec-sv2" }
-mining_sv2 = { path = "../../protocols/v2/subprotocols/mining" }
-binary_sv2 = { path = "../../protocols/v2/binary-sv2" }
+codec_sv2 = "4.0.1"
+mining_sv2 = "7.0.0"
+binary_sv2 = "5.0.1"
 mint_quote_sv2 = { path = "../../protocols/v2/subprotocols/mint-quote" }
-const_sv2 = { path = "../../protocols/v2/const-sv2" }
-common_messages_sv2 = { path = "../../protocols/v2/subprotocols/common-messages" }
+const_sv2 = "4.0.1"
+common_messages_sv2 = "6.0.2"
 ehash = { path = "../../protocols/ehash" }
 key-utils = { path = "../../utils/key-utils" }
 async-channel = "1.8.0"

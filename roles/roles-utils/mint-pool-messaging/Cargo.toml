@@ -9,7 +9,5 @@ tracing = "0.1"
 async-trait = "0.1"
 thiserror = "1.0"
 mint_quote_sv2 = { path = "../../../protocols/v2/subprotocols/mint-quote" }
-const_sv2 = { path = "../../../protocols/v2/const-sv2" }
-binary_sv2 = { path = "../../../protocols/v2/binary-sv2" }
-framing_sv2 = { path = "../../../protocols/v2/framing-sv2" }
+binary_sv2 = "5.0.1"
 ehash = { path = "../../../protocols/ehash" }

@@ -41,12 +41,15 @@ stats = { path = "../roles-utils/stats" }
 stats-sv2 = { path = "../roles-utils/stats-sv2" }
 reqwest = { version = "0.11", features = ["json"] }
 sha2 = "0.10"
-binary_sv2 = { path = "../../protocols/v2/binary-sv2" }
+binary_sv2 = "5.0.1"
+bitcoin = "0.32.5"
+codec_sv2 = { version = "4.0.1", features = ["noise_sv2", "with_buffer_pool"] }
+framing_sv2 = "6.0.1"
+noise_sv2 = "1.4.1"
 hex = "0.4.3"
 ehash = { path = "../../protocols/ehash" }
 shared_config = { path = "../roles-utils/config" }
 mint_quote_sv2 = { path = "../../protocols/v2/subprotocols/mint-quote" }
-const_sv2 = { path = "../../protocols/v2/const-sv2" }
 serde_json = "1"
 
 [dev-dependencies]

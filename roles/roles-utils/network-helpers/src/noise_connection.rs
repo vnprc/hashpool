@@ -4,10 +4,8 @@ use crate::{
     Error,
 };
 use async_channel::{unbounded, Receiver, Sender};
-use codec_sv2::{
-    binary_sv2::{Deserialize, GetSize, Serialize},
-    HandshakeRole, StandardEitherFrame,
-};
+use binary_sv2::{Deserialize, GetSize, Serialize};
+use codec_sv2::{HandshakeRole, StandardEitherFrame};
 use std::sync::Arc;
 use tokio::{net::TcpStream, task};
 use tracing::{debug, error};

@@ -1,5 +1,5 @@
 use async_channel::{bounded, Receiver, Sender};
-use codec_sv2::binary_sv2::{Deserialize, Serialize};
+use binary_sv2::{Deserialize, GetSize, Serialize};
 use core::convert::TryInto;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -7,7 +7,7 @@ use tokio::{
     task,
 };
 
-use codec_sv2::{binary_sv2::GetSize, Error::MissingBytes, StandardDecoder, StandardEitherFrame};
+use codec_sv2::{Error::MissingBytes, StandardDecoder, StandardEitherFrame};
 use tracing::{error, trace};
 
 #[derive(Debug)]

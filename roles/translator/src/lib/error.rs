@@ -10,8 +10,11 @@
 
 use ext_config::ConfigError;
 use std::{fmt, sync::PoisonError};
+use binary_sv2;
+use framing_sv2;
+use noise_sv2;
 use stratum_common::roles_logic_sv2::{
-    codec_sv2::{self, binary_sv2, framing_sv2},
+    codec_sv2,
     errors::Error as RolesLogicError,
     handlers_sv2::HandlerErrorType,
     parsers_sv2::ParserError as RolesParserError,
@@ -39,7 +42,7 @@ pub enum TproxyError {
     /// Errors from `binary_sv2` crate.
     BinarySv2(binary_sv2::Error),
     /// Errors on bad noise handshake.
-    CodecNoise(codec_sv2::noise_sv2::Error),
+    CodecNoise(noise_sv2::Error),
     /// Errors from `framing_sv2` crate.
     FramingSv2(framing_sv2::Error),
     /// Errors on bad `TcpStream` connection.
@@ -129,8 +132,8 @@ impl From<binary_sv2::Error> for TproxyError {
     }
 }
 
-impl From<codec_sv2::noise_sv2::Error> for TproxyError {
-    fn from(e: codec_sv2::noise_sv2::Error) -> Self {
+impl From<noise_sv2::Error> for TproxyError {
+    fn from(e: noise_sv2::Error) -> Self {
         TproxyError::CodecNoise(e)
     }
 }

@@ -19,9 +19,11 @@ use std::{
     sync::{MutexGuard, PoisonError},
 };
 
+use binary_sv2;
+use framing_sv2;
+use noise_sv2;
 use stratum_common::roles_logic_sv2::{
-    self,
-    codec_sv2::{self, binary_sv2, noise_sv2},
+    self, codec_sv2,
     parsers_sv2::Mining,
 };
 
@@ -36,7 +38,7 @@ pub enum JdsError {
     Codec(codec_sv2::Error),
     Noise(noise_sv2::Error),
     RolesLogic(roles_logic_sv2::Error),
-    Framing(codec_sv2::framing_sv2::Error),
+    Framing(framing_sv2::Error),
     PoisonLock(String),
     Custom(String),
     Sv2ProtocolError((u32, Mining<'static>)),
@@ -122,8 +124,8 @@ impl From<String> for JdsError {
         JdsError::Custom(e)
     }
 }
-impl From<codec_sv2::framing_sv2::Error> for JdsError {
-    fn from(e: codec_sv2::framing_sv2::Error) -> JdsError {
+impl From<framing_sv2::Error> for JdsError {
+    fn from(e: framing_sv2::Error) -> JdsError {
         JdsError::Framing(e)
     }
 }

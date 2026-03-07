@@ -41,8 +41,11 @@ cdk = { git = "https://github.com/vnprc/cdk.git", rev = "77df2ae4" }
 cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", rev = "77df2ae4" }
 bip39 = "2.0"
 anyhow = "1.0"
-binary_sv2 = { path = "../../protocols/v2/binary-sv2" }
-const_sv2 = { path = "../../protocols/v2/const-sv2" }
+binary_sv2 = "5.0.1"
+bitcoin = "0.32.5"
+codec_sv2 = { version = "4.0.1", features = ["noise_sv2", "with_buffer_pool"] }
+framing_sv2 = "6.0.1"
+noise_sv2 = "1.4.1"
 mint_quote_sv2 = { path = "../../protocols/v2/subprotocols/mint-quote" }
 hex = "0.4"
 hyper = { version = "1.0", features = ["full"] }

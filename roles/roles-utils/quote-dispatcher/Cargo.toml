@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-binary_sv2 = { version = "^4.0.0", path = "../../../protocols/v2/binary-sv2" }
+binary_sv2 = "5.0.1"
 bitcoin_hashes = { version = "0.14" }
 ehash = { path = "../../../protocols/ehash" }
 mint_pool_messaging = { path = "../mint-pool-messaging" }

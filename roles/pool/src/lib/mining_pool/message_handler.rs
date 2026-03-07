@@ -7,7 +7,7 @@
 
 use super::super::mining_pool::Downstream;
 use super::super::share_validation;
-use binary_sv2::Deserialize;
+use binary_sv2::{Deserialize, Str0255};
 use ehash::QuoteDispatchError;
 use mint_quote_sv2::CompressedPubKey;
 use quote_dispatcher::QuoteDispatcher;
@@ -16,7 +16,8 @@ use std::{
     sync::{Arc, RwLock},
 };
 use stratum_common::roles_logic_sv2::{
-    bitcoin::{consensus::Decodable, transaction::TxOut, Amount},
+    bitcoin::{consensus::Decodable, transaction::TxOut, Amount, Target as BitcoinTarget},
+    codec_sv2::binary_sv2::U256,
     channels_sv2::server::{
         error::{ExtendedChannelError, StandardChannelError},
         extended::ExtendedChannel,
@@ -25,7 +26,6 @@ use stratum_common::roles_logic_sv2::{
         share_accounting::{ShareValidationError, ShareValidationResult},
         standard::StandardChannel,
     },
-    codec_sv2::binary_sv2::Str0255,
     errors::Error,
     handlers::mining::{ParseMiningMessagesFromDownstream, SendTo, SupportedChannelTypes},
     mining_sv2::*,
