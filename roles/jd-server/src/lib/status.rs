@@ -162,9 +162,12 @@ mod tests {
 
     use super::*;
     use async_channel::{bounded, RecvError};
+    use binary_sv2;
+    use framing_sv2;
+    use noise_sv2;
     use stratum_common::roles_logic_sv2::{
         self,
-        codec_sv2::{self, binary_sv2, noise_sv2},
+        codec_sv2::{self},
         mining_sv2::OpenMiningChannelError,
     };
 
@@ -338,7 +341,7 @@ mod tests {
     async fn test_handle_error_framing_error() {
         let (tx, rx) = bounded(1);
         let sender = Sender::Downstream(tx);
-        let error = JdsError::Framing(codec_sv2::framing_sv2::Error::ExpectedHandshakeFrame);
+        let error = JdsError::Framing(framing_sv2::Error::ExpectedHandshakeFrame);
         let error_string = error.to_string();
         handle_error(&sender, error).await;
         match rx.recv().await {

@@ -120,6 +120,7 @@ mod tests {
             ehash_balance: 1000,
             upstream_pool: None,
             downstream_miners: vec![],
+            blockchain_network: "regtest".to_string(),
             timestamp: unix_timestamp(),
         };
 
@@ -137,6 +138,7 @@ mod tests {
             ehash_balance: 100,
             upstream_pool: None,
             downstream_miners: vec![],
+            blockchain_network: "regtest".to_string(),
             timestamp: unix_timestamp() - 30,
         };
         db.store_snapshot(old_snapshot);
@@ -171,6 +173,7 @@ mod tests {
                     connected_at: 1234567891,
                 },
             ],
+            blockchain_network: "regtest".to_string(),
             timestamp: unix_timestamp(),
         };
 
@@ -200,6 +203,7 @@ mod tests {
             ehash_balance: 1000,
             upstream_pool: None,
             downstream_miners: vec![],
+            blockchain_network: "regtest".to_string(),
             timestamp: unix_timestamp(),
         };
         db.store_snapshot(snapshot1);
@@ -209,6 +213,7 @@ mod tests {
             ehash_balance: 2000,
             upstream_pool: None,
             downstream_miners: vec![],
+            blockchain_network: "regtest".to_string(),
             timestamp: unix_timestamp() + 5,
         };
         db.store_snapshot(snapshot2);
@@ -227,6 +232,7 @@ mod tests {
             ehash_balance: 100,
             upstream_pool: None,
             downstream_miners: vec![],
+            blockchain_network: "regtest".to_string(),
             timestamp: unix_timestamp() - 1,
         };
         db.store_snapshot(snapshot);

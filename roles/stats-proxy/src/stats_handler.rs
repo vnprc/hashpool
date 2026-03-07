@@ -80,6 +80,7 @@ mod tests {
                 shares_submitted: 42,
                 connected_at: 1234567890,
             }],
+            blockchain_network: "regtest".to_string(),
             timestamp: unix_timestamp(),
         };
 
@@ -112,6 +113,7 @@ mod tests {
             ehash_balance: 1000,
             upstream_pool: None,
             downstream_miners: vec![],
+            blockchain_network: "regtest".to_string(),
             timestamp: unix_timestamp(),
         };
         let json1 = serde_json::to_vec(&snapshot1).unwrap();
@@ -122,6 +124,7 @@ mod tests {
             ehash_balance: 2000,
             upstream_pool: None,
             downstream_miners: vec![],
+            blockchain_network: "regtest".to_string(),
             timestamp: unix_timestamp() + 5,
         };
         let json2 = serde_json::to_vec(&snapshot2).unwrap();

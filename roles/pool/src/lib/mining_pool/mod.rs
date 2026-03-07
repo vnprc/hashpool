@@ -1541,6 +1541,7 @@ async fn spawn_vardiff_loop(
 
 #[cfg(test)]
 mod test {
+    use binary_sv2::{B0255, B064K};
     use ext_config::{Config, File, FileFormat};
     use std::convert::TryInto;
     use stratum_common::roles_logic_sv2::{

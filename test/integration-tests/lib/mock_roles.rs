@@ -6,7 +6,7 @@ use crate::{
 use async_channel::Sender;
 use std::net::SocketAddr;
 use stratum_common::roles_logic_sv2::{
-    codec_sv2::{StandardEitherFrame, Sv2Frame},
+    codec_sv2::{StandardEitherFrame, StandardSv2Frame},
     parsers_sv2::AnyMessage,
 };
 use tokio::net::TcpStream;
@@ -91,7 +91,7 @@ impl MockUpstream {
                 // send response back to the downstream if found
                 if let Some((_, response_msg)) = response {
                     let message = StandardEitherFrame::<AnyMessage<'_>>::Sv2(
-                        Sv2Frame::from_message(response_msg.clone(), msg_type, 0, false)
+                        StandardSv2Frame::from_message(response_msg.clone(), msg_type, 0, false)
                             .expect("Failed to create the frame"),
                     );
                     downstream_sender.send(message).await.unwrap();
@@ -111,7 +111,7 @@ mod tests {
     use crate::{start_template_provider, template_provider::DifficultyLevel};
     use std::{convert::TryInto, net::TcpListener};
     use stratum_common::roles_logic_sv2::{
-        codec_sv2::{StandardEitherFrame, Sv2Frame},
+        codec_sv2::{StandardEitherFrame, StandardSv2Frame},
         common_messages_sv2::{Protocol, SetupConnection, SetupConnectionSuccess, *},
         parsers_sv2::CommonMessages,
     };
@@ -135,7 +135,7 @@ mod tests {
                 device_id: b"89567".to_vec().try_into().unwrap(),
             }));
         let message = StandardEitherFrame::<AnyMessage<'_>>::Sv2(
-            Sv2Frame::from_message(setup_connection, MESSAGE_TYPE_SETUP_CONNECTION, 0, false)
+            StandardSv2Frame::from_message(setup_connection, MESSAGE_TYPE_SETUP_CONNECTION, 0, false)
                 .expect("Failed to create the frame"),
         );
         send_to_upstream.send(message).await.unwrap();
@@ -180,7 +180,7 @@ mod tests {
                 device_id: b"89567".to_vec().try_into().unwrap(),
             }));
         let message = StandardEitherFrame::<AnyMessage<'_>>::Sv2(
-            Sv2Frame::from_message(setup_connection, MESSAGE_TYPE_SETUP_CONNECTION, 0, false)
+            StandardSv2Frame::from_message(setup_connection, MESSAGE_TYPE_SETUP_CONNECTION, 0, false)
                 .expect("Failed to create the frame"),
         );
         send_to_upstream.send(message).await.unwrap();

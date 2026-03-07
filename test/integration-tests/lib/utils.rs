@@ -13,13 +13,12 @@ use std::{
     net::{SocketAddr, TcpListener},
     sync::Mutex,
 };
+use framing_sv2::framing::Frame;
+use noise_sv2::{Initiator, Responder};
 use stratum_common::{
     network_helpers_sv2::noise_connection::Connection,
     roles_logic_sv2::{
-        codec_sv2::{
-            framing_sv2::framing::Frame, HandshakeRole, Initiator, Responder, StandardEitherFrame,
-            Sv2Frame,
-        },
+        codec_sv2::{HandshakeRole, StandardEitherFrame, StandardSv2Frame},
         parsers_sv2::{
             message_type_to_name, AnyMessage, CommonMessages, IsSv2Message,
             JobDeclaration::{
@@ -131,7 +130,7 @@ pub async fn recv_from_down_send_to_up(
                 }
                 InterceptAction::ReplaceMessage(intercept_message) => {
                     let intercept_frame = StandardEitherFrame::<AnyMessage<'_>>::Sv2(
-                        Sv2Frame::from_message(
+                        StandardSv2Frame::from_message(
                             intercept_message.replacement_message.clone(),
                             intercept_message.replacement_message.message_type(),
                             0,
@@ -197,7 +196,7 @@ pub async fn recv_from_up_send_to_down(
                 }
                 InterceptAction::ReplaceMessage(intercept_message) => {
                     let intercept_frame = StandardEitherFrame::<AnyMessage<'_>>::Sv2(
-                        Sv2Frame::from_message(
+                        StandardSv2Frame::from_message(
                             intercept_message.replacement_message.clone(),
                             intercept_message.replacement_message.message_type(),
                             0,

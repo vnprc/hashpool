@@ -3178,15 +3178,18 @@ name = "integration_tests_sv2"
 version = "0.1.0"
 dependencies = [
  "async-channel 1.9.0",
+ "codec_sv2",
  "config_helpers_sv2",
  "corepc-node",
  "flate2",
+ "framing_sv2",
  "jd_client_sv2",
  "jd_server",
  "key-utils",
  "mining_device",
  "mining_device_sv1",
  "minreq",
+ "noise_sv2",
  "once_cell",
  "pool_sv2",
  "rand 0.9.2",
