@@ -21,6 +21,7 @@ path = "src/lib/mod.rs"
 
 [dependencies]
 stratum-common = { path = "../../../common", features = ["with_network_helpers"] }
+noise_sv2 = "1.4.1"
 async-channel = "1.5.1"
 buffer_sv2 = { path = "../../../utils/buffer" }
 async-recursion = "0.3.2"

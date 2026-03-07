@@ -13,7 +13,8 @@ use crate::{
     utils::ShutdownMessage,
 };
 use async_channel::{Receiver, Sender};
-use network_helpers_sv2::{codec_sv2::binary_sv2::Str0255, sv1_connection::ConnectionSV1};
+use binary_sv2::{Str0255, U256};
+use network_helpers_sv2::sv1_connection::ConnectionSV1;
 use std::{
     collections::HashMap,
     net::SocketAddr,
@@ -22,8 +23,9 @@ use std::{
         Arc, RwLock,
     },
 };
+use bitcoin::Target;
 use stratum_common::roles_logic_sv2::{
-    mining_sv2::{CloseChannel, SetTarget, Target},
+    mining_sv2::{CloseChannel, SetTarget},
     parsers_sv2::Mining,
     utils::{hash_rate_to_target, Mutex},
     vardiff::classic::VardiffState,
@@ -144,8 +146,7 @@ impl Sv1Server {
                 .min_individual_miner_hashrate as f64,
             self.config.downstream_difficulty_config.shares_per_minute as f64,
         )
-        .unwrap()
-        .into();
+        .unwrap();
 
         // Spawn vardiff loop only if enabled
         if self.config.downstream_difficulty_config.enable_vardiff {
@@ -484,7 +485,9 @@ impl Sv1Server {
                     .sv1_server_data
                     .super_safe_lock(|v| v.downstreams.clone());
                 if let Some(downstream) = Self::get_downstream(downstream_id, downstreams) {
-                    let initial_target: Target = m.target.clone().into();
+                    let initial_target: Target = bitcoin::Target::from_le_bytes(
+                        m.target.inner_as_ref().try_into().unwrap(),
+                    );
                     downstream.downstream_data.safe_lock(|d| {
                         d.extranonce1 = m.extranonce_prefix.to_vec();
                         d.extranonce2_len = m.extranonce_size.into();
@@ -660,20 +663,23 @@ impl Sv1Server {
         let min_extranonce_size = self.config.downstream_extranonce2_size;
         let vardiff_enabled = config.enable_vardiff;
 
-        let max_target = if vardiff_enabled {
+        let max_target: U256<'static> = if vardiff_enabled {
             hash_rate_to_target(hashrate, shares_per_min)
                 .unwrap()
+                .to_le_bytes()
                 .into()
         } else {
             // If translator doesn't manage vardiff, we rely on upstream to do that,
             // so we give it more freedom by setting max_target to maximum possible value
-            Target::from([0xff; 32])
+            [0xff_u8; 32].into()
         };
 
         // Store the initial target for use when no downstreams remain
         self.sv1_server_data.super_safe_lock(|data| {
             if data.initial_target.is_none() {
-                data.initial_target = Some(max_target.clone());
+                data.initial_target = Some(bitcoin::Target::from_le_bytes(
+                    max_target.inner_as_ref().try_into().unwrap(),
+                ));
             }
         });
 
@@ -740,7 +746,9 @@ impl Sv1Server {
     /// without any variable difficulty logic. It respects the aggregated/non-aggregated
     /// channel configuration.
     async fn handle_set_target_without_vardiff(&self, set_target: SetTarget<'_>) {
-        let new_target: Target = set_target.maximum_target.clone().into();
+        let new_target: Target = bitcoin::Target::from_le_bytes(
+            set_target.maximum_target.inner_as_ref().try_into().unwrap(),
+        );
         debug!(
             "Forwarding SetTarget to downstreams: channel_id={}, target={:?}",
             set_target.channel_id, new_target
@@ -955,7 +963,7 @@ mod tests {
     #[tokio::test]
     async fn test_send_set_difficulty_to_all_downstreams_empty() {
         let server = create_test_sv1_server();
-        let target: Target = hash_rate_to_target(200.0, 5.0).unwrap().into();
+        let target: Target = hash_rate_to_target(200.0, 5.0).unwrap();
 
         // Test with empty downstreams
         server.send_set_difficulty_to_all_downstreams(target).await;
@@ -966,7 +974,7 @@ mod tests {
     #[tokio::test]
     async fn test_send_set_difficulty_to_specific_downstream_not_found() {
         let server = create_test_sv1_server();
-        let target: Target = hash_rate_to_target(200.0, 5.0).unwrap().into();
+        let target: Target = hash_rate_to_target(200.0, 5.0).unwrap();
         let channel_id = 1u32;
 
         // Test with no downstreams
@@ -989,11 +997,11 @@ mod tests {
         let miner_tracker = std::sync::Arc::new(crate::miner_stats::MinerTracker::new());
 
         let server = Sv1Server::new(addr, cm_receiver, cm_sender, config, miner_tracker);
-        let target: Target = hash_rate_to_target(200.0, 5.0).unwrap().into();
+        let target: Target = hash_rate_to_target(200.0, 5.0).unwrap();
 
         let set_target = SetTarget {
             channel_id: 1,
-            maximum_target: target.clone().into(),
+            maximum_target: target.to_le_bytes().into(),
         };
 
         // Test should not panic and should handle the message
@@ -1012,11 +1020,11 @@ mod tests {
         let miner_tracker = std::sync::Arc::new(crate::miner_stats::MinerTracker::new());
 
         let server = Sv1Server::new(addr, cm_receiver, cm_sender, config, miner_tracker);
-        let target: Target = hash_rate_to_target(200.0, 5.0).unwrap().into();
+        let target: Target = hash_rate_to_target(200.0, 5.0).unwrap();
 
         let set_target = SetTarget {
             channel_id: 1,
-            maximum_target: target.clone().into(),
+            maximum_target: target.to_le_bytes().into(),
         };
 
         // Test should not panic and should handle the message

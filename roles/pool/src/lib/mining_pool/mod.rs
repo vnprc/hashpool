@@ -35,6 +35,8 @@ use pool_stats;
 use quote_dispatcher::QuoteDispatcher;
 use secp256k1;
 use share_hooks;
+use binary_sv2::U256;
+use noise_sv2::Responder;
 use std::{
     collections::HashMap,
     convert::TryInto,
@@ -46,7 +48,7 @@ use stratum_common::{
     network_helpers_sv2::noise_connection::Connection,
     roles_logic_sv2::{
         self,
-        bitcoin::{Amount, TxOut},
+        bitcoin::{Amount, Target, TxOut},
         channels_sv2::server::{
             extended::ExtendedChannel,
             group::GroupChannel,
@@ -54,12 +56,12 @@ use stratum_common::{
             standard::StandardChannel,
         },
         codec_sv2::{
-            self, binary_sv2::U256, HandshakeRole, Responder, StandardEitherFrame, StandardSv2Frame,
+            self, HandshakeRole, StandardEitherFrame, StandardSv2Frame,
         },
         errors::Error,
         handlers::mining::{ParseMiningMessagesFromDownstream, SendTo},
         mining_sv2::{
-            ExtendedExtranonce, SetNewPrevHash as SetNewPrevHashMp, SetTarget, Target,
+            ExtendedExtranonce, SetNewPrevHash as SetNewPrevHashMp, SetTarget,
             MAX_EXTRANONCE_LEN,
         },
         parsers_sv2::{AnyMessage, Mining},
@@ -832,12 +834,10 @@ impl Pool {
                                         )?;
 
                                     let standard_job_id = standard_channel
-                                        .get_future_template_to_job_id()
-                                        .get(&new_template.template_id)
+                                        .get_future_job_id_from_template_id(new_template.template_id)
                                         .expect("job_id must exist");
                                     let standard_job = standard_channel
-                                        .get_future_jobs()
-                                        .get(standard_job_id)
+                                        .get_future_job(standard_job_id)
                                         .expect("standard job must exist");
                                     let standard_job_message = standard_job.get_job_message();
                                     messages.push(standard_job_message.clone().into_static());
@@ -919,12 +919,10 @@ impl Pool {
                                         Error::FailedToProcessNewTemplateGroupChannel(e)
                                     })?;
                                 let future_job_id = group_channel
-                                    .get_future_template_to_job_id()
-                                    .get(&new_template.template_id)
+                                    .get_future_job_id_from_template_id(new_template.template_id)
                                     .expect("job_id must exist");
                                 let future_job = group_channel
-                                    .get_future_jobs()
-                                    .get(future_job_id)
+                                    .get_future_job(future_job_id)
                                     .expect("future job must exist");
 
                                 // also update the standard channels states with the future job
@@ -963,13 +961,11 @@ impl Pool {
                                     })?;
 
                                 let extended_job_id = extended_channel
-                                    .get_future_template_to_job_id()
-                                    .get(&new_template.template_id)
+                                    .get_future_job_id_from_template_id(new_template.template_id)
                                     .expect("job_id must exist");
 
                                 let extended_job = extended_channel
-                                    .get_future_jobs()
-                                    .get(extended_job_id)
+                                    .get_future_job(extended_job_id)
                                     .expect("extended job must exist");
 
                                 let extended_job_message = extended_job.get_job_message();
@@ -1385,7 +1381,7 @@ async fn send_set_target_downstream(
 
     let target_message = SetTarget {
         channel_id,
-        maximum_target: target.into(),
+        maximum_target: target.to_le_bytes().into(),
     };
 
     let mining_msg = Mining::SetTarget(target_message);
@@ -1552,7 +1548,6 @@ mod test {
             self, absolute::LockTime, consensus, transaction::Version, Amount, Transaction, TxOut,
             Witness,
         },
-        codec_sv2::binary_sv2::{B0255, B064K},
     };
     use tracing::error;
 

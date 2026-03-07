@@ -1,6 +1,7 @@
+use binary_sv2::Str0255;
 use stratum_common::roles_logic_sv2::{
     self,
-    bitcoin::Amount,
+    bitcoin::{Amount, Target},
     channels_sv2::{
         client,
         server::{
@@ -12,7 +13,6 @@ use stratum_common::roles_logic_sv2::{
             standard::StandardChannel,
         },
     },
-    codec_sv2::binary_sv2::Str0255,
     handlers_sv2::{HandleMiningMessagesFromClientAsync, SupportedChannelTypes},
     job_declaration_sv2::PushSolution,
     mining_sv2::*,
@@ -250,12 +250,18 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                         if !data.require_std_job && data.group_channels.is_none() {
                             let group_channel_id = channel_manager_data.channel_id_factory.next();
                             let job_store = DefaultJobStore::new();
+                            let full_extranonce_size = channel_manager_data
+                                .upstream_channel
+                                .as_ref()
+                                .map(|ch| ch.get_full_extranonce_size())
+                                .unwrap_or(0);
                             let mut group_channel = GroupChannel::new_for_job_declaration_client(
                                 group_channel_id,
                                 job_store,
+                                full_extranonce_size,
                                 channel_manager_data.pool_tag_string.clone(),
                                 self.miner_tag_string.clone(),
-                            );
+                            ).expect("Failed to create group channel");
 
                             if let Err(e) = group_channel.on_new_template(
                                 last_future_template.clone(),
@@ -302,7 +308,7 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                                 standard_channel_id,
                                 user_identity.to_string(),
                                 extranonce_prefix.to_vec(),
-                                requested_max_target.into(),
+                                Target::from_le_bytes(requested_max_target.inner_as_ref().try_into().unwrap()),
                                 nominal_hash_rate,
                                 self.share_batch_size,
                                 self.shares_per_minute,
@@ -333,7 +339,7 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                             OpenStandardMiningChannelSuccess {
                                 request_id: msg.request_id.clone(),
                                 channel_id: standard_channel_id,
-                                target: standard_channel.get_target().clone().into(),
+                                target: standard_channel.get_target().to_le_bytes().into(),
                                 extranonce_prefix: standard_channel
                                     .get_extranonce_prefix()
                                     .clone()
@@ -361,14 +367,11 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                         }
 
                         let future_standard_job_id = standard_channel
-                            .get_future_template_to_job_id()
-                            .get(&last_future_template.template_id)
-                            .cloned()
+                            .get_future_job_id_from_template_id(last_future_template.template_id)
                             .expect("future job id must exist");
 
                         let future_standard_job = standard_channel
-                            .get_future_jobs()
-                            .get(&future_standard_job_id)
+                            .get_future_job(future_standard_job_id)
                             .expect("future job must exist");
 
                         let future_standard_job_message =
@@ -417,7 +420,13 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
 
                         channel_manager_data.downstream_channel_id_and_job_id_to_template_id.insert((standard_channel_id, future_standard_job_id), last_future_template.template_id);
                         if let Some(group_channel) = data.group_channels.as_mut() {
-                            group_channel.add_standard_channel_id(standard_channel_id);
+                            let extranonce_size = data.standard_channels
+                                .get(&standard_channel_id)
+                                .map(|ch| ch.get_extranonce_prefix().len())
+                                .unwrap_or(0);
+                            if let Err(e) = group_channel.add_channel_id(standard_channel_id, extranonce_size) {
+                                error!(?e, "Failed to add channel to group");
+                            }
                         }
 
                         Ok(messages)
@@ -519,7 +528,7 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                             extended_channel_id,
                             user_identity.to_string(),
                             extranonce_prefix.into(),
-                            requested_max_target.into(),
+                            Target::from_le_bytes(requested_max_target.inner_as_ref().try_into().unwrap()),
                             nominal_hash_rate,
                             true,
                             requested_min_rollable_extranonce_size,
@@ -555,13 +564,14 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                             OpenExtendedMiningChannelSuccess {
                                 request_id,
                                 channel_id: extended_channel_id,
-                                target: extended_channel.get_target().clone().into(),
+                                target: extended_channel.get_target().to_le_bytes().into(),
                                 extranonce_prefix: extended_channel
                                     .get_extranonce_prefix()
                                     .clone()
                                     .try_into()
                                     .expect("valid extranonce prefix"),
                                 extranonce_size: extended_channel.get_rollable_extranonce_size(),
+                                group_channel_id: 0,
                             }
                             .into_static();
 
@@ -586,13 +596,10 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                         }
 
                         let future_extended_job_id = extended_channel
-                            .get_future_template_to_job_id()
-                            .get(&last_future_template.template_id)
-                            .cloned()
+                            .get_future_job_id_from_template_id(last_future_template.template_id)
                             .expect("future job id must exist");
                         let future_extended_job = extended_channel
-                            .get_future_jobs()
-                            .get(&future_extended_job_id)
+                            .get_future_job(future_extended_job_id)
                             .expect("future job must exist");
 
                         let future_extended_job_message =
@@ -707,7 +714,7 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                             {
                                 let update_channel = standard_channel.update_channel(
                                     new_nominal_hash_rate,
-                                    Some(requested_maximum_target.into()),
+                                    Some(Target::from_le_bytes(requested_maximum_target.inner_as_ref().try_into().unwrap())),
                                 );
                                 let new_target = standard_channel.get_target().clone();
 
@@ -735,7 +742,7 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                                         downstream_id,
                                         Mining::SetTarget(SetTarget {
                                             channel_id,
-                                            maximum_target: new_target.into(),
+                                            maximum_target: new_target.to_le_bytes().into(),
                                         }),
                                     )
                                         .into(),
@@ -745,7 +752,7 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                             {
                                 let update_channel = extended_channel.update_channel(
                                     new_nominal_hash_rate,
-                                    Some(requested_maximum_target.into()),
+                                    Some(Target::from_le_bytes(requested_maximum_target.inner_as_ref().try_into().unwrap())),
                                 );
                                 let new_target = extended_channel.get_target().clone();
 
@@ -772,7 +779,7 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                                         downstream_id,
                                         Mining::SetTarget(SetTarget {
                                             channel_id,
-                                            maximum_target: new_target.into(),
+                                            maximum_target: new_target.to_le_bytes().into(),
                                         }),
                                     )
                                         .into(),
@@ -790,7 +797,7 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                 }
 
                 let mut downstream_hashrate = 0.0;
-                let mut min_target: Target = [0xff; 32].into();
+                let mut min_target: Target = Target::from_le_bytes([0xff; 32]);
 
                 for (_, downstream) in channel_manager_data.downstream.iter() {
                     downstream.downstream_data.super_safe_lock(|data| {
@@ -828,7 +835,7 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                         Mining::UpdateChannel(UpdateChannel {
                             channel_id: upstream_channel.get_channel_id(),
                             nominal_hash_rate: downstream_hashrate,
-                            maximum_target: min_target.into(),
+                            maximum_target: min_target.to_le_bytes().into(),
                         })
                         .into(),
                     )
@@ -901,30 +908,26 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                 let mut is_downstream_share_valid = false;
                 match res {
                     Ok(ShareValidationResult::Valid(_accepted_share)) => {
-                        info!(
-                            "SubmitSharesStandard on downstream channel: valid share | channel_id: {}, sequence_number: {} ☑️",
-                            channel_id, msg.sequence_number
-                        );
                         is_downstream_share_valid = true;
-                    }
-                    Ok(ShareValidationResult::ValidWithAcknowledgement(
-                        _accepted_share,
-                        last_sequence_number,
-                        new_submits_accepted_count,
-                        new_shares_sum,
-                    )) => {
-                        let success = SubmitSharesSuccess {
-                            channel_id,
-                            last_sequence_number,
-                            new_submits_accepted_count,
-                            new_shares_sum,
-                        };
-                        is_downstream_share_valid = true;
-                        info!("SubmitSharesStandard on downstream channel: {} ✅", success);
-                        messages.push(
-                            (downstream.downstream_id,
-                            Mining::SubmitSharesSuccess(success)).into(),
-                        );
+                        let share_accounting = standard_channel.get_share_accounting();
+                        if share_accounting.should_acknowledge() {
+                            let success = SubmitSharesSuccess {
+                                channel_id,
+                                last_sequence_number: share_accounting.get_last_share_sequence_number(),
+                                new_submits_accepted_count: share_accounting.get_last_batch_accepted(),
+                                new_shares_sum: share_accounting.get_last_batch_work_sum() as u64,
+                            };
+                            info!("SubmitSharesStandard on downstream channel: {} ✅", success);
+                            messages.push(
+                                (downstream.downstream_id,
+                                Mining::SubmitSharesSuccess(success)).into(),
+                            );
+                        } else {
+                            info!(
+                                "SubmitSharesStandard on downstream channel: valid share | channel_id: {}, sequence_number: {} ☑️",
+                                channel_id, msg.sequence_number
+                            );
+                        }
                     }
                     Ok(ShareValidationResult::BlockFound(
                         _accepted_share,
@@ -950,7 +953,7 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                             channel_id,
                             last_sequence_number: share_accounting.get_last_share_sequence_number(),
                             new_submits_accepted_count: share_accounting.get_shares_accepted(),
-                            new_shares_sum: share_accounting.get_share_work_sum(),
+                            new_shares_sum: share_accounting.get_share_work_sum() as u64,
                         };
                         messages.push((
                             downstream.downstream_id,
@@ -1002,7 +1005,7 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                     if let Some(mut upstream_message) = upstream_message {
                         let res = upstream_channel.validate_share(upstream_message.clone());
                         match res {
-                            Ok(client::share_accounting::ShareValidationResult::Valid) => {
+                            Ok(client::share_accounting::ShareValidationResult::Valid(_hash)) => {
                                 upstream_message.sequence_number = channel_manager_data.sequence_number_factory.next();
                                 info!(
                                     "SubmitSharesStandard, forwarding it to upstream: valid share | channel_id: {}, sequence_number: {}  ✅",
@@ -1010,7 +1013,7 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                                 );
                                 messages.push(Mining::SubmitSharesExtended(upstream_message).into());
                             }
-                            Ok(client::share_accounting::ShareValidationResult::BlockFound) => {
+                            Ok(client::share_accounting::ShareValidationResult::BlockFound(_hash)) => {
                                 upstream_message.sequence_number = channel_manager_data.sequence_number_factory.next();
                                 info!("SubmitSharesStandard forwarding it to upstream: 💰 Block Found!!! 💰");
                                 let push_solution = PushSolution {
@@ -1106,30 +1109,26 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                 let mut is_downstream_share_valid = false;
                 match res {
                     Ok(ShareValidationResult::Valid(_accepted_share)) => {
-                        info!(
-                            "SubmitSharesExtended on downstream channel: valid share | channel_id: {}, sequence_number: {} ☑️",
-                            channel_id, msg.sequence_number
-                        );
                         is_downstream_share_valid = true;
-                    }
-                    Ok(ShareValidationResult::ValidWithAcknowledgement(
-                        _accepted_share,
-                        last_sequence_number,
-                        new_submits_accepted_count,
-                        new_shares_sum,
-                    )) => {
-                        let success = SubmitSharesSuccess {
-                            channel_id,
-                            last_sequence_number,
-                            new_submits_accepted_count,
-                            new_shares_sum,
-                        };
-                        info!("SubmitSharesExtended on downstream channel: {} ✅", success);
-                        is_downstream_share_valid = true;
-                        messages.push((
-                            downstream.downstream_id,
-                            Mining::SubmitSharesSuccess(success),
-                        ).into());
+                        let share_accounting = extended_channel.get_share_accounting();
+                        if share_accounting.should_acknowledge() {
+                            let success = SubmitSharesSuccess {
+                                channel_id,
+                                last_sequence_number: share_accounting.get_last_share_sequence_number(),
+                                new_submits_accepted_count: share_accounting.get_last_batch_accepted(),
+                                new_shares_sum: share_accounting.get_last_batch_work_sum() as u64,
+                            };
+                            info!("SubmitSharesExtended on downstream channel: {} ✅", success);
+                            messages.push((
+                                downstream.downstream_id,
+                                Mining::SubmitSharesSuccess(success),
+                            ).into());
+                        } else {
+                            info!(
+                                "SubmitSharesExtended on downstream channel: valid share | channel_id: {}, sequence_number: {} ☑️",
+                                channel_id, msg.sequence_number
+                            );
+                        }
                     }
                     Ok(ShareValidationResult::BlockFound(
                         _accepted_share,
@@ -1153,7 +1152,7 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                             channel_id,
                             last_sequence_number: share_accounting.get_last_share_sequence_number(),
                             new_submits_accepted_count: share_accounting.get_shares_accepted(),
-                            new_shares_sum: share_accounting.get_share_work_sum(),
+                            new_shares_sum: share_accounting.get_share_work_sum() as u64,
                         };
                         is_downstream_share_valid = true;
                         messages.push((
@@ -1205,7 +1204,7 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                     if let Some(mut upstream_message) = upstream_message{
                         let res = upstream_channel.validate_share(upstream_message.clone());
                         match res {
-                            Ok(client::share_accounting::ShareValidationResult::Valid) => {
+                            Ok(client::share_accounting::ShareValidationResult::Valid(_hash)) => {
                                 upstream_message.sequence_number = channel_manager_data.sequence_number_factory.next();
                                 info!(
                                     "SubmitSharesExtended forwarding it to upstream: valid share | channel_id: {}, sequence_number: {}  ✅",
@@ -1215,7 +1214,7 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                                     Mining::SubmitSharesExtended(upstream_message.into_static()).into(),
                                 );
                             }
-                            Ok(client::share_accounting::ShareValidationResult::BlockFound) => {
+                            Ok(client::share_accounting::ShareValidationResult::BlockFound(_hash)) => {
                                 upstream_message.sequence_number = channel_manager_data.sequence_number_factory.next();
                                 info!("SubmitSharesExtended forwarding it to upstream: 💰 Block Found!!! 💰");
                                 let mut channel_extranonce = upstream_channel.get_extranonce_prefix().to_vec();

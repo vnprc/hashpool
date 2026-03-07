@@ -4,8 +4,9 @@ use crate::{
 };
 use async_channel::Sender;
 use std::{collections::HashMap, sync::Arc, time::Duration};
+use bitcoin::Target;
 use stratum_common::roles_logic_sv2::{
-    mining_sv2::{SetTarget, Target, UpdateChannel},
+    mining_sv2::{SetTarget, UpdateChannel},
     parsers_sv2::Mining,
     utils::{hash_rate_to_target, Mutex},
     Vardiff,
@@ -168,7 +169,7 @@ impl DifficultyManager {
                 // Calculate new target based on new hashrate
                 let new_target: Target =
                     match hash_rate_to_target(new_hashrate as f64, self.shares_per_minute as f64) {
-                        Ok(target) => target.into(),
+                        Ok(target) => target,
                         Err(e) => {
                             error!(
                                 "Failed to calculate target for hashrate {}: {:?}",
@@ -326,7 +327,7 @@ impl DifficultyManager {
                 let update_channel = UpdateChannel {
                     channel_id: *channel_id,
                     nominal_hash_rate: total_hashrate,
-                    maximum_target: min_target.clone().into(),
+                    maximum_target: min_target.to_le_bytes().into(),
                 };
 
                 debug!(
@@ -349,7 +350,7 @@ impl DifficultyManager {
                 let update_channel = UpdateChannel {
                     channel_id: *channel_id,
                     nominal_hash_rate: *new_hashrate,
-                    maximum_target: new_target.clone().into(),
+                    maximum_target: new_target.to_le_bytes().into(),
                 };
 
                 debug!(
@@ -382,7 +383,9 @@ impl DifficultyManager {
         sv1_server_to_downstream_sender: &broadcast::Sender<(u32, Option<u32>, json_rpc::Message)>,
         is_aggregated: bool,
     ) {
-        let new_upstream_target: Target = set_target.maximum_target.clone().into();
+        let new_upstream_target: Target = bitcoin::Target::from_le_bytes(
+            set_target.maximum_target.inner_as_ref().try_into().unwrap(),
+        );
         debug!(
             "Received SetTarget for channel {}: new_upstream_target = {:?}",
             set_target.channel_id, new_upstream_target
@@ -639,7 +642,7 @@ impl DifficultyManager {
             let update_channel = UpdateChannel {
                 channel_id,
                 nominal_hash_rate: total_hashrate,
-                maximum_target: min_target.clone().into(),
+                maximum_target: min_target.to_le_bytes().into(),
             };
 
             if let Err(e) = channel_manager_sender
@@ -748,7 +751,7 @@ mod tests {
     #[test]
     fn test_get_pending_difficulty_updates_basic() {
         let sv1_server_data = create_test_sv1_server_data();
-        let upstream_target: Target = hash_rate_to_target(150.0, 5.0).unwrap().into();
+        let upstream_target: Target = hash_rate_to_target(150.0, 5.0).unwrap();
 
         // Test with empty pending updates
         let applicable_updates = DifficultyManager::get_pending_difficulty_updates(

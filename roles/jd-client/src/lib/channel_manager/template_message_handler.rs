@@ -1,7 +1,7 @@
+use binary_sv2::{Seq064K, U256};
 use stratum_common::roles_logic_sv2::{
     bitcoin::{consensus, hashes::Hash, Amount, Transaction, TxOut},
     channels_sv2::chain_tip::ChainTip,
-    codec_sv2::binary_sv2::{Seq064K, U256},
     handlers_sv2::HandleTemplateDistributionMessagesFromServerAsync,
     job_declaration_sv2::DeclareMiningJob,
     mining_sv2::SetNewPrevHash as SetNewPrevHashMp,
@@ -73,18 +73,12 @@ impl HandleTemplateDistributionMessagesFromServerAsync for ChannelManager {
                             match msg.future_template {
                                 true => {
                                     let future_job_id = group_channel
-                                            .get_future_template_to_job_id()
-                                            .get(&msg.template_id)
-                                            .expect("job_id must exist");
-                                    Some(group_channel
-                                        .get_future_jobs()
-                                        .get(future_job_id)
-                                        .expect("future job must exist")).cloned()
+                                        .get_future_job_id_from_template_id(msg.template_id)
+                                        .expect("job_id must exist");
+                                    group_channel.get_future_job(future_job_id)
                                 },
                                 false => {
-                                    Some(group_channel
-                                        .get_active_job()
-                                        .expect("active job must exist")).cloned()
+                                    group_channel.get_active_job()
                                 }
                             }
                         } else {
@@ -104,7 +98,7 @@ impl HandleTemplateDistributionMessagesFromServerAsync for ChannelManager {
                                     let request_id = channel_manager_data.request_id_factory.next();
                                     let output = deserialize_coinbase_outputs(&channel_manager_data.coinbase_outputs);
                                     let job_factory = channel_manager_data.job_factory.as_mut().unwrap();
-                                    let custom_job = job_factory.new_custom_job(upstream_channel.get_channel_id(), request_id, token.clone().mining_job_token, prevhash.clone().into(), msg.clone(), output);
+                                    let custom_job = job_factory.new_custom_job(upstream_channel.get_channel_id(), request_id, token.clone().mining_job_token, prevhash.clone().into(), msg.clone(), output, upstream_channel.get_full_extranonce_size());
 
                                     if let Ok(custom_job) = custom_job{
                                         let last_declare = DeclaredJob {
@@ -133,9 +127,9 @@ impl HandleTemplateDistributionMessagesFromServerAsync for ChannelManager {
                                         tracing::error!("Error while adding template to standard channel: {channel_id:?} {e:?}");
                                         continue;
                                     }
-                                    let standard_job_id = standard_channel.get_future_template_to_job_id().get(&msg.template_id).expect("job_id must exist");
-                                    let standard_job = standard_channel.get_future_jobs().get(standard_job_id).expect("standard job must exist");
-                                    channel_manager_data.downstream_channel_id_and_job_id_to_template_id.insert((*channel_id, *standard_job_id), msg.template_id);
+                                    let standard_job_id = standard_channel.get_future_job_id_from_template_id(msg.template_id).expect("job_id must exist");
+                                    let standard_job = standard_channel.get_future_job(standard_job_id).expect("standard job must exist");
+                                    channel_manager_data.downstream_channel_id_and_job_id_to_template_id.insert((*channel_id, standard_job_id), msg.template_id);
                                     let standard_job_message = standard_job.get_job_message();
                                     messages.push((*downstream_id, Mining::NewMiningJob(standard_job_message.clone())).into());
                                 }
@@ -159,16 +153,14 @@ impl HandleTemplateDistributionMessagesFromServerAsync for ChannelManager {
                                     continue;
                                 }
                                 let extended_job_id = extended_channel
-                                    .get_future_template_to_job_id()
-                                    .get(&msg.template_id)
+                                    .get_future_job_id_from_template_id(msg.template_id)
                                     .expect("job_id must exist");
 
                                 let extended_job = extended_channel
-                                    .get_future_jobs()
-                                    .get(extended_job_id)
+                                    .get_future_job(extended_job_id)
                                     .expect("extended job must exist");
 
-                                channel_manager_data.downstream_channel_id_and_job_id_to_template_id.insert((*channel_id, *extended_job_id), msg.template_id);
+                                channel_manager_data.downstream_channel_id_and_job_id_to_template_id.insert((*channel_id, extended_job_id), msg.template_id);
                                 let extended_job_message = extended_job.get_job_message();
 
                                 messages.push((*downstream_id,Mining::NewExtendedMiningJob(extended_job_message.clone())).into());
@@ -324,8 +316,9 @@ impl HandleTemplateDistributionMessagesFromServerAsync for ChannelManager {
             let mut output = deserialize_coinbase_outputs(&data.coinbase_outputs);
             output[0].value = Amount::from_sat(template_message.coinbase_tx_value_remaining);
 
+            let full_extranonce_size = data.upstream_channel.as_ref().map(|ch| ch.get_full_extranonce_size()).unwrap_or(0);
             if let Ok((coinbase_tx_prefix, coinbase_tx_suffix)) =
-                job_factory.new_coinbase_tx_prefix_and_suffix(template_message.clone(), output)
+                job_factory.new_coinbase_tx_prefix_and_suffix(template_message.clone(), output, full_extranonce_size)
             {
                 let version = template_message.version;
 
@@ -335,7 +328,7 @@ impl HandleTemplateDistributionMessagesFromServerAsync for ChannelManager {
                     version,
                     coinbase_tx_prefix: coinbase_tx_prefix.try_into().unwrap(),
                     coinbase_tx_suffix: coinbase_tx_suffix.try_into().unwrap(),
-                    tx_ids_list: tx_ids,
+                    wtxid_list: tx_ids,
                     excess_data: excess_data.to_vec().try_into().unwrap(),
                 };
 
@@ -452,6 +445,7 @@ impl HandleTemplateDistributionMessagesFromServerAsync for ChannelManager {
                             chain_tip,
                             template.clone(),
                             outputs,
+                            upstream_channel.get_full_extranonce_size(),
                         ) {
                             let last_declare = DeclaredJob {
                                 declare_mining_job: None,

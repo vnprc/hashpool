@@ -16,11 +16,12 @@ use async_channel::{Receiver, Sender};
 use error_handling::handle_result;
 use key_utils::Secp256k1PublicKey;
 use std::{convert::TryInto, net::SocketAddr, sync::Arc};
+use noise_sv2::Initiator;
 use stratum_common::{
     network_helpers_sv2::noise_connection::Connection,
     roles_logic_sv2::{
         self, codec_sv2,
-        codec_sv2::{HandshakeRole, Initiator},
+        codec_sv2::HandshakeRole,
         handlers::template_distribution::ParseTemplateDistributionMessagesFromServer,
         parsers_sv2::{AnyMessage, TemplateDistribution},
         template_distribution_sv2::{

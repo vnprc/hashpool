@@ -27,15 +27,14 @@ use error_handling::handle_result;
 use key_utils::{Secp256k1PublicKey, Secp256k1SecretKey, SignatureService};
 use nohash_hasher::BuildNoHashHasher;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
+use binary_sv2::{self, B0255, U256};
+use noise_sv2::Responder;
 use stratum_common::{
     network_helpers_sv2::noise_connection::Connection,
     roles_logic_sv2::{
         self,
         bitcoin::{consensus::encode::serialize, Amount, Block, Transaction, TxOut, Txid},
-        codec_sv2::{
-            binary_sv2::{self, B0255, U256},
-            HandshakeRole, Responder,
-        },
+        codec_sv2::HandshakeRole,
         common_messages_sv2::{
             Protocol, SetupConnection, SetupConnectionError, SetupConnectionSuccess,
         },

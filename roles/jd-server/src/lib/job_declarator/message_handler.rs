@@ -1,11 +1,11 @@
 use std::{convert::TryInto, io::Cursor, sync::Arc};
+use binary_sv2::{Decodable, Serialize, U256};
 use stratum_common::roles_logic_sv2::{
     bitcoin::{
         consensus::Decodable as BitcoinDecodable,
         hashes::{sha256d, Hash},
         Transaction, Txid,
     },
-    codec_sv2::binary_sv2::{Decodable, Serialize, U256},
     handlers::{job_declaration::ParseJobDeclarationMessagesFromDownstream, SendTo_},
     job_declaration_sv2::{
         AllocateMiningJobToken, AllocateMiningJobTokenSuccess, DeclareMiningJob,
@@ -84,7 +84,7 @@ impl ParseJobDeclarationMessagesFromDownstream for JobDeclaratorDownstream {
         }
         let mut known_transactions: Vec<Txid> = vec![];
         if self.verify_job(&message) {
-            let txids = message.tx_ids_list.inner_as_ref();
+            let txids = message.wtxid_list.inner_as_ref();
             let mempool = self.mempool.safe_lock(|x| x.mempool.clone())?;
             let mut transactions_with_state = vec![TransactionState::Missing; txids.len()];
             let mut missing_txs: Vec<u16> = Vec::new();
@@ -234,8 +234,8 @@ fn clear_declared_mining_job(
     new_mining_job: &DeclareMiningJob,
     mempool: Arc<Mutex<JDsMempool>>,
 ) -> Result<(), Error> {
-    let old_transactions = old_mining_job.tx_ids_list.inner_as_ref();
-    let new_transactions = new_mining_job.tx_ids_list.inner_as_ref();
+    let old_transactions = old_mining_job.wtxid_list.inner_as_ref();
+    let new_transactions = new_mining_job.wtxid_list.inner_as_ref();
 
     if old_transactions.is_empty() {
         info!("No transactions to remove from mempool");

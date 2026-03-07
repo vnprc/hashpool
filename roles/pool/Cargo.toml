@@ -20,7 +20,7 @@ path = "src/lib/mod.rs"
 async-channel = "1.5.1"
 async-trait = "0.1"
 stratum-common = { path = "../../common", features = ["with_network_helpers"] }
-buffer_sv2 = { path = "../../utils/buffer" }
+buffer_sv2 = "3.0.0"
 rand = "0.8.4"
 serde = { version = "1.0.89", features = ["derive", "alloc"], default-features = false }
 secp256k1 = { version = "0.28.2", default-features = false, features = ["alloc", "rand", "rand-std"] }

@@ -2,6 +2,9 @@ use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use async_channel::{Receiver, Sender};
 use key_utils::{Secp256k1PublicKey, Secp256k1SecretKey};
+use bitcoin::Target;
+use framing_sv2::framing::Sv2Frame;
+use noise_sv2::Responder;
 use stratum_common::{
     network_helpers_sv2::noise_stream::NoiseTcpStream,
     roles_logic_sv2::{
@@ -16,7 +19,7 @@ use stratum_common::{
                 standard::StandardChannel,
             },
         },
-        codec_sv2::{Responder, Sv2Frame},
+        codec_sv2::HandshakeRole,
         handlers_sv2::{
             HandleJobDeclarationMessagesFromServerAsync, HandleMiningMessagesFromClientAsync,
             HandleMiningMessagesFromServerAsync, HandleTemplateDistributionMessagesFromServerAsync,
@@ -25,7 +28,7 @@ use stratum_common::{
             AllocateMiningJobToken, AllocateMiningJobTokenSuccess, DeclareMiningJob,
         },
         mining_sv2::{
-            ExtendedExtranonce, OpenExtendedMiningChannel, SetCustomMiningJob, SetTarget, Target,
+            ExtendedExtranonce, OpenExtendedMiningChannel, SetCustomMiningJob, SetTarget,
             UpdateChannel, MAX_EXTRANONCE_LEN, MESSAGE_TYPE_OPEN_EXTENDED_MINING_CHANNEL,
             MESSAGE_TYPE_OPEN_STANDARD_MINING_CHANNEL,
         },
@@ -383,7 +386,7 @@ impl ChannelManager {
                                 };
                                 let noise_stream = match NoiseTcpStream::<Message>::new(
                                     stream,
-                                    stratum_common::roles_logic_sv2::codec_sv2::HandshakeRole::Responder(responder),
+                                    HandshakeRole::Responder(responder),
                                 )
                                 .await
                                 {
@@ -919,7 +922,7 @@ impl ChannelManager {
                         downstream_id,
                         Mining::SetTarget(SetTarget {
                             channel_id,
-                            maximum_target: updated_target.clone().into(),
+                            maximum_target: updated_target.to_le_bytes().into(),
                         }),
                     )
                         .into(),
@@ -959,7 +962,7 @@ impl ChannelManager {
                             downstream_id,
                             Mining::SetTarget(SetTarget {
                                 channel_id,
-                                maximum_target: updated_target.clone().into(),
+                                maximum_target: updated_target.to_le_bytes().into(),
                             }),
                         )
                             .into(),
@@ -1032,7 +1035,7 @@ impl ChannelManager {
 
                 if !messages.is_empty() {
                     let mut downstream_hashrate = 0.0;
-                    let mut min_target: Target = [0xff; 32].into();
+                    let mut min_target: Target = Target::from_le_bytes([0xff; 32]);
 
                     for (_, downstream) in channel_manager_data.downstream.iter() {
                         downstream.downstream_data.super_safe_lock(|data| {
@@ -1070,7 +1073,7 @@ impl ChannelManager {
                             Mining::UpdateChannel(UpdateChannel {
                                 channel_id: upstream_channel.get_channel_id(),
                                 nominal_hash_rate: downstream_hashrate,
-                                maximum_target: min_target.into(),
+                                maximum_target: min_target.to_le_bytes().into(),
                             })
                             .into(),
                         )

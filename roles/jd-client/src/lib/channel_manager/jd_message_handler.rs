@@ -1,9 +1,9 @@
+use binary_sv2::{self, Sv2DataType, B016M};
 use stratum_common::roles_logic_sv2::{
     bitcoin::{
         self, absolute::LockTime, transaction::Version, OutPoint, ScriptBuf, Sequence, Transaction,
         TxIn, TxOut, Witness,
     },
-    codec_sv2::binary_sv2::{self, Sv2DataType, B016M},
     handlers_sv2::HandleJobDeclarationMessagesFromServerAsync,
     job_declaration_sv2::{
         AllocateMiningJobTokenSuccess, DeclareMiningJobError, DeclareMiningJobSuccess,
@@ -180,6 +180,7 @@ impl HandleJobDeclarationMessagesFromServerAsync for ChannelManager {
                     prevhash.into(),
                     last_declare_job.template,
                     output,
+                    upstream_channel.get_full_extranonce_size(),
                 );
                 Some(custom_job)
             })

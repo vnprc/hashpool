@@ -1,3 +1,4 @@
+use bitcoin::Target;
 use stratum_common::roles_logic_sv2::{
     self,
     channels_sv2::{client::extended::ExtendedChannel, server::jobs::factory::JobFactory},
@@ -127,7 +128,7 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
                     msg.channel_id,
                     self.user_identity.clone(),
                     msg.extranonce_prefix.to_vec(),
-                    msg.target.into(),
+                    Target::from_le_bytes(msg.target.inner_as_ref().try_into().unwrap()),
                     hashrate,
                     true,
                     min_extranonce_size,
@@ -155,6 +156,7 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
                             prevhash.clone().into(),
                             template.clone(),
                             outputs,
+                            total_len,
                         ) {
                             let last_declare = DeclaredJob {
                                 declare_mining_job: None,
@@ -534,7 +536,7 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
         info!("Received: {}", msg);
         self.channel_manager_data.super_safe_lock(|data| {
             if let Some(ref mut upstream) = data.upstream_channel {
-                upstream.set_target(msg.maximum_target.clone().into());
+                upstream.set_target(Target::from_le_bytes(msg.maximum_target.inner_as_ref().try_into().unwrap()));
             }
         });
         Ok(())

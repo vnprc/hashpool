@@ -3,8 +3,9 @@ use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
 };
+use bitcoin::Target;
 use stratum_common::roles_logic_sv2::{
-    mining_sv2::{SetNewPrevHash, Target},
+    mining_sv2::SetNewPrevHash,
     utils::Id as IdFactory,
     vardiff::classic::VardiffState,
 };

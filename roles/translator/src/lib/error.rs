@@ -14,7 +14,6 @@ use binary_sv2;
 use framing_sv2;
 use noise_sv2;
 use stratum_common::roles_logic_sv2::{
-    codec_sv2,
     errors::Error as RolesLogicError,
     handlers_sv2::HandlerErrorType,
     parsers_sv2::ParserError as RolesParserError,

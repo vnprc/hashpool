@@ -24,7 +24,7 @@ bitcoin = "0.32.5"
 codec_sv2 = { version = "4.0.1", features = ["noise_sv2", "with_buffer_pool"] }
 framing_sv2 = "6.0.1"
 noise_sv2 = "1.4.1"
-buffer_sv2 = { path = "../../utils/buffer" }
+buffer_sv2 = "3.0.0"
 rand = "0.8.4"
 tokio = { version = "1.44.1", features = ["full"] }
 ext-config = { version = "0.14.0", features = ["toml"], package = "config" }

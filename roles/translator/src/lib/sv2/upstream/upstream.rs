@@ -10,10 +10,10 @@ use mint_quote_sv2::{MESSAGE_TYPE_MINT_QUOTE_FAILURE, MESSAGE_TYPE_MINT_QUOTE_NO
 use key_utils::Secp256k1PublicKey;
 use network_helpers_sv2::noise_connection::Connection;
 use std::{net::SocketAddr, sync::Arc};
+use framing_sv2;
+use noise_sv2::Initiator;
 use stratum_common::roles_logic_sv2::{
-    codec_sv2::{
-        self, framing_sv2, HandshakeRole, Initiator, StandardEitherFrame, StandardSv2Frame,
-    },
+    codec_sv2::{HandshakeRole, StandardEitherFrame, StandardSv2Frame},
     common_messages_sv2::{Protocol, SetupConnection},
     handlers_sv2::HandleCommonMessagesFromServerAsync,
     parsers_sv2::AnyMessage,
@@ -228,7 +228,7 @@ impl Upstream {
                 Err(e) => {
                     error!("Failed to receive handshake response from upstream: {}", e);
                     return Err(TproxyError::CodecNoise(
-                        codec_sv2::noise_sv2::Error::ExpectedIncomingHandshakeMessage,
+                        noise_sv2::Error::ExpectedIncomingHandshakeMessage,
                     ));
                 }
             };
@@ -289,7 +289,7 @@ impl Upstream {
                 }
 
                 // Parse message from frame for all other message types
-                let mut frame: codec_sv2::Frame<AnyMessage<'static>, buffer_sv2::Slice> =
+                let mut frame: framing_sv2::framing::Frame<AnyMessage<'static>, buffer_sv2::Slice> =
                     std_frame.clone().into();
 
                 let (message_type_parsed, mut payload, parsed_message) =

@@ -25,10 +25,11 @@ use tokio::{
 use tracing::{debug, error, info, warn};
 
 use key_utils::{Secp256k1PublicKey, Secp256k1SecretKey};
+use noise_sv2::Responder;
 use stratum_common::{
     network_helpers_sv2::noise_connection::Connection,
     roles_logic_sv2::{
-        codec_sv2::{HandshakeRole, Responder, StandardEitherFrame, StandardSv2Frame},
+        codec_sv2::{HandshakeRole, StandardEitherFrame, StandardSv2Frame},
         parsers_sv2::AnyMessage,
     },
 };

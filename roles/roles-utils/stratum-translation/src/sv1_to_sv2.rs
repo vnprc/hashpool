@@ -1,5 +1,6 @@
+use binary_sv2::U256;
 use crate::error::{Result, StratumTranslationError};
-use mining_sv2::{OpenExtendedMiningChannel, SubmitSharesExtended, Target};
+use mining_sv2::{OpenExtendedMiningChannel, SubmitSharesExtended};
 use v1::{client_to_server, utils::HexU32Be};
 
 /// Builds an SV2 `OpenExtendedMiningChannel` message from the provided inputs.
@@ -18,7 +19,7 @@ pub fn build_sv2_open_extended_mining_channel(
     request_id: u32,
     user_identity: String,
     nominal_hash_rate: f32,
-    max_target: Target,
+    max_target: U256<'static>,
     min_extranonce_size: u16,
 ) -> Result<OpenExtendedMiningChannel<'static>> {
     Ok(OpenExtendedMiningChannel {
@@ -163,7 +164,7 @@ mod tests {
 
     #[test]
     fn test_build_sv2_open_extended_mining_channel_happy() {
-        let max_target: Target = [0xffu8; 32].into();
+        let max_target: U256<'static> = [0xffu8; 32].into();
         let res = build_sv2_open_extended_mining_channel(
             123,
             "user.worker1".to_string(),
@@ -182,7 +183,7 @@ mod tests {
 
     #[test]
     fn test_build_sv2_open_extended_mining_channel_invalid_user() {
-        let max_target: Target = [0xffu8; 32].into();
+        let max_target: U256<'static> = [0xffu8; 32].into();
         // Create a user identity that's too long (> 255 chars)
         let long_user = "x".repeat(300);
         let res = build_sv2_open_extended_mining_channel(1, long_user, 1.0, max_target, 8);

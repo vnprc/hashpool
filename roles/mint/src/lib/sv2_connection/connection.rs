@@ -1,6 +1,7 @@
 use anyhow::Result;
 use cdk::mint::Mint;
-use codec_sv2::{HandshakeRole, Initiator, StandardEitherFrame, StandardSv2Frame};
+use codec_sv2::{HandshakeRole, StandardEitherFrame, StandardSv2Frame};
+use noise_sv2::Initiator;
 use const_sv2::MESSAGE_TYPE_SETUP_CONNECTION_SUCCESS;
 use key_utils::Secp256k1PublicKey;
 use network_helpers_sv2::noise_connection::Connection;

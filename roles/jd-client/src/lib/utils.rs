@@ -20,11 +20,12 @@ use std::{
 };
 
 use async_channel::{Receiver, Sender};
+use framing_sv2::framing::{Frame, Sv2Frame};
 use stratum_common::{
     network_helpers_sv2::noise_stream::{NoiseTcpReadHalf, NoiseTcpWriteHalf},
     roles_logic_sv2::{
         bitcoin::{self, TxOut},
-        codec_sv2::{Frame, StandardEitherFrame, StandardSv2Frame, Sv2Frame},
+        codec_sv2::{StandardEitherFrame, StandardSv2Frame},
         common_messages_sv2::{
             Protocol, SetupConnection, MESSAGE_TYPE_CHANNEL_ENDPOINT_CHANGED,
             MESSAGE_TYPE_RECONNECT, MESSAGE_TYPE_SETUP_CONNECTION,

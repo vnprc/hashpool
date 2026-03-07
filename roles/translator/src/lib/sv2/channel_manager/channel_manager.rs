@@ -18,9 +18,9 @@ use mint_quote_sv2::{
     MESSAGE_TYPE_MINT_QUOTE_NOTIFICATION,
 };
 use std::sync::{Arc, RwLock};
+use framing_sv2::framing::Frame;
 use stratum_common::roles_logic_sv2::{
     channels_sv2::client::extended::ExtendedChannel,
-    codec_sv2::Frame,
     handlers_sv2::HandleMiningMessagesFromServerAsync,
     mining_sv2::OpenExtendedMiningChannelSuccess,
     parsers_sv2::{AnyMessage, Mining},
@@ -372,9 +372,10 @@ impl ChannelManager {
                                     OpenExtendedMiningChannelSuccess {
                                         request_id: open_channel_msg.request_id,
                                         channel_id: next_channel_id,
-                                        target: target.clone().into(),
+                                        target: target.to_le_bytes().into(),
                                         extranonce_size: new_extranonce_size as u16,
                                         extranonce_prefix: new_extranonce_prefix.clone().into(),
+                                        group_channel_id: 0,
                                     },
                                 );
 

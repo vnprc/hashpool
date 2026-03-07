@@ -15,9 +15,15 @@ use std::{
     convert::TryInto,
     sync::{Arc, RwLock},
 };
+use binary_sv2::U256;
 use stratum_common::roles_logic_sv2::{
-    bitcoin::{consensus::Decodable, transaction::TxOut, Amount, Target as BitcoinTarget},
-    codec_sv2::binary_sv2::U256,
+    bitcoin::{
+        hashes::Hash as BitcoinHash,
+        consensus::Decodable,
+        transaction::TxOut,
+        Amount,
+        Target as BitcoinTarget,
+    },
     channels_sv2::server::{
         error::{ExtendedChannelError, StandardChannelError},
         extended::ExtendedChannel,
@@ -330,8 +336,10 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
             let mut group_channel = GroupChannel::new_for_pool(
                 group_channel_id,
                 job_store,
+                MAX_EXTRANONCE_LEN,
                 self.pool_tag_string.clone(),
-            );
+            )
+            .map_err(Error::FailedToProcessNewTemplateGroupChannel)?;
             group_channel
                 .on_new_template(
                     last_future_template.clone(),
@@ -358,6 +366,9 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
         }
 
         let requested_max_target = incoming.max_target.into_static();
+        let requested_max_target_bitcoin = BitcoinTarget::from_le_bytes(
+            requested_max_target.inner_as_ref().try_into().unwrap(),
+        );
 
         let extranonce_prefix = self
             .extranonce_prefix_factory_standard
@@ -372,7 +383,7 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
             channel_id,
             user_identity,
             extranonce_prefix.clone(),
-            requested_max_target.into(),
+            requested_max_target_bitcoin,
             nominal_hash_rate,
             self.share_batch_size,
             self.shares_per_minute,
@@ -428,7 +439,7 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
         let open_standard_mining_channel_success = OpenStandardMiningChannelSuccess {
             request_id: incoming.request_id,
             channel_id,
-            target: standard_channel.get_target().clone().into(),
+            target: standard_channel.get_target().to_le_bytes().into(),
             extranonce_prefix: standard_channel
                 .get_extranonce_prefix()
                 .clone()
@@ -462,12 +473,10 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
             .map_err(Error::FailedToCreateStandardChannel)?;
 
         let future_standard_job_id = standard_channel
-            .get_future_template_to_job_id()
-            .get(&last_future_template.template_id)
+            .get_future_job_id_from_template_id(last_future_template.template_id)
             .expect("future job id must exist");
         let future_standard_job = standard_channel
-            .get_future_jobs()
-            .get(future_standard_job_id)
+            .get_future_job(future_standard_job_id)
             .expect("future job must exist");
         let future_standard_job_message =
             future_standard_job.get_job_message().clone().into_static();
@@ -480,7 +489,7 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
         let n_bits = last_set_new_prev_hash_tdp.n_bits;
         let set_new_prev_hash_mining = SetNewPrevHash {
             channel_id,
-            job_id: *future_standard_job_id,
+            job_id: future_standard_job_id,
             prev_hash,
             min_ntime: header_timestamp,
             nbits: n_bits,
@@ -504,7 +513,9 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
             let mut group_channel = group_channel_guard
                 .write()
                 .map_err(|e| Error::PoisonLock(e.to_string()))?;
-            group_channel.add_standard_channel_id(channel_id);
+            group_channel
+                .add_channel_id(channel_id, MAX_EXTRANONCE_LEN)
+                .map_err(Error::FailedToProcessNewTemplateGroupChannel)?;
         }
 
         Ok(SendTo::Multiple(messages))
@@ -543,6 +554,9 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
         }
 
         let requested_max_target = m.max_target.into_static();
+        let requested_max_target_bitcoin = BitcoinTarget::from_le_bytes(
+            requested_max_target.inner_as_ref().try_into().unwrap(),
+        );
         let requested_min_rollable_extranonce_size = m.min_extranonce_size;
 
         let extranonce_prefix = match self
@@ -575,7 +589,7 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
             channel_id,
             user_identity,
             extranonce_prefix,
-            requested_max_target.into(),
+            requested_max_target_bitcoin,
             nominal_hash_rate,
             true, // version rolling always allowed
             requested_min_rollable_extranonce_size,
@@ -637,12 +651,13 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
         let open_extended_mining_channel_success = OpenExtendedMiningChannelSuccess {
             request_id,
             channel_id,
-            target: extended_channel.get_target().clone().into(),
+            target: extended_channel.get_target().to_le_bytes().into(),
             extranonce_prefix: extended_channel
                 .get_extranonce_prefix()
                 .clone()
                 .try_into()?,
             extranonce_size: extended_channel.get_rollable_extranonce_size(),
+            group_channel_id: 0,
         }
         .into_static();
 
@@ -685,12 +700,10 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
                 .map_err(Error::FailedToCreateExtendedChannel)?;
 
             let future_extended_job_id = extended_channel
-                .get_future_template_to_job_id()
-                .get(&last_future_template.template_id)
+                .get_future_job_id_from_template_id(last_future_template.template_id)
                 .expect("future job id must exist");
             let future_extended_job = extended_channel
-                .get_future_jobs()
-                .get(future_extended_job_id)
+                .get_future_job(future_extended_job_id)
                 .expect("future job must exist");
 
             let future_extended_job_message =
@@ -706,7 +719,7 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
             let n_bits = last_set_new_prev_hash_tdp.n_bits;
             let set_new_prev_hash_mining = SetNewPrevHash {
                 channel_id,
-                job_id: *future_extended_job_id,
+                job_id: future_extended_job_id,
                 prev_hash,
                 min_ntime: header_timestamp,
                 nbits: n_bits,
@@ -744,6 +757,9 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
         let channel_id = m.channel_id;
         let new_nominal_hash_rate = m.nominal_hash_rate;
         let requested_maximum_target = m.maximum_target.into_static();
+        let requested_maximum_target_bitcoin = BitcoinTarget::from_le_bytes(
+            requested_maximum_target.inner_as_ref().try_into().unwrap(),
+        );
 
         let is_standard_channel = self.standard_channels.contains_key(&channel_id);
         let is_extended_channel = self.extended_channels.contains_key(&channel_id);
@@ -756,7 +772,7 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
                 .write()
                 .map_err(|e| Error::PoisonLock(e.to_string()))?;
             let res = standard_channel
-                .update_channel(new_nominal_hash_rate, Some(requested_maximum_target.into()));
+                .update_channel(new_nominal_hash_rate, Some(requested_maximum_target_bitcoin));
             match res {
                 Ok(_) => {}
                 Err(e) => {
@@ -797,7 +813,7 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
             let new_target = standard_channel.get_target();
             let set_target = SetTarget {
                 channel_id,
-                maximum_target: new_target.clone().into(),
+                maximum_target: new_target.to_le_bytes().into(),
             };
             Ok(SendTo::Respond(Mining::SetTarget(set_target)))
         } else if is_extended_channel {
@@ -808,7 +824,7 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
                 .write()
                 .map_err(|e| Error::PoisonLock(e.to_string()))?;
             let res = extended_channel
-                .update_channel(new_nominal_hash_rate, Some(requested_maximum_target.into()));
+                .update_channel(new_nominal_hash_rate, Some(requested_maximum_target_bitcoin));
             match res {
                 Ok(_) => {}
                 Err(e) => {
@@ -849,7 +865,7 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
             let new_target = extended_channel.get_target();
             let set_target = SetTarget {
                 channel_id,
-                maximum_target: new_target.clone().into(),
+                maximum_target: new_target.to_le_bytes().into(),
             };
             Ok(SendTo::Respond(Mining::SetTarget(set_target)))
         } else {
@@ -924,45 +940,36 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
         }
 
         match res {
-            Ok(ShareValidationResult::Valid(accepted_share)) => {
-                let header_hash = accepted_share.header_hash_bytes();
-
-                if let Some(error_response) = validate_minimum_share_difficulty(&header_hash, self.minimum_share_difficulty_bits, channel_id, m.sequence_number) {
-                    return Ok(error_response);
-                }
-
-                info!(
-                    "SubmitSharesStandard: valid share | channel_id: {}, sequence_number: {} ☑️",
-                    channel_id, m.sequence_number
-                );
-                send_share_quote_request(self, channel_id, m.sequence_number, header_hash, &m);
-                Ok(SendTo::None(None))
-            }
-            Ok(ShareValidationResult::ValidWithAcknowledgement(
-                accepted_share,
-                last_sequence_number,
-                new_submits_accepted_count,
-                new_shares_sum,
-            )) => {
-                let header_hash = accepted_share.header_hash_bytes();
+            Ok(ShareValidationResult::Valid(hash)) => {
+                let header_hash = *hash.as_byte_array();
 
                 if let Some(error_response) = validate_minimum_share_difficulty(&header_hash, self.minimum_share_difficulty_bits, channel_id, m.sequence_number) {
                     return Ok(error_response);
                 }
 
                 send_share_quote_request(self, channel_id, m.sequence_number, header_hash, &m);
-                let success = SubmitSharesSuccess {
-                    channel_id,
-                    last_sequence_number,
-                    new_submits_accepted_count,
-                    new_shares_sum,
-                };
-                info!("SubmitSharesStandard: {} ✅", success);
-                Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
+
+                let share_accounting = standard_channel.get_share_accounting();
+                if share_accounting.should_acknowledge() {
+                    let success = SubmitSharesSuccess {
+                        channel_id,
+                        last_sequence_number: share_accounting.get_last_share_sequence_number(),
+                        new_submits_accepted_count: share_accounting.get_last_batch_accepted(),
+                        new_shares_sum: share_accounting.get_last_batch_work_sum() as u64,
+                    };
+                    info!("SubmitSharesStandard: {} ✅", success);
+                    Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
+                } else {
+                    info!(
+                        "SubmitSharesStandard: valid share | channel_id: {}, sequence_number: {} ☑️",
+                        channel_id, m.sequence_number
+                    );
+                    Ok(SendTo::None(None))
+                }
             }
-            Ok(ShareValidationResult::BlockFound(accepted_share, template_id, coinbase)) => {
+            Ok(ShareValidationResult::BlockFound(hash, template_id, coinbase)) => {
                 info!("SubmitSharesStandard: 💰 Block Found!!! 💰");
-                let header_hash = accepted_share.header_hash_bytes();
+                let header_hash = *hash.as_byte_array();
                 send_share_quote_request(self, channel_id, m.sequence_number, header_hash, &m);
                 // if we have a template id (i.e.: this was not a custom job)
                 // we can propagate the solution to the TP
@@ -984,7 +991,7 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
                     channel_id,
                     last_sequence_number: share_accounting.get_last_share_sequence_number(),
                     new_submits_accepted_count: share_accounting.get_shares_accepted(),
-                    new_shares_sum: share_accounting.get_share_work_sum(),
+                    new_shares_sum: share_accounting.get_share_work_sum() as u64,
                 };
                 Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
             }
@@ -1109,33 +1116,8 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
         }
 
         match res {
-            Ok(ShareValidationResult::Valid(accepted_share)) => {
-                let header_hash = accepted_share.header_hash_bytes();
-
-                if let Some(error_response) = validate_minimum_share_difficulty(&header_hash, self.minimum_share_difficulty_bits, channel_id, m.sequence_number) {
-                    return Ok(error_response);
-                }
-
-                info!(
-                    "SubmitSharesExtended: valid share | channel_id: {}, sequence_number: {} ☑️",
-                    channel_id, m.sequence_number
-                );
-                send_extended_share_quote_request(
-                    self,
-                    channel_id,
-                    m.sequence_number,
-                    header_hash,
-                    &m,
-                );
-                Ok(SendTo::None(None))
-            }
-            Ok(ShareValidationResult::ValidWithAcknowledgement(
-                accepted_share,
-                last_sequence_number,
-                new_submits_accepted_count,
-                new_shares_sum,
-            )) => {
-                let header_hash = accepted_share.header_hash_bytes();
+            Ok(ShareValidationResult::Valid(hash)) => {
+                let header_hash = *hash.as_byte_array();
 
                 if let Some(error_response) = validate_minimum_share_difficulty(&header_hash, self.minimum_share_difficulty_bits, channel_id, m.sequence_number) {
                     return Ok(error_response);
@@ -1148,18 +1130,28 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
                     header_hash,
                     &m,
                 );
-                let success = SubmitSharesSuccess {
-                    channel_id,
-                    last_sequence_number,
-                    new_submits_accepted_count,
-                    new_shares_sum,
-                };
-                info!("SubmitSharesExtended: {} ✅", success);
-                Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
+
+                let share_accounting = extended_channel.get_share_accounting();
+                if share_accounting.should_acknowledge() {
+                    let success = SubmitSharesSuccess {
+                        channel_id,
+                        last_sequence_number: share_accounting.get_last_share_sequence_number(),
+                        new_submits_accepted_count: share_accounting.get_last_batch_accepted(),
+                        new_shares_sum: share_accounting.get_last_batch_work_sum() as u64,
+                    };
+                    info!("SubmitSharesExtended: {} ✅", success);
+                    Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
+                } else {
+                    info!(
+                        "SubmitSharesExtended: valid share | channel_id: {}, sequence_number: {} ☑️",
+                        channel_id, m.sequence_number
+                    );
+                    Ok(SendTo::None(None))
+                }
             }
-            Ok(ShareValidationResult::BlockFound(accepted_share, template_id, coinbase)) => {
+            Ok(ShareValidationResult::BlockFound(hash, template_id, coinbase)) => {
                 info!("SubmitSharesExtended: 💰 Block Found!!! 💰");
-                let header_hash = accepted_share.header_hash_bytes();
+                let header_hash = *hash.as_byte_array();
                 send_extended_share_quote_request(
                     self,
                     channel_id,
@@ -1187,7 +1179,7 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
                     channel_id,
                     last_sequence_number: share_accounting.get_last_share_sequence_number(),
                     new_submits_accepted_count: share_accounting.get_shares_accepted(),
-                    new_shares_sum: share_accounting.get_share_work_sum(),
+                    new_shares_sum: share_accounting.get_share_work_sum() as u64,
                 };
                 Ok(SendTo::Respond(Mining::SubmitSharesSuccess(success)))
             }

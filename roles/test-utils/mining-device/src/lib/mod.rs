@@ -13,13 +13,14 @@ use std::{
     thread::available_parallelism,
     time::{Duration, Instant},
 };
+use noise_sv2::Initiator;
 use stratum_common::{
     network_helpers_sv2::noise_connection::Connection,
     roles_logic_sv2::{
         self,
         bitcoin::{blockdata::block::Header, hash_types::BlockHash, hashes::Hash, CompactTarget},
         codec_sv2,
-        codec_sv2::{Initiator, StandardEitherFrame, StandardSv2Frame},
+        codec_sv2::{StandardEitherFrame, StandardSv2Frame},
         common_messages_sv2::{Protocol, SetupConnection, SetupConnectionSuccess},
         errors::Error,
         handlers::{
