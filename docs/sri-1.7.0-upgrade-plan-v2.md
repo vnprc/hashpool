@@ -85,27 +85,26 @@
  - protocols/v2/subprotocols/mining/src/lib.rs — injection point in mining_sv2
 
  ---
- Phase 1: Bitcoin Core 30 + sv2-tp (DEFERRED — do after Phase 2)
+Phase 1: Bitcoin Core 30 + sv2-tp (Required before Step 2.13 — TP is now incompatible with SRI 1.7.0)
 
- Decision (2026-03-06): Phase 1 is deferred until after the SRI 1.7.0 crate migration
- (Phase 2) is complete. The Sjors fork remains as the Template Provider throughout Phase 2.
+Decision (2026-03-06): Phase 1 was deferred, but the TP compatibility failure diagnosed on
+2026-03-08 has changed this. The Sjors fork (sv2-tp-0.1.17) cannot parse SRI 1.7.0's
+6-byte CoinbaseOutputConstraints — it was built against the SRI 1.5.0 era 4-byte format.
+See the TP Compatibility Failure section below for root cause analysis and fix options.
 
- Rationale:
- - The Sjors fork (sv2-tp-0.1.17, based on Bitcoin Core v29.99.0) works correctly today.
-   Latest release is v0.1.19 (July 2024), last commit July 2025. Functional, not abandoned.
- - Official Bitcoin Core 30.2 pre-built binaries do NOT include the multiprocess binary
-   (bitcoin-node). The standard bitcoind binary does not support -ipcbind or native sv2=1.
- - The SRI standalone TP binary (stratum-mining/sv2-tp v1.0.6) requires a separate
-   bitcoin-node binary compiled with --enable-multiprocess + capnproto. This is not in
-   any pre-built release; it requires building Bitcoin Core from source in Nix.
- - Upgrading the TP first is a detour. The crate migration (Phase 2) is independent of
-   which TP is running and is the primary goal.
+Original deferral rationale (no longer valid):
+- "The Sjors fork works correctly today" — INVALIDATED by 6-byte CoinbaseOutputConstraints
+  parse failure diagnosed 2026-03-08.
+- Official Bitcoin Core 30.2 pre-built binaries do NOT include the multiprocess binary
+  (bitcoin-node). The standard bitcoind binary does not support -ipcbind or native sv2=1.
+- The SRI standalone TP binary (stratum-mining/sv2-tp v1.0.6) requires a separate
+  bitcoin-node binary compiled with --enable-multiprocess + capnproto. This is not in
+  any pre-built release; it requires building Bitcoin Core from source in Nix.
 
- When to revisit:
- - After Phase 2 is stable on crates.io deps, evaluate whether sv2-tp v1.0.6 is worth
-   the Nix build complexity vs. updating to Sjors v0.1.19 (race condition fix).
- - Minor: update bitcoind.nix from sv2-tp-0.1.17 to sv2-tp-0.1.19 as a low-risk
-   improvement at any time (race condition fix, same architecture).
+When to address:
+- Step 2.11 (compilation fixes) is independent — finish it first.
+- Then resolve the TP before attempting Step 2.13 integration testing.
+- See TP Compatibility Failure section for recommended option order (A→B→C).
 
  Future architecture (when Phase 1 is eventually done):
  - bitcoin-node: Bitcoin Core v30.2+ built from source in Nix with -DENABLE_IPC=ON
@@ -115,6 +114,51 @@
  - Both replace the current Sjors fork process in devenv.nix.
  - Revert the bitcoind30.nix / config/bitcoin30.conf / devenv.nix additions added during
    Phase 1.1–1.4 exploration (those files target the wrong architecture).
+
+
+---
+TP Compatibility Failure (diagnosed 2026-03-08)
+
+Root cause: SRI 1.7.0 pool/jdc sends 6-byte CoinbaseOutputConstraints (u32 size + u16 sigops).
+The Sjors fork sv2-tp-0.1.17 (SRI 1.5.0 era) expects old 4-byte CoinbaseOutputDataSize (u32 only).
+Result: TP parse fails -> sv2-0 thread never starts -> no NewTemplate/SetNewPrevHash -> pool blocks.
+
+Key files:
+- roles/pool/src/lib/template_receiver/mod.rs:121 -- sends CoinbaseOutputConstraints{size, sigops}
+- roles/jd-client/src/lib/template_receiver/mod.rs:357 -- sends CoinbaseOutputConstraints{size, sigops}
+- roles/pool/src/lib/mod.rs:134 -- total_sigop_cost(|_| None) -> sigops=0 for P2WPKH
+- bitcoind.nix -- pinned to sv2-tp-0.1.17
+
+Options (in recommended order):
+
+Option A -- Check if Sjors fork has post-SRI-1.7.0 commits with 6-byte support
+  - Sjors/bitcoin last commit: July 2025 (6 months after SRI 1.7.0 released January 2025)
+  - Latest tagged release: v0.1.19 (July 2024) -- predates SRI 1.7.0, almost certainly still 4-byte
+  - Action: browse https://github.com/Sjors/bitcoin commits since January 2025 for
+    CoinbaseOutputConstraints or sigops-related TP changes
+  - If found: update bitcoind.nix to fetchFromGitHub at that commit hash (build from source)
+  - Estimated effort: 1-2 hours to research + nix build update
+
+Option B -- Front-load Phase 1 (sv2-tp v1.0.6 + Bitcoin Core 30 multiprocess)
+  - This is the right long-term path (user's stated end goal: latest bitcoind)
+  - Requires building Bitcoin Core from source in Nix with --enable-multiprocess + capnproto
+  - sv2-tp v1.0.6 pre-built binary from stratum-mining/sv2-tp connects to bitcoin-node via IPC
+  - Complexity is in the Nix build of bitcoin-node; everything else is straightforward
+  - Strongly preferred over Option C since it aligns with end goal and makes Phase 1 unnecessary later
+  - Estimated effort: half-day to full day Nix work
+
+Option C -- 4-byte backward-compat hack (last resort)
+  - In pool/jdc template receivers, manually write only coinbase_output_max_additional_size (u32)
+    as a raw frame instead of using CoinbaseOutputConstraints struct serialization
+  - sigops=0 for P2WPKH so functionally equivalent for current use case
+  - Allows Phase 2.13 integration test to pass against old TP
+  - Technical debt: MUST be removed when Phase 1 is eventually done
+  - Mark all affected code with // TEMP TP COMPAT: remove in Phase 1
+  - Estimated effort: 1-2 hours
+
+Recommended path: Try Option A research first (quick). If no Sjors fork update exists,
+proceed directly to Option B (front-load Phase 1). Avoid Option C -- it creates
+technical debt in code that exercises the most sensitive protocol path.
 
  ---
  Phase 2: Crate Migration to crates.io Imports (ACTIVE — Feature branch)
@@ -224,10 +268,19 @@
 
  Validate: cd roles && cargo build --workspace
 
- Step 2.12 — Replace Sjors fork with Core 30 + sv2_bridge
+Step 2.12 — Resolve TP compatibility and switch to updated TP (primary blocker before 2.13)
 
- Update config/pool.config.toml and config/jds.config.toml to use tp_address = "127.0.0.1:8443" (thin TP). Update devenv.nix pool/jd-server startup to
- depend on tp instead of the old bitcoind. Remove (or disable) the Sjors bitcoind process.
+The Sjors fork (sv2-tp-0.1.17) is incompatible with SRI 1.7.0's 6-byte CoinbaseOutputConstraints.
+See TP Compatibility Failure section for fix options (A→B→C). This step must complete before
+Step 2.13 integration testing can succeed.
+
+Ordering: Complete Step 2.11 compilation fixes first (independent of TP). Then:
+- If Option A: update bitcoind.nix to a Sjors commit with 6-byte support
+- If Option B: front-load Phase 1 (Bitcoin Core 30 + sv2-tp v1.0.6 in Nix)
+- If Option C (last resort): 4-byte compat hack in pool/jdc template receivers
+
+After TP fix: update config/pool.config.toml and config/jds.config.toml if tp_address changes.
+Update devenv.nix pool/jd-server startup to depend on the new TP process. Remove old Sjors process.
 
  Step 2.13 — Full integration test
 
@@ -293,8 +346,9 @@
  ┌─────────────────────────────────────────────────────────────────────────┬─────────────────────────────────────────────────────────────────────────────┐
  │                                  Risk                                   │                                 Mitigation                                  │
  ├─────────────────────────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────┤
- │ TDP wire format compat: Sjors fork (SRI 1.5.0 pool) vs. future sv2-tp  │ Not a concern for Phase 2; Sjors fork stays. Validate during Phase 1 when  │
- │                                                                         │ sv2-tp is introduced.                                                       │
+ │ TDP wire format compat: Sjors fork (SRI 1.5.0 pool) vs. future sv2-tp  │ MATERIALIZED (2026-03-08): Sjors fork sv2-tp-0.1.17 incompatible with SRI  │
+ │                                                                         │ 1.7.0 6-byte CoinbaseOutputConstraints. Blocks Step 2.13. See TP Compat    │
+ │                                                                         │ Failure section. Resolution required before 2.13.                          │
  ├─────────────────────────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────┤
  │ channels_sv2 3.0.0 owned-return changes cause lifetime cascades         │ Fix mechanically in pool/mod.rs; clone where necessary                      │
  ├─────────────────────────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────┤
@@ -308,5 +362,6 @@
  1. Phase 0 complete: Can build workspace cleanly; have confirmed which crates are unmodified; have bitcoin-core-sv2 config documented [DONE]
  2. Phase 2.1: mining_sv2 compiles clean without custom message types; types importable from new location in mint_quote_sv2 or dedicated crate
  3. Phase 2.11: Full cargo build --workspace succeeds from roles/
- 4. Phase 2.13: devenv up runs full stack with Sjors TP + migrated crates; miner submits shares; ehash minting produces ecash tokens
- 5. Phase 1 (deferred): bitcoin-node (multiprocess build) + sv2-tp v1.0.6 replace the Sjors fork; verified in regtest
+4. Phase 2.13: devenv up runs full stack with updated TP (see TP Compatibility Failure section
+   for which option was chosen) + migrated crates; miner submits shares; ehash minting produces ecash tokens
+5. Phase 1: bitcoin-node (multiprocess build) + sv2-tp v1.0.6 replace the Sjors fork; verified in regtest
