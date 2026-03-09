@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! SV2 Frame Codec for serializing and deserializing mint-pool messages
 //!
 //! This module handles encoding/decoding of:
@@ -9,7 +10,6 @@
 
 use anyhow::Result;
 use binary_sv2::{Encodable, EncodableField, GetSize};
-use codec_sv2::StandardSv2Frame;
 use mint_quote_sv2::{MintQuoteError, MintQuoteRequest, MintQuoteResponse};
 use tracing::info;
 
@@ -47,6 +47,7 @@ impl<'a> From<MintPoolMessage<'a>> for EncodableField<'a> {
 }
 
 /// Frame type identifiers
+#[allow(dead_code)]
 pub mod frame_types {
     pub const MINT_QUOTE_REQUEST: u8 = 0x80;
     pub const MINT_QUOTE_RESPONSE: u8 = 0x81;
@@ -54,6 +55,7 @@ pub mod frame_types {
 }
 
 /// Encode a MintQuoteResponse into SV2 frame bytes
+#[allow(dead_code)]
 pub fn encode_mint_quote_response(response: &MintQuoteResponse<'_>) -> Result<Vec<u8>> {
     // Encode using MintQuoteResponse's Encodable trait
     let mut buffer = Vec::new();

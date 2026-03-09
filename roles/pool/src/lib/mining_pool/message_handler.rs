@@ -15,7 +15,6 @@ use std::{
     convert::TryInto,
     sync::{Arc, RwLock},
 };
-use binary_sv2::U256;
 use stratum_common::roles_logic_sv2::{
     bitcoin::{
         hashes::Hash as BitcoinHash,

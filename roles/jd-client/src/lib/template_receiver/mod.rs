@@ -24,7 +24,7 @@ use stratum_common::{
             self, absolute::LockTime, transaction::Version, OutPoint, ScriptBuf, Sequence,
             Transaction, TxIn, TxOut, Witness,
         },
-        codec_sv2::{self, HandshakeRole},
+        codec_sv2::{HandshakeRole},
         handlers_sv2::HandleCommonMessagesFromServerAsync,
         parsers_sv2::{AnyMessage, TemplateDistribution},
         template_distribution_sv2::CoinbaseOutputConstraints,

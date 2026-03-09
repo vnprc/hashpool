@@ -20,7 +20,7 @@ use noise_sv2;
 use stratum_common::{
     network_helpers_sv2,
     roles_logic_sv2::{
-        self, codec_sv2,
+        self,
         handlers_sv2::HandlerErrorType,
         parsers_sv2::ParserError,
     },

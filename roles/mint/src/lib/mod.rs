@@ -3,7 +3,6 @@ pub mod message_types;
 pub mod mint_manager;
 pub mod sv2_connection;
 
-pub use error::MintError;
 #[allow(unused_imports)]
 pub use message_types::MintMessageType;
 #[allow(unused_imports)]

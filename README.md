@@ -46,33 +46,37 @@ The development environment initializes a containerized system with the followin
    - talks to bitcoind pool side
    - negotiates work with downstream proxy
 
-5. `bitcoind` - **Bitcoin Daemon (Sjors' SV2 Fork)**
-   - modified bitcoind supporting stratum v2
-   - check the [PR](https://github.com/bitcoin/bitcoin/pull/29432) for more information
+5. `bitcoin-node` - **Bitcoin Core 30.2 (multiprocess)**
+   - official Bitcoin Core node binary with IPC support
+   - serves block data to sv2-tp via unix socket
 
-6. `miner` - **CPU Miner**
+6. `sv2-tp` - **SV2 Template Provider (v1.0.6)**
+   - connects to bitcoin-node via IPC socket
+   - serves Stratum V2 block templates to the pool and jd-client
+
+7. `miner` - **CPU Miner**
    - find shares to submit upstream to the proxy
 
-7. `mint` - **CDK Cashu Mint**
+8. `mint` - **CDK Cashu Mint**
    - generate ehash and ecash tokens
    - redeem ehash and ecash tokens
 
-8. `stats-pool` - **Stats Service (Pool Side)**
+9. `stats-pool` - **Stats Service (Pool Side)**
    - collects and serves pool-side mining statistics
    - TCP interface to collect stats from Sv2 services
    - HTTP APIs to serve stats to the web service
 
-9. `stats-proxy` - **Stats Service (Proxy Side)**
-   - collects and serves proxy-side mining statistics
-   - TCP interface to collect stats from Sv2 services
-   - HTTP APIs to serve stats to the web service
+10. `stats-proxy` - **Stats Service (Proxy Side)**
+    - collects and serves proxy-side mining statistics
+    - TCP interface to collect stats from Sv2 services
+    - HTTP APIs to serve stats to the web service
 
-10. `web-pool` - **Web Dashboard (Pool Side)**
+11. `web-pool` - **Web Dashboard (Pool Side)**
     - web interface for pool statistics and monitoring
     - displays pool hashrate, services, and connected proxies
     - deployed at [pool.hashpool.dev](https://pool.hashpool.dev/)
 
-11. `web-proxy` - **Web Dashboard (Proxy Side)**
+12. `web-proxy` - **Web Dashboard (Proxy Side)**
     - web interface for proxy statistics and monitoring
     - wallet page displays ehash balance and an ehash faucet
     - miners page displays miner connection info and connected miners

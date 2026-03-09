@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Connection state machine for managing mint-pool SV2 connection lifecycle
 //!
 //! States:

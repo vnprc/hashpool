@@ -11,7 +11,7 @@ use mint_quote_sv2::CompressedPubKey;
 use ehash::calculate_ehash_amount;
 use mint_pool_messaging::{build_parsed_quote_request, MintPoolMessageHub, PendingQuoteContext};
 use shared_config::Sv2MessagingConfig;
-use tracing::{debug, info};
+use tracing::debug;
 use tracing::error as log_error;
 
 /// Error type for quote dispatcher operations

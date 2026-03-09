@@ -5,7 +5,7 @@ use noise_sv2::Initiator;
 use const_sv2::MESSAGE_TYPE_SETUP_CONNECTION_SUCCESS;
 use key_utils::Secp256k1PublicKey;
 use network_helpers_sv2::noise_connection::Connection;
-use roles_logic_sv2::parsers_sv2::{AnyMessage, CommonMessages};
+use roles_logic_sv2::parsers_sv2::AnyMessage;
 use shared_config::Sv2MessagingConfig;
 use std::sync::Arc;
 use tokio::net::TcpStream;

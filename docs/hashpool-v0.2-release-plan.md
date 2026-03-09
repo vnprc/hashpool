@@ -19,46 +19,28 @@ This plan intentionally excludes sv2-apps cherry-picks (Phase 4 of the SRI migra
 the async handler trait migration (Phase 3). Neither is necessary for v0.2.
 
 ---
-Phase 1: Code Cleanup
+Phase 1: Code Cleanup (COMPLETE — 2026-03-09)
 
-Step 1.1 — Fix or remove broken sv2 benches
+Step 1.1 — Fix or remove broken sv2 benches (DONE)
 
-The benches/Cargo.toml still uses path deps to the old SRI 1.5.0 vendored crates. During the
-1.7.0 migration the vendored roles_logic_sv2 was stripped of routing_logic, parsers::AnyMessage,
-and selectors modules. The sv2 bench code (criterion_sv2_benchmark.rs and sv2/lib/client.rs)
-references these removed symbols and will not compile. The sv1 benches are unaffected.
+Removed sv2 bench targets from benches/Cargo.toml and deleted benches/benches/src/sv2/.
+`cd benches && cargo build` passes.
 
-Actions:
-- Remove or stub out the sv2 bench targets (criterion_sv2_benchmark.rs, iai_sv2_benchmark.rs,
-  and sv2/lib/client.rs)
-- If the sv2 benchmarks are worth keeping long-term, file a separate issue to update them to the
-  SRI 1.7.0 API; do not let that work block the release
-- Confirm: `cd benches && cargo build` passes after change
+Step 1.2 — Fix compiler warnings in roles workspace (DONE)
 
-Step 1.2 — Fix compiler warnings in roles workspace
+cargo fix applied to jd_client_sv2 (4 files), pool_sv2 (1 file), quote-dispatcher (1 file).
+Mint dead-code warnings suppressed with #[allow(dead_code)] on infrastructure not yet wired up.
+Remaining warnings in stats_proxy/stats_pool are pre-existing and out of scope.
 
-The current build emits warnings in jd_client_sv2, pool_sv2, and mint. Run:
+Step 1.3 — Update the SRI 1.7.0 migration plan doc (DONE)
 
-  cd roles && cargo fix --lib -p jd_client_sv2
-  cd roles && cargo fix --lib -p pool_sv2
-  cd roles && cargo fix --bin mint
+Verification Checkpoint 5 updated to "commit 66b56dac". Phase 1 heading updated to note
+"Sjors fork fully retired".
 
-Review each fix (mostly unused-import removals). Commit any that are correct.
+Step 1.4 — Update README (DONE)
 
-Step 1.3 — Update the SRI 1.7.0 migration plan doc
-
-docs/sri-1.7.0-upgrade-plan-v2.md has minor stale items:
-- Step 2.12 still says "commit pending" — it was committed as 66b56dac
-- Verification Checkpoint 5 says "commit pending" — same fix
-- Phase 1 section still references the old Sjors fork as "COMPLETE as Step 2.12" but the
-  framing is confusing; add a note that the Sjors fork is fully retired
-
-These are cosmetic but keeping the doc accurate is good hygiene before archiving it.
-
-Step 1.4 — Update README
-
-The README still mentions "bitcoind — Bitcoin Daemon (Sjors' SV2 Fork)" in the component list.
-Update it to reflect the new bitcoin-node + sv2-tp v1.0.6 TP architecture.
+Replaced "bitcoind (Sjors' SV2 Fork)" with bitcoin-node (Bitcoin Core 30.2) and
+sv2-tp (v1.0.6) as separate numbered components.
 
 ---
 Phase 2: Deterministic Builds (flake.nix)

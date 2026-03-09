@@ -3,7 +3,6 @@
 //! Phase 2: Message Type Mapping Deliverable
 //! Maps mint-specific messages to current SRI 1.5.0 message enums
 
-use anyhow::{anyhow, Result};
 
 /// Mint protocol message type codes
 pub mod message_types {
@@ -33,6 +32,7 @@ pub enum MintMessageType {
     Unknown(u8),
 }
 
+#[allow(dead_code)]
 impl MintMessageType {
     /// Parse message type from byte code
     pub fn from_code(code: u8) -> Self {

@@ -9,6 +9,7 @@ use tokio::sync::RwLock;
 pub struct ChannelManager {
     next_channel_id: AtomicU64,
     active_channels: RwLock<HashMap<u64, ChannelInfo>>,
+    #[allow(dead_code)]
     config: MessagingConfig,
 }
 

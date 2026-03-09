@@ -7,7 +7,7 @@ use noise_sv2::Initiator;
 use stratum_common::{
     network_helpers_sv2::noise_stream::NoiseTcpStream,
     roles_logic_sv2::{
-        codec_sv2::{self, HandshakeRole},
+        codec_sv2::{HandshakeRole},
         handlers_sv2::HandleCommonMessagesFromServerAsync,
         utils::Mutex,
     },

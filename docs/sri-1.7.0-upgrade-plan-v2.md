@@ -85,7 +85,7 @@
  - protocols/v2/subprotocols/mining/src/lib.rs — injection point in mining_sv2
 
  ---
-Phase 1: Bitcoin Core 30 + sv2-tp (COMPLETE as Step 2.12 — 2026-03-08)
+Phase 1: Bitcoin Core 30 + sv2-tp (COMPLETE as Step 2.12 — 2026-03-08; Sjors fork fully retired)
 
 Implemented via Option B (bitcoin-node.nix + sv2-tp.nix), addressing the TP compatibility
 failure diagnosed on 2026-03-08.
@@ -365,4 +365,4 @@ Bug found and fixed during 2.13: Invalid share spam in proxy logs
  2. Phase 2.1: mining_sv2 compiles clean without custom message types; types importable from new location in mint_quote_sv2 or dedicated crate
  3. Phase 2.11: Full cargo build --workspace succeeds from roles/ [DONE — commit 10522fea]
 4. Phase 2.13: devenv up runs full stack; miner submits shares; ehash minting produces ecash tokens [DONE — 2026-03-09]
-5. Phase 1 / Step 2.12: bitcoin-node + sv2-tp v1.0.6 replace the Sjors fork; verified in regtest [DONE — commit pending]
+5. Phase 1 / Step 2.12: bitcoin-node + sv2-tp v1.0.6 replace the Sjors fork; verified in regtest [DONE — commit 66b56dac]

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::PathBuf, str::FromStr, sync::Arc};
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use bip39::Mnemonic;
 use cdk::{
     cdk_payment,
@@ -10,7 +10,7 @@ use cdk::{
     types::{PaymentProcessorKey, QuoteTTL},
     Amount,
 };
-use cdk_mintd::config::{self, LnBackend};
+use cdk_mintd::config::{self};
 use cdk_signatory::db_signatory::DbSignatory;
 use cdk_sqlite::MintSqliteDatabase;
 
