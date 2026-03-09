@@ -85,6 +85,31 @@ The development environment initializes a containerized system with the followin
 
 ---
 
+## Production Deployment
+
+For deploying Hashpool as a production service on NixOS, see the
+[NixOS Deployment Guide](./docs/nixos-deployment.md).
+
+The hashpool flake exposes a NixOS module (`nixosModules.default`) that manages
+all services as systemd units. Add `inputs.hashpool.nixosModules.default` to your
+system flake and configure `services.hashpool` in your `configuration.nix`.
+
+---
+
+## What's New in v0.2
+
+- **SRI 1.7.0 migration complete**: all protocols and utilities now import from
+  crates.io (roles_logic_sv2 deprecated), vendored crates limited to hashpool-specific
+  modifications
+- **New Template Provider**: Bitcoin Core 30.2 (`bitcoin-node`) + sv2-tp v1.0.6
+  replaces the Sjors SV2 fork; connects via unix IPC socket
+- **Fixed**: share difficulty formula in the SV1 translator now uses the SV2
+  formula (`2^256 / target`) matching miner expectations
+- **Fixed**: CoinbaseOutputConstraints 6-byte encoding (SRI 1.7.0 pool↔TP protocol)
+- **Added**: NixOS deployment module for production pool operation
+
+---
+
 ## Contribution
 
 This project is very early. PRs and bug reports are very welcome!

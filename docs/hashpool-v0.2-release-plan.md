@@ -201,18 +201,18 @@ The prod configs in config/prod/ cover most of this but may be stale. Update the
 - shares_per_minute tuned for real hardware (6.0 for a modern GPU miner, adjust per miner hashrate)
 
 ---
-Phase 5: Documentation Updates
+Phase 5: Documentation Updates (COMPLETE — 2026-03-09)
 
-Step 5.1 — Update README.md
+Step 5.1 — Update README.md (DONE)
 
 - Replace "Sjors' SV2 Fork" section with bitcoin-node + sv2-tp v1.0.6
 - Update "Getting Started" to be accurate for current devenv setup
 - Add a "Production Deployment" section with a pointer to docs/nixos-deployment.md
 - Add a brief explanation of what v0.2 brings (SRI 1.7.0, new TP, fixed share accounting)
 
-Step 5.2 — Write CHANGELOG entry for v0.2
+Step 5.2 — Write CHANGELOG entry for v0.2 (DONE)
 
-Create or update CHANGELOG.md with v0.2 entries:
+Created CHANGELOG.md with v0.2 entries:
 - SRI 1.7.0 migration complete (crates.io imports, roles_logic_sv2 deprecated)
 - Template provider replaced: bitcoin-node 30.2 + sv2-tp v1.0.6 (replaces Sjors fork)
 - Fixed: share difficulty formula in sv2_to_sv1.rs (SV2 formula 2^256/target)
@@ -220,10 +220,9 @@ Create or update CHANGELOG.md with v0.2 entries:
 - Added: NixOS deployment module
 - Removed: sv2-apps cherry-pick scope (deferred indefinitely)
 
-Step 5.3 — Archive the SRI migration plan
+Step 5.3 — Archive the SRI migration plan (DONE)
 
-Move docs/sri-1.7.0-upgrade-plan-v2.md to docs/archive/sri-1.7.0-upgrade-plan-v2.md to
-signal that the migration work is complete and no longer an active plan. Keep it for reference.
+Moved docs/sri-1.7.0-upgrade-plan-v2.md to docs/archive/sri-1.7.0-upgrade-plan-v2.md.
 
 ---
 Phase 6: Release Tag
