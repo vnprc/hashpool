@@ -12,7 +12,6 @@ use crate::error::{Result, StratumTranslationError};
 use bitcoin::Target;
 use channels_sv2::bip141::try_strip_bip141;
 use mining_sv2::{NewExtendedMiningJob, SetNewPrevHash, SetTarget};
-use roles_logic_sv2::utils::target_to_difficulty;
 use tracing::debug;
 use v1::{
     json_rpc, server_to_client,
@@ -110,6 +109,24 @@ pub fn build_sv1_set_difficulty_from_sv2_set_target(
     build_sv1_set_difficulty_from_sv2_target(Target::from_le_bytes(bytes))
 }
 
+/// Converts a Bitcoin `Target` to an SV2-style difficulty for `mining.set_difficulty`.
+///
+/// Uses the formula `difficulty = 2^256 / target`, which matches the miner's inverse:
+/// `target = (2^256 - 1) / difficulty`. This differs from Bitcoin's traditional difficulty
+/// (`genesis_target / target`) and ensures that miners using the SV2 convention correctly
+/// round-trip the target through the difficulty value.
+fn sv2_target_to_difficulty(target: Target) -> f64 {
+    const TWO_POW_256: f64 = 1.157920892373162e77;
+    let bytes = target.to_le_bytes();
+    let low = u128::from_le_bytes(bytes[0..16].try_into().expect("16-byte slice"));
+    let high = u128::from_le_bytes(bytes[16..32].try_into().expect("16-byte slice"));
+    let target_f64 = (high as f64) * 2.0f64.powi(128) + (low as f64);
+    if target_f64 == 0.0 {
+        return f64::MAX;
+    }
+    TWO_POW_256 / target_f64
+}
+
 /// Builds an SV1 `mining.set_difficulty` JSON-RPC message from an SV2 target.
 ///
 /// # Arguments
@@ -118,7 +135,7 @@ pub fn build_sv1_set_difficulty_from_sv2_set_target(
 /// # Returns
 /// * `Ok(json_rpc::Message)` - The constructed SV1 mining.set_difficulty message.
 pub fn build_sv1_set_difficulty_from_sv2_target(target: Target) -> Result<json_rpc::Message> {
-    let value = target_to_difficulty(target);
+    let value = sv2_target_to_difficulty(target);
     let set_target = v1::methods::server_to_client::SetDifficulty { value };
     Ok(set_target.into())
 }

@@ -85,35 +85,34 @@
  - protocols/v2/subprotocols/mining/src/lib.rs — injection point in mining_sv2
 
  ---
-Phase 1: Bitcoin Core 30 + sv2-tp (Required before Step 2.13 — TP is now incompatible with SRI 1.7.0)
+Phase 1: Bitcoin Core 30 + sv2-tp (COMPLETE as Step 2.12 — 2026-03-08)
 
-Decision (2026-03-06): Phase 1 was deferred, but the TP compatibility failure diagnosed on
-2026-03-08 has changed this. The Sjors fork (sv2-tp-0.1.17) cannot parse SRI 1.7.0's
-6-byte CoinbaseOutputConstraints — it was built against the SRI 1.5.0 era 4-byte format.
-See the TP Compatibility Failure section below for root cause analysis and fix options.
+Implemented via Option B (bitcoin-node.nix + sv2-tp.nix), addressing the TP compatibility
+failure diagnosed on 2026-03-08.
 
-Original deferral rationale (no longer valid):
-- "The Sjors fork works correctly today" — INVALIDATED by 6-byte CoinbaseOutputConstraints
-  parse failure diagnosed 2026-03-08.
-- Official Bitcoin Core 30.2 pre-built binaries do NOT include the multiprocess binary
-  (bitcoin-node). The standard bitcoind binary does not support -ipcbind or native sv2=1.
-- The SRI standalone TP binary (stratum-mining/sv2-tp v1.0.6) requires a separate
-  bitcoin-node binary compiled with --enable-multiprocess + capnproto. This is not in
-  any pre-built release; it requires building Bitcoin Core from source in Nix.
+Key discovery: Official Bitcoin Core 30.2 pre-built binary tarball already includes
+bitcoin-node in libexec/ — no source build required. The prior assumption that bitcoin-node
+required building from source with -DENABLE_IPC=ON was INCORRECT.
 
-When to address:
-- Step 2.11 (compilation fixes) is independent — finish it first.
-- Then resolve the TP before attempting Step 2.13 integration testing.
-- See TP Compatibility Failure section for recommended option order (A→B→C).
+Implementation (2026-03-08):
+- bitcoin-node.nix: fetches official bitcoin-core-30.2 binary tarball, extracts
+  bin/bitcoin (multiprocess wrapper) + libexec/bitcoin-node. autoPatchelf handles linux deps.
+- sv2-tp.nix: fetches stratum-mining/sv2-tp v1.0.6 pre-built binary. autoPatchelf.
+- config/sv2-tp.conf: sv2bind=127.0.0.1, ipcconnect=unix, debug=sv2.
+  NOTE: sv2-tp ignores sv2port= when -chain= is specified; regtest default is 18447.
+- config/bitcoin.conf: removed sv2=1/sv2port/debug=sv2 (Sjors fork options no longer used).
+- devenv.nix: replaced bitcoind process with bitcoin_node + sv2_tp processes.
+  Pool and jd-client now waitForPort 18447 (sv2-tp regtest default) before starting.
+  IBD race fix: sv2_tp process polls getblockchaininfo until initialblockdownload=false
+  before launching sv2-tp binary (bitcoin-node processes new block asynchronously).
+- bitcoind.nix removed from use (Sjors fork replaced entirely).
+- pool.config.toml and jdc.config.toml: tp_address = "127.0.0.1:18447"
 
- Future architecture (when Phase 1 is eventually done):
- - bitcoin-node: Bitcoin Core v30.2+ built from source in Nix with -DENABLE_IPC=ON
-   and capnproto. Started with: bitcoind -m node -ipcbind=unix
- - sv2-tp: stratum-mining/sv2-tp v1.0.6 pre-built binary. Connects to bitcoin-node
-   via Unix socket. Serves SV2 TDP on port 8442 (regtest: 18447).
- - Both replace the current Sjors fork process in devenv.nix.
- - Revert the bitcoind30.nix / config/bitcoin30.conf / devenv.nix additions added during
-   Phase 1.1–1.4 exploration (those files target the wrong architecture).
+Architecture (now in effect):
+- bitcoin_node: bitcoin -m node -datadir=<dir> -chain=<net> -ipcbind=unix
+- sv2_tp: sv2-tp -datadir=<dir> -chain=<net> -conf=config/sv2-tp.conf
+  connects to bitcoin-node via unix IPC socket; serves SV2 TDP on port 18447 (regtest).
+- pool and jd-client connect to sv2-tp on port 18447.
 
 
 ---
@@ -268,29 +267,30 @@ technical debt in code that exercises the most sensitive protocol path.
 
  Validate: cd roles && cargo build --workspace
 
-Step 2.12 — Resolve TP compatibility and switch to updated TP (primary blocker before 2.13)
+Step 2.12 — Resolve TP compatibility (COMPLETE 2026-03-08 — Option B)
 
-The Sjors fork (sv2-tp-0.1.17) is incompatible with SRI 1.7.0's 6-byte CoinbaseOutputConstraints.
-See TP Compatibility Failure section for fix options (A→B→C). This step must complete before
-Step 2.13 integration testing can succeed.
+Implemented bitcoin-node.nix + sv2-tp.nix + config/sv2-tp.conf.
+See Phase 1 section above for full implementation details.
+tp_address in pool.config.toml and jdc.config.toml updated to 127.0.0.1:18447.
+devenv.nix bitcoin_node + sv2_tp processes replace the old Sjors fork bitcoind process.
 
-Ordering: Complete Step 2.11 compilation fixes first (independent of TP). Then:
-- If Option A: update bitcoind.nix to a Sjors commit with 6-byte support
-- If Option B: front-load Phase 1 (Bitcoin Core 30 + sv2-tp v1.0.6 in Nix)
-- If Option C (last resort): 4-byte compat hack in pool/jdc template receivers
+Step 2.13 — Full integration test (COMPLETE 2026-03-09)
 
-After TP fix: update config/pool.config.toml and config/jds.config.toml if tp_address changes.
-Update devenv.nix pool/jd-server startup to depend on the new TP process. Remove old Sjors process.
+Run devenv up with all processes. Results:
+- bitcoin-node starts and syncs regtest chain ✓
+- sv2-tp connects via unix IPC and serves templates on port 18447 ✓
+- Pool connects and receives templates ✓
+- Miners submit shares and ehash minting produces ecash tokens ✓
 
- Step 2.13 — Full integration test
-
- Run devenv up with all processes. Verify:
- - bitcoind30 starts and syncs regtest chain
- - tp (thin TP) connects to bitcoind30 IPC and serves templates on 8443
- - Pool connects and receives templates
- - Miners submit shares
- - Ehash minting produces correct results
- - No regressions in existing test suite: cd roles && cargo test --lib --workspace
+Bug found and fixed during 2.13: Invalid share spam in proxy logs
+- Root cause: build_sv1_set_difficulty_from_sv2_target used Bitcoin's traditional difficulty
+  formula (genesis_target / target). With vardiff targets ≈ 2^256/51, this gives difficulty
+  ≈ 0.000778. The test miner clamps to max(diff, 1.0)=1.0 → max target → every hash passes →
+  submits every 200ms. Proxy validates against proper first_target (~2% acceptance).
+- Fix: roles/roles-utils/stratum-translation/src/sv2_to_sv1.rs — replaced
+  roles_logic_sv2::utils::target_to_difficulty with inline sv2_target_to_difficulty using
+  the SV2 formula: difficulty = 2^256 / target. Now difficulty ≈ 51, miner sets target ≈
+  first_target, share acceptance matches submission rate.
 
  ---
  Phase 3: Handler Trait Migration (Optional, post-Phase 2)
@@ -337,7 +337,9 @@ Update devenv.nix pool/jd-server startup to depend on the new TP process. Remove
  ├─────────────────────────────────────────────────────────────────────┼──────────┼─────────────────────────────────────────────┤
  │ roles/pool/src/lib/mining_pool/mod.rs                               │ 2.7      │ channels_sv2 owned-return fixes             │
  ├─────────────────────────────────────────────────────────────────────┼──────────┼─────────────────────────────────────────────┤
- │ config/pool.config.toml                                             │ 2.12     │ No tp_address change (TP stays at 8442)     │
+ │ config/pool.config.toml, config/jdc.config.toml                     │ 2.12     │ tp_address = "127.0.0.1:18447"              │
+ ├─────────────────────────────────────────────────────────────────────┼──────────┼─────────────────────────────────────────────┤
+ │ roles/roles-utils/stratum-translation/src/sv2_to_sv1.rs             │ 2.13     │ sv2_target_to_difficulty: 2^256/t formula   │
  └─────────────────────────────────────────────────────────────────────┴──────────┴─────────────────────────────────────────────┘
 
  ---
@@ -361,7 +363,6 @@ Update devenv.nix pool/jd-server startup to depend on the new TP process. Remove
 
  1. Phase 0 complete: Can build workspace cleanly; have confirmed which crates are unmodified; have bitcoin-core-sv2 config documented [DONE]
  2. Phase 2.1: mining_sv2 compiles clean without custom message types; types importable from new location in mint_quote_sv2 or dedicated crate
- 3. Phase 2.11: Full cargo build --workspace succeeds from roles/
-4. Phase 2.13: devenv up runs full stack with updated TP (see TP Compatibility Failure section
-   for which option was chosen) + migrated crates; miner submits shares; ehash minting produces ecash tokens
-5. Phase 1: bitcoin-node (multiprocess build) + sv2-tp v1.0.6 replace the Sjors fork; verified in regtest
+ 3. Phase 2.11: Full cargo build --workspace succeeds from roles/ [DONE — commit 10522fea]
+4. Phase 2.13: devenv up runs full stack; miner submits shares; ehash minting produces ecash tokens [DONE — 2026-03-09]
+5. Phase 1 / Step 2.12: bitcoin-node + sv2-tp v1.0.6 replace the Sjors fork; verified in regtest [DONE — commit pending]

@@ -5,7 +5,13 @@
   inputs ? null,
   ...
 }: let
-  bitcoind = import ./bitcoind.nix {
+  bitcoinNode = import ./bitcoin-node.nix {
+    pkgs = pkgs;
+    lib = lib;
+    stdenv = pkgs.stdenv;
+  };
+
+  sv2tp = import ./sv2-tp.nix {
     pkgs = pkgs;
     lib = lib;
     stdenv = pkgs.stdenv;
@@ -123,7 +129,8 @@ in {
   packages =
     [
       pkgs.netcat
-      bitcoind
+      bitcoinNode
+      sv2tp
       pkgs.just
       pkgs.coreutils # Provides stdbuf for disabling output buffering
       pkgs.openssl
@@ -145,6 +152,7 @@ in {
     pool = {
       exec = withLogging ''
         ${waitForPort 9083 "Stats-Pool"}
+        ${waitForPort 18447 "sv2-tp"}
         cd ${config.devenv.root} && cargo -C roles/pool -Z unstable-options run -- \
           -c ${config.devenv.root}/config/pool.config.toml \
           -g ${config.devenv.root}/config/shared/pool.toml
@@ -165,6 +173,7 @@ in {
 
     jd-client = {
       exec = withLogging ''
+        ${waitForPort 18447 "sv2-tp"}
         ${waitForPort poolConfig.pool.port "Pool"}
         ${waitForPort 34264 "JD-Server"}
         cd ${config.devenv.root} && cargo -C roles/jd-client -Z unstable-options run -- -c ${config.devenv.root}/config/jdc.config.toml
@@ -189,11 +198,51 @@ in {
       '' "proxy.log";
     };
 
-    bitcoind = {
+    bitcoin_node = {
       exec = withLogging ''
         mkdir -p ${bitcoindDataDir}
-        bitcoind -datadir=${bitcoindDataDir} -chain=${config.env.BITCOIND_NETWORK} -conf=${config.devenv.root}/config/bitcoin.conf
-      '' "bitcoind-${config.env.BITCOIND_NETWORK}.log";
+        bitcoin -m node \
+          -datadir=${bitcoindDataDir} \
+          -chain=${config.env.BITCOIND_NETWORK} \
+          -conf=${config.devenv.root}/config/bitcoin.conf \
+          -ipcbind=unix
+      '' "bitcoin-node-${config.env.BITCOIND_NETWORK}.log";
+    };
+
+    sv2_tp = {
+      exec = withLogging ''
+        # In regtest: run setup (creates wallet + ensures ≥16 blocks) then mine one
+        # fresh block so bitcoin-node's chain tip is recent.  sv2-tp v1.0.6 waits for
+        # IsInitialBlockDownload() to return false; a stale tip (>24 h old) keeps the
+        # node in IBD indefinitely even though the chain is complete.
+        if [ "${config.env.BITCOIND_NETWORK}" = "regtest" ]; then
+          DEVENV_ROOT=${config.devenv.root} BITCOIND_DATADIR=${bitcoindDataDir} \
+            ${config.devenv.root}/scripts/regtest-setup.sh
+          FRESH_ADDR=$(bitcoin-cli \
+            -datadir=${bitcoindDataDir} \
+            -conf=${config.devenv.root}/config/bitcoin.conf \
+            -regtest -rpcwallet=regtest getnewaddress 2>/dev/null)
+          [ -n "$FRESH_ADDR" ] && bitcoin-cli \
+            -datadir=${bitcoindDataDir} \
+            -conf=${config.devenv.root}/config/bitcoin.conf \
+            -regtest generatetoaddress 1 "$FRESH_ADDR" 2>/dev/null || true
+          echo "Regtest IBD refresh: mined fresh block to update chain tip timestamp"
+          echo "Waiting for bitcoin-node to exit IBD..."
+          while bitcoin-cli \
+              -datadir=${bitcoindDataDir} \
+              -conf=${config.devenv.root}/config/bitcoin.conf \
+              -regtest getblockchaininfo 2>/dev/null | grep -q '"initialblockdownload": true'; do
+            sleep 1
+          done
+          echo "IBD complete, starting sv2-tp..."
+        else
+          ${waitForPort bitcoindRpcPort "Bitcoin Core RPC"}
+        fi
+        sv2-tp \
+          -datadir=${bitcoindDataDir} \
+          -chain=${config.env.BITCOIND_NETWORK} \
+          -conf=${config.devenv.root}/config/sv2-tp.conf
+      '' "sv2-tp.log";
     };
 
     miner = {

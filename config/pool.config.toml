@@ -14,7 +14,7 @@ pool_signature = "Stratum v2 SRI Pool"
 
 # Template Provider config
 # Local TP (this is pointing to localhost so you must run a TP locally for this configuration to work)
-tp_address = "127.0.0.1:8442"
+tp_address = "127.0.0.1:18447"
 
 # Target number of shares per minute from miners
 shares_per_minute = 1.0
