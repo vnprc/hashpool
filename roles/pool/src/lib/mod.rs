@@ -268,7 +268,12 @@ mod tests {
     use ext_config::{Config, File, FileFormat};
     use integration_tests_sv2::template_provider::DifficultyLevel;
 
+    // Ignored: requires the Sjors-fork bitcoind (sv2-tp-0.1.15) which (a) cannot run on NixOS
+    // due to dynamic linking and (b) is protocol-incompatible with SRI 1.7.0 pool
+    // (4-byte CoinbaseOutputDataSize vs 6-byte CoinbaseOutputConstraints).
+    // Shutdown behaviour is covered by the devenv integration test (devenv up).
     #[tokio::test]
+    #[ignore]
     async fn shutdown_pool() {
         let template_provider =
             integration_tests_sv2::start_template_provider(None, DifficultyLevel::Low);

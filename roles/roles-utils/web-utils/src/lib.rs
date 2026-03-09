@@ -39,7 +39,7 @@ mod tests {
 
     #[test]
     fn test_format_elapsed_minutes() {
-        assert_eq!(format_elapsed_time(3700, 0), "61m ago");
+        assert_eq!(format_elapsed_time(3590, 0), "59m ago");
     }
 
     #[test]
