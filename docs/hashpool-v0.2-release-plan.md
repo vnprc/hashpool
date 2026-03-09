@@ -43,7 +43,7 @@ Replaced "bitcoind (Sjors' SV2 Fork)" with bitcoin-node (Bitcoin Core 30.2) and
 sv2-tp (v1.0.6) as separate numbered components.
 
 ---
-Phase 2: Deterministic Builds (flake.nix)
+Phase 2: Deterministic Builds (flake.nix) (COMPLETE — 2026-03-09)
 
 The flake.nix exists and has the right structure (crane + rust-overlay + pinned Rust), but it
 will fail to build because:
@@ -107,7 +107,7 @@ Cargo.lock pins for time@0.3.41, home@0.5.11. If the locks are still needed, doc
 Checkpoint: `nix flake check` passes.
 
 ---
-Phase 3: NixOS Deployment Module
+Phase 3: NixOS Deployment Module (COMPLETE — 2026-03-09)
 
 Goal: A pool operator running NixOS can add hashpool as a flake input and enable all services
 in their configuration.nix with a few lines. This is the right deployment target — devenv is
@@ -120,9 +120,9 @@ Architecture for a live deployment (testnet4 or mainnet):
   mint  (receives quote requests from pool and translator)
   translator (proxy, miner-facing)
 
-Step 3.1 — Write nixosModules.hashpool
+Step 3.1 — Write nixosModules.hashpool (DONE)
 
-Create a new file: nix/hashpool-module.nix
+Created nix/hashpool-module.nix
 
 The module should provide:
 - Options for: network (regtest/testnet4/mainnet), data directories, ports, config file paths
@@ -140,14 +140,14 @@ Design decision: Do NOT hard-code config TOML paths inside the module. Instead, 
 configDir option that points to a directory containing pool.config.toml, jdc.config.toml, etc.
 This keeps the module flexible and avoids baking in testnet vs mainnet config.
 
-Step 3.2 — Wire the module into flake.nix
+Step 3.2 — Wire the module into flake.nix (DONE)
 
-  nixosModules.hashpool = import ./nix/hashpool-module.nix;
-  nixosModules.default = nixosModules.hashpool;
+  nixosModules.hashpool = import ./nix/hashpool-module.nix self;
+  nixosModules.default = self.nixosModules.hashpool;
 
-Step 3.3 — Write a NixOS deployment example
+Step 3.3 — Write a NixOS deployment example (DONE)
 
-Create docs/nixos-deployment.md covering:
+Created docs/nixos-deployment.md covering:
 
 1. Prerequisites: NixOS with flakes enabled
 2. Adding hashpool as a flake input

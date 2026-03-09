@@ -20,15 +20,16 @@
     rust-overlay,
     crane,
     ...
-  }: let
-    # Pin Rust version to ensure reproducible builds.
-    # Note: home@0.5.12 and time@0.3.47 require Rust >=1.88. Since this pins 1.87,
-    # roles/Cargo.lock must keep home=0.5.11 and time=0.3.41 (pinned via `cargo update
-    # --precise`). Bump rustVersion to "1.88.0" and re-run the cargo updates to remove
-    # those workarounds once the nixpkgs Rust version also reaches 1.88.
-    rustVersion = "1.87.0";
-  in
-    flake-utils.lib.eachDefaultSystem (system: let
+  }:
+    # Per-system packages and apps
+    (flake-utils.lib.eachDefaultSystem (system: let
+      # Pin Rust version to ensure reproducible builds.
+      # Note: home@0.5.12 and time@0.3.47 require Rust >=1.88. Since this pins 1.87,
+      # roles/Cargo.lock must keep home=0.5.11 and time=0.3.41 (pinned via `cargo update
+      # --precise`). Bump rustVersion to "1.88.0" and re-run the cargo updates to remove
+      # those workarounds once the nixpkgs Rust version also reaches 1.88.
+      rustVersion = "1.87.0";
+
       pkgs = import nixpkgs {
         inherit system;
         overlays = [
@@ -206,5 +207,12 @@
           exePath = "/bin/jd_client_sv2";
         };
       };
-    });
+    }))
+    # System-independent outputs
+    // {
+      # NixOS module — curried over `self` so package options default to this flake's packages.
+      # Usage: nixosModules.default = inputs.hashpool.nixosModules.default;
+      nixosModules.hashpool = import ./nix/hashpool-module.nix self;
+      nixosModules.default = self.nixosModules.hashpool;
+    };
 }
