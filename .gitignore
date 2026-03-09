@@ -26,6 +26,10 @@ stratum-message-generator
 *.log
 /logs
 
+# Nix build outputs
+result
+result-*
+
 # Devenv
 .devenv*
 **/Cargo.toml.bak
