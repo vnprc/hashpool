@@ -87,12 +87,8 @@ The development environment initializes a containerized system with the followin
 
 ## Production Deployment
 
-For deploying Hashpool as a production service on NixOS, see the
-[NixOS Deployment Guide](./docs/nixos-deployment.md).
-
-The hashpool flake exposes a NixOS module (`nixosModules.default`) that manages
-all services as systemd units. Add `inputs.hashpool.nixosModules.default` to your
-system flake and configure `services.hashpool` in your `configuration.nix`.
+For deploying Hashpool on Debian 12, see the
+[Deployment Guide](./docs/deployment.md).
 
 ---
 
@@ -106,7 +102,7 @@ system flake and configure `services.hashpool` in your `configuration.nix`.
 - **Fixed**: share difficulty formula in the SV1 translator now uses the SV2
   formula (`2^256 / target`) matching miner expectations
 - **Fixed**: CoinbaseOutputConstraints 6-byte encoding (SRI 1.7.0 pool↔TP protocol)
-- **Added**: NixOS deployment module for production pool operation
+- **Added**: Debian 12 deployment workflow (build-in-place + ship-only)
 
 ---
 

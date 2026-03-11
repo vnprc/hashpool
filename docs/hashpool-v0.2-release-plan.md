@@ -10,9 +10,9 @@ v0.2 is the first release on SRI 1.7.0. The goals for this release are:
 
 1. Code cleanup — tidy up loose ends from the migration
 2. Deterministic builds — make `nix build` produce the full stack reliably
-3. NixOS deployment — write a NixOS module so the pool can be deployed as a system service
+3. Debian 12 deployment — document and validate the VPS deployment workflow
 4. Live pool instance — stand up the pool on testnet4, validate end-to-end
-5. Documentation — update README and write an operator guide covering all of the above
+5. Documentation — update README and write an operator guide covering Debian 12 deployment
 6. Release tag — tag v0.2 with all of the above in place
 
 This plan intentionally excludes sv2-apps cherry-picks (Phase 4 of the SRI migration plan) and
@@ -81,8 +81,7 @@ them into flake.nix as named outputs:
   packages.bitcoin-node = import ./bitcoin-node.nix { inherit pkgs lib; stdenv = pkgs.stdenv; };
   packages.sv2-tp = import ./sv2-tp.nix { inherit pkgs lib; stdenv = pkgs.stdenv; };
 
-This makes the full infrastructure stack fetchable with `nix build .#bitcoin-node` etc., and
-allows a NixOS module to reference them cleanly.
+This makes the full infrastructure stack fetchable with `nix build .#bitcoin-node` etc.
 
 Checkpoint: `nix build .#bitcoin-node` and `nix build .#sv2-tp` succeed.
 
@@ -107,11 +106,10 @@ Cargo.lock pins for time@0.3.41, home@0.5.11. If the locks are still needed, doc
 Checkpoint: `nix flake check` passes.
 
 ---
-Phase 3: NixOS Deployment Module (COMPLETE — 2026-03-09)
+Phase 3: Debian 12 Deployment Workflow (COMPLETE — 2026-03-09)
 
-Goal: A pool operator running NixOS can add hashpool as a flake input and enable all services
-in their configuration.nix with a few lines. This is the right deployment target — devenv is
-for development, NixOS is for production.
+Goal: A pool operator can deploy on a Debian 12 VPS using the repository deployment scripts.
+Devenv is for development; Debian 12 is the canonical production environment.
 
 Architecture for a live deployment (testnet4 or mainnet):
 
@@ -120,54 +118,31 @@ Architecture for a live deployment (testnet4 or mainnet):
   mint  (receives quote requests from pool and translator)
   translator (proxy, miner-facing)
 
-Step 3.1 — Write nixosModules.hashpool (DONE)
+Step 3.1 — Harden deploy scripts for Debian 12 (DONE)
 
-Created nix/hashpool-module.nix
+- `scripts/deploy.sh` supports ship-only deploys and a `--build-in-place` mode.
+- `scripts/deploy-build-in-place.sh` builds on the VPS and installs services/configs.
+- ABI guard prevents deploying Nix-built binaries to Debian.
 
-The module should provide:
-- Options for: network (regtest/testnet4/mainnet), data directories, ports, config file paths
-- systemd.services for each process: bitcoin-node, sv2-tp, pool, jd-server, jd-client,
-  mint, translator
-- Correct After=/Wants= ordering to reproduce the devenv waitForPort dependencies:
-    bitcoin-node → sv2-tp → pool → jd-server
-                          → jd-client
-    mint (no hard dep, starts independently)
-    translator (waits for pool)
-- A single enable option (services.hashpool.enable) to turn the whole stack on
-- Network-specific defaults (ports, chain flag)
+Step 3.2 — Write Debian 12 deployment guide (DONE)
 
-Design decision: Do NOT hard-code config TOML paths inside the module. Instead, expose a
-configDir option that points to a directory containing pool.config.toml, jdc.config.toml, etc.
-This keeps the module flexible and avoids baking in testnet vs mainnet config.
+Created `docs/deployment.md` covering:
 
-Step 3.2 — Wire the module into flake.nix (DONE)
-
-  nixosModules.hashpool = import ./nix/hashpool-module.nix self;
-  nixosModules.default = self.nixosModules.hashpool;
-
-Step 3.3 — Write a NixOS deployment example (DONE)
-
-Created docs/nixos-deployment.md covering:
-
-1. Prerequisites: NixOS with flakes enabled
-2. Adding hashpool as a flake input
-3. Minimal configuration.nix snippet to enable the full stack
-4. How to set network=testnet4 and point config files to your config/ dir
-5. How to override the coinbase_reward_script and other operator-specific settings
-6. First-run steps: wallet creation, initial block download, confirming sv2-tp connects
-7. Monitoring: log files, bitcoin-cli commands to verify node status, pool log output to
-   confirm template receipt and share validation
+1. Build-in-place (recommended) and ship-only flows
+2. Full `deploy.sh` flag reference and invalid combinations
+3. Service lifecycle and nginx notes
+4. Cashu wallet (cashu.me) SPA install on the VPS
 
 ---
 Phase 4: Live Pool Instance (testnet4)
 
-Goal: Deploy hashpool on the user's own server using the NixOS module from Phase 3. This
-validates the deployment docs are accurate and produces a working testnet4 instance that can
-be included in the v0.2 release announcement.
+Goal: Deploy hashpool on a Debian 12 VPS using the Phase 3 workflow. This validates the
+deployment docs are accurate and produces a working testnet4 instance that can be included
+in the v0.2 release announcement.
 
 Step 4.1 — Provision server
 
-Choose a VPS or dedicated server running NixOS. Minimum specs for testnet4:
+Choose a Debian 12 VPS or dedicated server. Minimum specs for testnet4:
 - 2 vCPU, 4 GB RAM, 50 GB SSD (testnet4 chain is ~10 GB and growing)
 - Public IP or DNS for miner connections (translator port)
 
@@ -180,10 +155,10 @@ use it in production. Generate fresh keys and set in pool.config.toml:
 
 Also set a real coinbase_reward_script pointing to a wallet you control.
 
-Step 4.3 — Deploy via NixOS module
+Step 4.3 — Deploy via Debian 12 scripts
 
-Follow the docs written in Step 3.3. Any gaps or errors discovered here feed back into the
-docs before the release tag.
+Follow `docs/deployment.md` (build-in-place recommended). Any gaps or errors discovered here
+feed back into the docs before the release tag.
 
 Step 4.4 — Validate end-to-end on testnet4
 
@@ -207,7 +182,7 @@ Step 5.1 — Update README.md (DONE)
 
 - Replace "Sjors' SV2 Fork" section with bitcoin-node + sv2-tp v1.0.6
 - Update "Getting Started" to be accurate for current devenv setup
-- Add a "Production Deployment" section with a pointer to docs/nixos-deployment.md
+- Add a "Production Deployment" section with a pointer to docs/deployment.md
 - Add a brief explanation of what v0.2 brings (SRI 1.7.0, new TP, fixed share accounting)
 
 Step 5.2 — Write CHANGELOG entry for v0.2 (DONE)
@@ -217,7 +192,7 @@ Created CHANGELOG.md with v0.2 entries:
 - Template provider replaced: bitcoin-node 30.2 + sv2-tp v1.0.6 (replaces Sjors fork)
 - Fixed: share difficulty formula in sv2_to_sv1.rs (SV2 formula 2^256/target)
 - Fixed: CoinbaseOutputConstraints 6-byte format (SRI 1.7.0 pool↔TP protocol)
-- Added: NixOS deployment module
+- Added: Debian 12 deployment workflow and operator guide
 - Removed: sv2-apps cherry-pick scope (deferred indefinitely)
 
 Step 5.3 — Archive the SRI migration plan (DONE)
@@ -242,7 +217,7 @@ Before tagging, confirm:
 
 Step 6.2 — Tag v0.2
 
-  git tag -s v0.2.0 -m "hashpool v0.2: SRI 1.7.0 migration, NixOS deployment, live testnet4 pool"
+  git tag -s v0.2.0 -m "hashpool v0.2: SRI 1.7.0 migration, Debian 12 deployment, live testnet4 pool"
   git push origin v0.2.0
 
 Create a GitHub release from the tag with the CHANGELOG entry as the release body.
@@ -254,14 +229,14 @@ Dependency Graph
       ↓
   Phase 2 (flake)
       ↓
-  Phase 3 (NixOS module)  ←→  Phase 4 (live pool, validates Phase 3)
+  Phase 3 (Debian 12 deploy)  ←→  Phase 4 (live pool, validates Phase 3)
            ↓
   Phase 5 (docs, depends on 3+4 for accuracy)
            ↓
   Phase 6 (release tag)
 
 Phase 1 is independent and can start immediately. Phases 2–4 should be done in order since the
-NixOS module builds on the flake packages and the live deployment validates the module.
+Debian 12 deployment workflow builds on the flake packages and the live deployment validates it.
 
 ---
 Out of Scope for v0.2
@@ -285,9 +260,9 @@ Key Files Reference
   flake.nix                                     2.1-2.4 Fix source path, expose all packages
   bitcoin-node.nix                              2.2     Expose as flake package
   sv2-tp.nix                                    2.2     Expose as flake package
-  nix/hashpool-module.nix                       3.1     New NixOS module (all services)
-  flake.nix (nixosModules output)               3.2     Wire module into flake
-  docs/nixos-deployment.md                      3.3     New operator guide
+  scripts/deploy.sh                             3.1     Debian 12 deploy entrypoint (build-in-place + ship-only)
+  scripts/deploy-build-in-place.sh              3.1     Debian 12 build-on-VPS flow
+  docs/deployment.md                            3.2     Debian 12 operator guide
   config/prod/                                  4.5     Update for testnet4 production use
   CHANGELOG.md                                  5.2     v0.2 entries
   docs/archive/sri-1.7.0-upgrade-plan-v2.md     5.3     Archived migration doc
