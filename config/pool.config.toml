@@ -7,7 +7,7 @@ listen_address = "0.0.0.0:34254"
 
 # Coinbase reward script (specified as a descriptor)
 # For more info on descriptors see: https://github.com/bitcoin/bips/blob/master/bip-0380.mediawiki#appendix-b-index-of-script-expressions
-coinbase_reward_script = "addr(tb1qa0sm0hxzj0x25rh8gw5xlzwlsfvvyz8u96w3p8)"
+coinbase_reward_script = "addr(tb1qs5kpecpax8uv4vn5uqfyycmmmma7jhunmce0z4)"
 
 # Pool signature (string to be included in coinbase tx)
 pool_signature = "Stratum v2 SRI Pool"
