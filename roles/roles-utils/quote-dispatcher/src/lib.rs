@@ -86,7 +86,10 @@ impl QuoteDispatcher {
         let hash = Sha256Hash::from_slice(header_hash)
             .map_err(|e| DispatchError::InvalidHeaderHash(format!("Invalid header hash: {e}")))?;
 
-        let amount = calculate_ehash_amount(hash.to_byte_array(), self.minimum_difficulty);
+        // Convert to big-endian for difficulty calculation (hash is little-endian bytes).
+        let mut hash_bytes = hash.to_byte_array();
+        hash_bytes.reverse();
+        let amount = calculate_ehash_amount(hash_bytes, self.minimum_difficulty);
 
         // Notify callback if set
         if let Some(ref callback) = self.callback {
