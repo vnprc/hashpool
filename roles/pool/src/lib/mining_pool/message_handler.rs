@@ -124,7 +124,10 @@ fn validate_minimum_share_difficulty(
     sequence_number: u32,
 ) -> Option<SendTo<()>> {
     if let Some(min_bits) = minimum_bits {
-        if let Err(e) = share_validation::validate_share_difficulty(header_hash, Some(min_bits)) {
+        // Convert to big-endian for difficulty calculation (hash is little-endian bytes).
+        let mut hash_bytes = *header_hash;
+        hash_bytes.reverse();
+        if let Err(e) = share_validation::validate_share_difficulty(&hash_bytes, Some(min_bits)) {
             error!("SubmitSharesError: channel_id: {}, sequence_number: {}, error_code: share-difficulty-too-low ❌ ({})", channel_id, sequence_number, e);
             let error = SubmitSharesError {
                 channel_id,

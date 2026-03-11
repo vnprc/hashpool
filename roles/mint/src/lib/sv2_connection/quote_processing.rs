@@ -34,7 +34,9 @@ pub async fn process_mint_quote_message(
             let parsed_request = parse_mint_quote_request(payload)
                 .map_err(|e| anyhow::anyhow!("Failed to parse MintQuoteRequest: {e}"))?;
             let share_hash = parsed_request.share_hash;
-            let share_hash_bytes = *share_hash.as_bytes();
+            // Convert to big-endian for difficulty calculation (hash is little-endian bytes).
+            let mut share_hash_bytes = *share_hash.as_bytes();
+            share_hash_bytes.reverse();
             let leading_zero_bits = calculate_difficulty(share_hash_bytes);
             let amount = parsed_request.request.amount;
             let locking_key_hex = hex::encode(parsed_request.request.locking_key.inner_as_ref());
