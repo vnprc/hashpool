@@ -28,7 +28,7 @@ min_extranonce_size = 4
 mode = "FULLTEMPLATE"
 
 # Template Provider config
-tp_address = "127.0.0.1:8443"
+tp_address = "127.0.0.1:48442"
 
 # String to be added into the Coinbase scriptSig
 jdc_signature = "Hashpool Testnet"
