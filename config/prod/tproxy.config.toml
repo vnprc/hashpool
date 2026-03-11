@@ -3,7 +3,7 @@
 # downstream_address = "0.0.0.0"
 # downstream_port = 34255
 # Prod - VPS external IP
-downstream_address = "188.40.233.11"
+downstream_address = "80.71.235.186"
 downstream_port = 34256
 
 # Version support

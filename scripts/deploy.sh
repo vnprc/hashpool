@@ -14,15 +14,18 @@ BUILD_ONLY=0
 BUILD_IN_PLACE=0
 DRY_RUN=0
 CLEAN_BUILD=0
+CONFIG_ONLY=0
 
 usage() {
   cat << 'USAGE'
-Usage: ./scripts/deploy.sh [--skip-build] [--build-only] [--build-in-place] [--dry-run] [--clean]
+Usage: ./scripts/deploy.sh [--skip-build] [--build-only] [--build-in-place] [--config-only] [--dry-run] [--clean]
 
 Options:
   --skip-build       Skip local cargo build step and use existing binaries.
   --build-only       Build local binaries and exit without deploying.
   --build-in-place   Build and deploy on the VPS (single entrypoint).
+  --config-only      Deploy configs/systemd/nginx only; skip builds/binaries.
+                    Note: config-only still restarts services and may take ~15-30s.
   --dry-run          Run preflight checks only; do not deploy.
   --clean            Clean local build artifacts before building.
 USAGE
@@ -44,6 +47,10 @@ while [ $# -gt 0 ]; do
       ;;
     --dry-run)
       DRY_RUN=1
+      shift
+      ;;
+    --config-only)
+      CONFIG_ONLY=1
       shift
       ;;
     --clean)
@@ -69,6 +76,10 @@ if [ "$BUILD_IN_PLACE" -eq 1 ]; then
     echo "Invalid flags: --build-in-place cannot be combined with --skip-build or --build-only."
     exit 1
   fi
+  if [ "$CONFIG_ONLY" -eq 1 ]; then
+    echo "Invalid flags: --build-in-place cannot be combined with --config-only."
+    exit 1
+  fi
   if [ "$DRY_RUN" -eq 1 ]; then
     if [ "$CLEAN_BUILD" -eq 1 ]; then
       "$LOCAL_DIR/scripts/deploy-build-in-place.sh" --dry-run --clean
@@ -87,6 +98,14 @@ fi
 
 if [ "$BUILD_ONLY" -eq 1 ] && [ "$SKIP_BUILD" -eq 1 ]; then
   echo "Invalid flags: --build-only cannot be combined with --skip-build."
+  exit 1
+fi
+if [ "$CONFIG_ONLY" -eq 1 ] && [ "$BUILD_ONLY" -eq 1 ]; then
+  echo "Invalid flags: --config-only cannot be combined with --build-only."
+  exit 1
+fi
+if [ "$CONFIG_ONLY" -eq 1 ] && [ "$CLEAN_BUILD" -eq 1 ]; then
+  echo "Invalid flags: --config-only cannot be combined with --clean."
   exit 1
 fi
 if [ "$CLEAN_BUILD" -eq 1 ] && [ "$SKIP_BUILD" -eq 1 ]; then
@@ -139,7 +158,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
       echo "One or more binaries are missing. Build first or disable --skip-build."
       exit 1
     fi
-  else
+  elif [ "$CONFIG_ONLY" -eq 0 ]; then
     echo "🔎 Checking required tools locally..."
     require_cmd cargo "Install Rust (https://rustup.rs) or: apt-get install -y cargo"
     require_cmd rustc "Install Rust (https://rustup.rs) or: apt-get install -y rustc"
@@ -156,35 +175,37 @@ if [ "$DRY_RUN" -eq 1 ]; then
   exit 0
 fi
 
-# Download bitcoin-core (multiprocess) if not present
-echo "📥 Downloading bitcoin-core and sv2-tp..."
-BITCOIN_VERSION="30.2"
-BITCOIN_URL="https://bitcoincore.org/bin/bitcoin-core-${BITCOIN_VERSION}/bitcoin-${BITCOIN_VERSION}-x86_64-linux-gnu.tar.gz"
-BITCOIN_DIR="/tmp/bitcoin-${BITCOIN_VERSION}"
+if [ "$CONFIG_ONLY" -eq 0 ]; then
+  # Download bitcoin-core (multiprocess) if not present
+  echo "📥 Downloading bitcoin-core and sv2-tp..."
+  BITCOIN_VERSION="30.2"
+  BITCOIN_URL="https://bitcoincore.org/bin/bitcoin-core-${BITCOIN_VERSION}/bitcoin-${BITCOIN_VERSION}-x86_64-linux-gnu.tar.gz"
+  BITCOIN_DIR="/tmp/bitcoin-${BITCOIN_VERSION}"
 
-SV2_TP_VERSION="1.0.6"
-SV2_TP_URL="https://github.com/stratum-mining/sv2-tp/releases/download/v${SV2_TP_VERSION}/sv2-tp-${SV2_TP_VERSION}-x86_64-linux-gnu.tar.gz"
-SV2_TP_DIR="/tmp/sv2-tp-${SV2_TP_VERSION}"
+  SV2_TP_VERSION="1.0.6"
+  SV2_TP_URL="https://github.com/stratum-mining/sv2-tp/releases/download/v${SV2_TP_VERSION}/sv2-tp-${SV2_TP_VERSION}-x86_64-linux-gnu.tar.gz"
+  SV2_TP_DIR="/tmp/sv2-tp-${SV2_TP_VERSION}"
 
-if [ ! -f "/tmp/bitcoin" ] || [ ! -f "/tmp/bitcoin-cli" ] || [ ! -f "/tmp/bitcoin-node" ]; then
-  curl -L "$BITCOIN_URL" -o "/tmp/bitcoin.tar.gz"
-  mkdir -p "$BITCOIN_DIR"
-  tar -xzf "/tmp/bitcoin.tar.gz" -C "$BITCOIN_DIR" --strip-components=1
-  cp "$BITCOIN_DIR/bin/bitcoin" /tmp/bitcoin
-  cp "$BITCOIN_DIR/bin/bitcoin-cli" /tmp/bitcoin-cli
-  cp "$BITCOIN_DIR/libexec/bitcoin-node" /tmp/bitcoin-node
-  rm -rf "$BITCOIN_DIR" /tmp/bitcoin.tar.gz
+  if [ ! -f "/tmp/bitcoin" ] || [ ! -f "/tmp/bitcoin-cli" ] || [ ! -f "/tmp/bitcoin-node" ]; then
+    curl -L "$BITCOIN_URL" -o "/tmp/bitcoin.tar.gz"
+    mkdir -p "$BITCOIN_DIR"
+    tar -xzf "/tmp/bitcoin.tar.gz" -C "$BITCOIN_DIR" --strip-components=1
+    cp "$BITCOIN_DIR/bin/bitcoin" /tmp/bitcoin
+    cp "$BITCOIN_DIR/bin/bitcoin-cli" /tmp/bitcoin-cli
+    cp "$BITCOIN_DIR/libexec/bitcoin-node" /tmp/bitcoin-node
+    rm -rf "$BITCOIN_DIR" /tmp/bitcoin.tar.gz
+  fi
+
+  if [ ! -f "/tmp/sv2-tp" ]; then
+    curl -L "$SV2_TP_URL" -o "/tmp/sv2-tp.tar.gz"
+    mkdir -p "$SV2_TP_DIR"
+    tar -xzf "/tmp/sv2-tp.tar.gz" -C "$SV2_TP_DIR" --strip-components=1
+    cp "$SV2_TP_DIR/bin/sv2-tp" /tmp/sv2-tp
+    rm -rf "$SV2_TP_DIR" /tmp/sv2-tp.tar.gz
+  fi
 fi
 
-if [ ! -f "/tmp/sv2-tp" ]; then
-  curl -L "$SV2_TP_URL" -o "/tmp/sv2-tp.tar.gz"
-  mkdir -p "$SV2_TP_DIR"
-  tar -xzf "/tmp/sv2-tp.tar.gz" -C "$SV2_TP_DIR" --strip-components=1
-  cp "$SV2_TP_DIR/bin/sv2-tp" /tmp/sv2-tp
-  rm -rf "$SV2_TP_DIR" /tmp/sv2-tp.tar.gz
-fi
-
-if [ "$SKIP_BUILD" -eq 0 ]; then
+if [ "$CONFIG_ONLY" -eq 0 ] && [ "$SKIP_BUILD" -eq 0 ]; then
   echo "🔎 Checking required tools locally..."
   require_cmd cargo "Install Rust (https://rustup.rs) or: apt-get install -y cargo"
   require_cmd rustc "Install Rust (https://rustup.rs) or: apt-get install -y rustc"
@@ -219,7 +240,7 @@ if [ "$SKIP_BUILD" -eq 0 ]; then
     echo "✅ Build-only complete; skipping deploy."
     exit 0
   fi
-else
+elif [ "$CONFIG_ONLY" -eq 0 ]; then
   echo "⏭️  Skipping local build (ship-only deploy)..."
   MISSING=0
   for bin in "${REQUIRED_BINS[@]}"; do
@@ -245,20 +266,22 @@ mkdir -p "$STAGING_DIR/config"
 mkdir -p "$STAGING_DIR/systemd"
 mkdir -p "$STAGING_DIR/nginx"
 
-# Stage binaries
-cp "$LOCAL_DIR/roles/target/debug/pool_sv2" "$STAGING_DIR/bin/"
-cp "$LOCAL_DIR/roles/target/debug/translator_sv2" "$STAGING_DIR/bin/"
-cp "$LOCAL_DIR/roles/target/debug/mint" "$STAGING_DIR/bin/"
-cp "$LOCAL_DIR/roles/target/debug/jd_server" "$STAGING_DIR/bin/"
-cp "$LOCAL_DIR/roles/target/debug/jd_client_sv2" "$STAGING_DIR/bin/"
-cp "$LOCAL_DIR/roles/target/debug/stats_pool" "$STAGING_DIR/bin/"
-cp "$LOCAL_DIR/roles/target/debug/stats_proxy" "$STAGING_DIR/bin/"
-cp "$LOCAL_DIR/roles/target/debug/web_pool" "$STAGING_DIR/bin/"
-cp "$LOCAL_DIR/roles/target/debug/web_proxy" "$STAGING_DIR/bin/"
-cp /tmp/bitcoin "$STAGING_DIR/bin/"
-cp /tmp/bitcoin-cli "$STAGING_DIR/bin/"
-cp /tmp/bitcoin-node "$STAGING_DIR/libexec/"
-cp /tmp/sv2-tp "$STAGING_DIR/bin/"
+if [ "$CONFIG_ONLY" -eq 0 ]; then
+  # Stage binaries
+  cp "$LOCAL_DIR/roles/target/debug/pool_sv2" "$STAGING_DIR/bin/"
+  cp "$LOCAL_DIR/roles/target/debug/translator_sv2" "$STAGING_DIR/bin/"
+  cp "$LOCAL_DIR/roles/target/debug/mint" "$STAGING_DIR/bin/"
+  cp "$LOCAL_DIR/roles/target/debug/jd_server" "$STAGING_DIR/bin/"
+  cp "$LOCAL_DIR/roles/target/debug/jd_client_sv2" "$STAGING_DIR/bin/"
+  cp "$LOCAL_DIR/roles/target/debug/stats_pool" "$STAGING_DIR/bin/"
+  cp "$LOCAL_DIR/roles/target/debug/stats_proxy" "$STAGING_DIR/bin/"
+  cp "$LOCAL_DIR/roles/target/debug/web_pool" "$STAGING_DIR/bin/"
+  cp "$LOCAL_DIR/roles/target/debug/web_proxy" "$STAGING_DIR/bin/"
+  cp /tmp/bitcoin "$STAGING_DIR/bin/"
+  cp /tmp/bitcoin-cli "$STAGING_DIR/bin/"
+  cp /tmp/bitcoin-node "$STAGING_DIR/libexec/"
+  cp /tmp/sv2-tp "$STAGING_DIR/bin/"
+fi
 
 # Stage configs - copy prod configs directly to config/ directory
 cp -r "$LOCAL_DIR/config/prod"/* "$STAGING_DIR/config/"
@@ -266,7 +289,9 @@ cp "$LOCAL_DIR/config/sv2-tp.conf" "$STAGING_DIR/config/"
 
 # Stage systemd services and control script
 cp "$LOCAL_DIR/scripts/systemd/"*.service "$STAGING_DIR/systemd/"
-cp "$LOCAL_DIR/scripts/hashpool-ctl.sh" "$STAGING_DIR/bin/"
+if [ "$CONFIG_ONLY" -eq 0 ]; then
+  cp "$LOCAL_DIR/scripts/hashpool-ctl.sh" "$STAGING_DIR/bin/"
+fi
 
 # Stage nginx configs
 cp -r "$LOCAL_DIR/scripts/nginx/sites-available" "$STAGING_DIR/nginx/"
@@ -291,17 +316,19 @@ check_nix_abi() {
   fi
 }
 
-# Safety guard against Nix ABI binaries
-while IFS= read -r -d '' bin; do
-  check_nix_abi "$bin"
-done < <(find "$STAGING_DIR" -type f -perm -111 -print0)
+if [ "$CONFIG_ONLY" -eq 0 ]; then
+  # Safety guard against Nix ABI binaries
+  while IFS= read -r -d '' bin; do
+    check_nix_abi "$bin"
+  done < <(find "$STAGING_DIR" -type f -perm -111 -print0)
+fi
 
 # Single rsync to VPS and run installation commands
 echo "📤 Deploying to VPS and installing..."
 # Use --partial to resume interrupted transfers, --bwlimit to avoid throttling (KB/s)
 # Adjust --bwlimit value if needed: 5000 = 5MB/s, 10000 = 10MB/s
 rsync -avz --progress --partial --bwlimit=5000 --compress-level=9 --timeout=300 "$STAGING_DIR/" "$VPS_USER@$VPS_HOST:/tmp/hashpool-deploy/" && \
-ssh "$VPS_USER@$VPS_HOST" << 'EOF'
+ssh "$VPS_USER@$VPS_HOST" "CONFIG_ONLY=$CONFIG_ONLY bash -s" << 'EOF'
   # Stop all services first
   echo "Stopping services..."
   systemctl stop hashpool-web-proxy hashpool-web-pool hashpool-proxy hashpool-jd-client hashpool-jd-server hashpool-pool hashpool-mint hashpool-stats-proxy hashpool-stats-pool hashpool-sv2-tp hashpool-bitcoin-node 2>/dev/null || true
@@ -330,8 +357,10 @@ ssh "$VPS_USER@$VPS_HOST" << 'EOF'
   mkdir -p /var/lib/hashpool/{translator,mint,pool,stats-pool,stats-proxy}
 
   # Move files from staging to final location
-  cp -r /tmp/hashpool-deploy/bin/* /opt/hashpool/bin/
-  cp -r /tmp/hashpool-deploy/libexec/* /opt/hashpool/libexec/
+  if [ "${CONFIG_ONLY:-0}" -eq 0 ]; then
+    cp -r /tmp/hashpool-deploy/bin/* /opt/hashpool/bin/
+    cp -r /tmp/hashpool-deploy/libexec/* /opt/hashpool/libexec/
+  fi
   cp -r /tmp/hashpool-deploy/config/* /opt/hashpool/config/
   cp /tmp/hashpool-deploy/systemd/*.service /etc/systemd/system/
 
@@ -370,10 +399,11 @@ ssh "$VPS_USER@$VPS_HOST" << 'EOF'
 
   # Fix permissions
   chown -R hashpool:hashpool /opt/hashpool
-  chmod +x /opt/hashpool/bin/*
-
-  # Create symlink for easy access
-  ln -sf /opt/hashpool/bin/hashpool-ctl.sh /usr/local/bin/hashpool-ctl
+  if [ "${CONFIG_ONLY:-0}" -eq 0 ]; then
+    chmod +x /opt/hashpool/bin/*
+    # Create symlink for easy access
+    ln -sf /opt/hashpool/bin/hashpool-ctl.sh /usr/local/bin/hashpool-ctl
+  fi
 
   # Start services back up
   echo "Starting services..."

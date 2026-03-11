@@ -3,7 +3,7 @@
 upstream_address = "127.0.0.1"
 upstream_port = 34254
 # Downstream miner connection
-downstream_address = "188.40.233.11"
+downstream_address = "80.71.235.186"
 downstream_port = 34256
 
 [mint]
