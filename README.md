@@ -99,6 +99,10 @@ For deploying Hashpool on Debian 12, see the
   modifications
 - **New Template Provider**: Bitcoin Core 30.2 (`bitcoin-node`) + sv2-tp v1.0.6
   replaces the Sjors SV2 fork; connects via unix IPC socket
+- **Ehash mint flow redesign**: end-to-end minting and share accounting were
+  reworked across pool, translator, and mint services
+- **New roles**: stats + web services for pool/proxy monitoring and wallet UX
+- **Testnet staging**: dedicated testnet deployment configs and workflow
 - **Fixed**: share difficulty formula in the SV1 translator now uses the SV2
   formula (`2^256 / target`) matching miner expectations
 - **Fixed**: CoinbaseOutputConstraints 6-byte encoding (SRI 1.7.0 pool↔TP protocol)
