@@ -92,7 +92,7 @@ For deploying Hashpool on Debian 12, see the
 
 ---
 
-## What's New in v0.2
+## What's New in v0.1.1
 
 - **SRI 1.7.0 migration complete**: all protocols and utilities now import from
   crates.io (roles_logic_sv2 deprecated), vendored crates limited to hashpool-specific

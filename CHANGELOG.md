@@ -2,7 +2,7 @@ Hashpool Changelog
 
 ---
 
-## v0.2.0 (2026-03-09)
+## v0.1.1 (2026-03-09)
 
 ### Breaking Changes
 
@@ -70,9 +70,9 @@ Hashpool Changelog
 ### Removed
 
 - sv2-apps cherry-picks (HTTP monitoring/Swagger UI, hotpath perf metrics) —
-  deferred indefinitely, not needed for v0.2.
+  deferred indefinitely, not needed for v0.1.1.
 
-- Async handler trait migration (Phase 3 of the SRI plan) — deferred to post-v0.2.
+- Async handler trait migration (Phase 3 of the SRI plan) — deferred to post-v0.1.1.
 
 ---
 

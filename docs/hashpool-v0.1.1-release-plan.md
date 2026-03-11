@@ -1,4 +1,4 @@
-Hashpool v0.2 Release Plan
+Hashpool v0.1.1 Release Plan
 
 Context
 
@@ -6,17 +6,17 @@ The SRI 1.7.0 migration is complete (Steps 2.1–2.13). The roles workspace buil
 was replaced with bitcoin-node + sv2-tp v1.0.6, and the invalid-share-spam bug was fixed. The
 integration test (devenv up with full stack + miner + ehash minting) is passing on regtest.
 
-v0.2 is the first release on SRI 1.7.0. The goals for this release are:
+v0.1.1 is the first release on SRI 1.7.0. The goals for this release are:
 
 1. Code cleanup — tidy up loose ends from the migration
 2. Deterministic builds — make `nix build` produce the full stack reliably
 3. Debian 12 deployment — document and validate the VPS deployment workflow
 4. Live pool instance — stand up the pool on testnet4, validate end-to-end
 5. Documentation — update README and write an operator guide covering Debian 12 deployment
-6. Release tag — tag v0.2 with all of the above in place
+6. Release tag — tag v0.1.1 with all of the above in place
 
 This plan intentionally excludes sv2-apps cherry-picks (Phase 4 of the SRI migration plan) and
-the async handler trait migration (Phase 3). Neither is necessary for v0.2.
+the async handler trait migration (Phase 3). Neither is necessary for v0.1.1.
 
 ---
 Phase 1: Code Cleanup (COMPLETE — 2026-03-09)
@@ -138,7 +138,7 @@ Phase 4: Live Pool Instance (testnet4)
 
 Goal: Deploy hashpool on a Debian 12 VPS using the Phase 3 workflow. This validates the
 deployment docs are accurate and produces a working testnet4 instance that can be included
-in the v0.2 release announcement.
+in the v0.1.1 release announcement.
 
 Step 4.1 — Provision server
 
@@ -183,11 +183,11 @@ Step 5.1 — Update README.md (DONE)
 - Replace "Sjors' SV2 Fork" section with bitcoin-node + sv2-tp v1.0.6
 - Update "Getting Started" to be accurate for current devenv setup
 - Add a "Production Deployment" section with a pointer to docs/deployment.md
-- Add a brief explanation of what v0.2 brings (SRI 1.7.0, new TP, fixed share accounting)
+- Add a brief explanation of what v0.1.1 brings (SRI 1.7.0, new TP, fixed share accounting)
 
-Step 5.2 — Write CHANGELOG entry for v0.2 (DONE)
+Step 5.2 — Write CHANGELOG entry for v0.1.1 (DONE)
 
-Created CHANGELOG.md with v0.2 entries:
+Created CHANGELOG.md with v0.1.1 entries:
 - SRI 1.7.0 migration complete (crates.io imports, roles_logic_sv2 deprecated)
 - Template provider replaced: bitcoin-node 30.2 + sv2-tp v1.0.6 (replaces Sjors fork)
 - Fixed: share difficulty formula in sv2_to_sv1.rs (SV2 formula 2^256/target)
@@ -215,10 +215,10 @@ Before tagging, confirm:
 - [ ] Live testnet4 pool is running (Step 4.4)
 - [ ] README and docs are updated (Phase 5)
 
-Step 6.2 — Tag v0.2
+Step 6.2 — Tag v0.1.1
 
-  git tag -s v0.2.0 -m "hashpool v0.2: SRI 1.7.0 migration, Debian 12 deployment, live testnet4 pool"
-  git push origin v0.2.0
+  git tag -s v0.1.1 -m "hashpool v0.1.1: SRI 1.7.0 migration, Debian 12 deployment, live testnet4 pool"
+  git push origin v0.1.1
 
 Create a GitHub release from the tag with the CHANGELOG entry as the release body.
 
@@ -239,12 +239,12 @@ Phase 1 is independent and can start immediately. Phases 2–4 should be done in
 Debian 12 deployment workflow builds on the flake packages and the live deployment validates it.
 
 ---
-Out of Scope for v0.2
+Out of Scope for v0.1.1
 
 The following items were identified during the SRI 1.7.0 migration but deferred:
 
 - sv2-apps cherry-picks (HTTP monitoring/Swagger UI, hotpath perf metrics) — not needed
-- Async handler trait migration (Phase 3 of SRI plan) — low priority, post-v0.2
+- Async handler trait migration (Phase 3 of SRI plan) — low priority, post-v0.1.1
 - CDK CLI as a Nix derivation (currently built via runtime git clone in devenv) — nice to have
 - aarch64/macOS hashes for bitcoin-node.nix and sv2-tp.nix — only x86_64-linux has real hashes
 
@@ -264,5 +264,5 @@ Key Files Reference
   scripts/deploy-build-in-place.sh              3.1     Debian 12 build-on-VPS flow
   docs/deployment.md                            3.2     Debian 12 operator guide
   config/prod/                                  4.5     Update for testnet4 production use
-  CHANGELOG.md                                  5.2     v0.2 entries
+  CHANGELOG.md                                  5.2     v0.1.1 entries
   docs/archive/sri-1.7.0-upgrade-plan-v2.md     5.3     Archived migration doc
