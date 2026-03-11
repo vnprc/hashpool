@@ -5,7 +5,8 @@ set -euo pipefail
 # Usage: hashpool-ctl.sh {start|stop|restart|status}
 
 SERVICES=(
-  "hashpool-bitcoind"
+  "hashpool-bitcoin-node"
+  "hashpool-sv2-tp"
   "hashpool-stats-pool"
   "hashpool-stats-proxy"
   "hashpool-mint"
@@ -130,12 +131,12 @@ clean_data() {
       ;;
     regtest)
       echo "🗑️  Deleting regtest blockchain data..."
-      rm -rf "$DATADIR/bitcoind/regtest"
+      rm -rf "$DATADIR/regtest"
       echo "✅ Regtest data deleted"
       ;;
     testnet4)
       echo "🗑️  Deleting testnet4 blockchain data..."
-      rm -rf "$DATADIR/bitcoind/testnet4"
+      rm -rf "$DATADIR/testnet4"
       echo "✅ Testnet4 data deleted"
       ;;
     stats)

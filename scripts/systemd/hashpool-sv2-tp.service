@@ -1,0 +1,20 @@
+[Unit]
+Description=SV2 Template Provider (testnet4)
+After=network.target hashpool-bitcoin-node.service
+Requires=hashpool-bitcoin-node.service
+
+[Service]
+Type=simple
+User=hashpool
+Group=hashpool
+WorkingDirectory=/opt/hashpool
+ExecStartPre=+/bin/sh -c 'mkdir -p /var/log/hashpool /var/lib/hashpool && touch /var/log/hashpool/sv2-tp.log && chown -R hashpool:hashpool /var/log/hashpool /var/lib/hashpool && chmod 755 /var/log/hashpool /var/lib/hashpool && chmod 644 /var/log/hashpool/sv2-tp.log'
+ExecStart=/opt/hashpool/bin/sv2-tp \
+  -datadir=/var/lib/hashpool \
+  -chain=testnet4 \
+  -conf=/opt/hashpool/config/sv2-tp.conf
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

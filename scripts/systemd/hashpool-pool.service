@@ -1,7 +1,7 @@
 [Unit]
 Description=Hashpool Pool (Stratum V2)
-After=network.target hashpool-stats-pool.service hashpool-mint.service
-Wants=hashpool-stats-pool.service hashpool-mint.service
+After=network.target hashpool-stats-pool.service hashpool-mint.service hashpool-sv2-tp.service
+Wants=hashpool-stats-pool.service hashpool-mint.service hashpool-sv2-tp.service
 
 [Service]
 Type=simple
