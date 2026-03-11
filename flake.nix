@@ -209,10 +209,5 @@
       };
     }))
     # System-independent outputs
-    // {
-      # NixOS module — curried over `self` so package options default to this flake's packages.
-      # Usage: nixosModules.default = inputs.hashpool.nixosModules.default;
-      nixosModules.hashpool = import ./nix/hashpool-module.nix self;
-      nixosModules.default = self.nixosModules.hashpool;
-    };
+    // { };
 }

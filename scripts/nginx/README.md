@@ -15,6 +15,8 @@ These files are automatically deployed by `scripts/deploy.sh` to `/etc/nginx/sit
 
 The deployment script creates symlinks in `/etc/nginx/sites-enabled/` and reloads nginx.
 
+For installing the wallet SPA on the VPS, see `docs/deployment.md` (Cashu wallet section).
+
 ## SSL Certificates
 
 SSL certificates are managed by certbot and already exist on the VPS:
