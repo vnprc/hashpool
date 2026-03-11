@@ -9,7 +9,152 @@ VPS_USER="root"
 VPS_DIR="/opt/hashpool"
 LOCAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+SKIP_BUILD=0
+BUILD_ONLY=0
+BUILD_IN_PLACE=0
+DRY_RUN=0
+CLEAN_BUILD=0
+
+usage() {
+  cat << 'USAGE'
+Usage: ./scripts/deploy.sh [--skip-build] [--build-only] [--build-in-place] [--dry-run] [--clean]
+
+Options:
+  --skip-build       Skip local cargo build step and use existing binaries.
+  --build-only       Build local binaries and exit without deploying.
+  --build-in-place   Build and deploy on the VPS (single entrypoint).
+  --dry-run          Run preflight checks only; do not deploy.
+  --clean            Clean local build artifacts before building.
+USAGE
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --skip-build)
+      SKIP_BUILD=1
+      shift
+      ;;
+    --build-only)
+      BUILD_ONLY=1
+      shift
+      ;;
+    --build-in-place)
+      BUILD_IN_PLACE=1
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --clean)
+      CLEAN_BUILD=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1"
+      usage
+      exit 1
+      ;;
+  esac
+done
+
 echo "🚀 Starting hashpool deployment..."
+
+if [ "$BUILD_IN_PLACE" -eq 1 ]; then
+  if [ "$SKIP_BUILD" -eq 1 ] || [ "$BUILD_ONLY" -eq 1 ]; then
+    echo "Invalid flags: --build-in-place cannot be combined with --skip-build or --build-only."
+    exit 1
+  fi
+  if [ "$DRY_RUN" -eq 1 ]; then
+    if [ "$CLEAN_BUILD" -eq 1 ]; then
+      "$LOCAL_DIR/scripts/deploy-build-in-place.sh" --dry-run --clean
+    else
+      "$LOCAL_DIR/scripts/deploy-build-in-place.sh" --dry-run
+    fi
+  else
+    if [ "$CLEAN_BUILD" -eq 1 ]; then
+      "$LOCAL_DIR/scripts/deploy-build-in-place.sh" --clean
+    else
+      "$LOCAL_DIR/scripts/deploy-build-in-place.sh"
+    fi
+  fi
+  exit 0
+fi
+
+if [ "$BUILD_ONLY" -eq 1 ] && [ "$SKIP_BUILD" -eq 1 ]; then
+  echo "Invalid flags: --build-only cannot be combined with --skip-build."
+  exit 1
+fi
+if [ "$CLEAN_BUILD" -eq 1 ] && [ "$SKIP_BUILD" -eq 1 ]; then
+  echo "Invalid flags: --clean cannot be combined with --skip-build."
+  exit 1
+fi
+if [ "$DRY_RUN" -eq 1 ] && [ "$BUILD_ONLY" -eq 1 ]; then
+  echo "Invalid flags: --dry-run cannot be combined with --build-only."
+  exit 1
+fi
+if [ "$DRY_RUN" -eq 1 ] && [ "$CLEAN_BUILD" -eq 1 ]; then
+  echo "Invalid flags: --dry-run cannot be combined with --clean."
+  exit 1
+fi
+
+require_cmd() {
+  local cmd="$1"
+  local hint="$2"
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "Missing required tool: $cmd"
+    if [ -n "$hint" ]; then
+      echo "Install hint: $hint"
+    fi
+    exit 1
+  fi
+}
+
+REQUIRED_BINS=(
+  "$LOCAL_DIR/roles/target/debug/pool_sv2"
+  "$LOCAL_DIR/roles/target/debug/translator_sv2"
+  "$LOCAL_DIR/roles/target/debug/mint"
+  "$LOCAL_DIR/roles/target/debug/jd_server"
+  "$LOCAL_DIR/roles/target/debug/jd_client_sv2"
+  "$LOCAL_DIR/roles/target/debug/stats_pool"
+  "$LOCAL_DIR/roles/target/debug/stats_proxy"
+  "$LOCAL_DIR/roles/target/debug/web_pool"
+  "$LOCAL_DIR/roles/target/debug/web_proxy"
+)
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  if [ "$SKIP_BUILD" -eq 1 ]; then
+    MISSING=0
+    for bin in "${REQUIRED_BINS[@]}"; do
+      if [ ! -f "$bin" ]; then
+        echo "Missing binary: $bin"
+        MISSING=1
+      fi
+    done
+    if [ "$MISSING" -ne 0 ]; then
+      echo "One or more binaries are missing. Build first or disable --skip-build."
+      exit 1
+    fi
+  else
+    echo "🔎 Checking required tools locally..."
+    require_cmd cargo "Install Rust (https://rustup.rs) or: apt-get install -y cargo"
+    require_cmd rustc "Install Rust (https://rustup.rs) or: apt-get install -y rustc"
+    require_cmd gcc "apt-get install -y build-essential"
+    require_cmd make "apt-get install -y build-essential"
+    require_cmd pkg-config "apt-get install -y pkg-config"
+    if ! command -v readelf >/dev/null 2>&1 && ! command -v strings >/dev/null 2>&1; then
+      echo "Missing required tool: readelf or strings (for ABI check)"
+      echo "Install hint: apt-get install -y binutils"
+      exit 1
+    fi
+  fi
+  echo "✅ Local preflight checks passed (dry run)."
+  exit 0
+fi
 
 # Download bitcoin-core (multiprocess) if not present
 echo "📥 Downloading bitcoin-core and sv2-tp..."
@@ -39,21 +184,55 @@ if [ ! -f "/tmp/sv2-tp" ]; then
   rm -rf "$SV2_TP_DIR" /tmp/sv2-tp.tar.gz
 fi
 
-# Build debug binaries locally (much faster than release)
-echo "📦 Building debug binaries locally..."
-cd "$LOCAL_DIR/roles"
-cargo build \
-  --bin pool_sv2 \
-  --bin translator_sv2 \
-  --bin mint \
-  --bin jd_server \
-  --bin jd_client_sv2 \
-  --bin stats_pool \
-  --bin stats_proxy \
-  --bin web_pool \
-  --bin web_proxy
+if [ "$SKIP_BUILD" -eq 0 ]; then
+  echo "🔎 Checking required tools locally..."
+  require_cmd cargo "Install Rust (https://rustup.rs) or: apt-get install -y cargo"
+  require_cmd rustc "Install Rust (https://rustup.rs) or: apt-get install -y rustc"
+  require_cmd gcc "apt-get install -y build-essential"
+  require_cmd make "apt-get install -y build-essential"
+  require_cmd pkg-config "apt-get install -y pkg-config"
+  if ! command -v readelf >/dev/null 2>&1 && ! command -v strings >/dev/null 2>&1; then
+    echo "Missing required tool: readelf or strings (for ABI check)"
+    echo "Install hint: apt-get install -y binutils"
+    exit 1
+  fi
+  # Build debug binaries locally (much faster than release)
+  echo "📦 Building debug binaries locally..."
+  cd "$LOCAL_DIR/roles"
+  if [ "$CLEAN_BUILD" -eq 1 ]; then
+    echo "🧹 Cleaning local build artifacts..."
+    cargo clean
+  fi
+  cargo build \
+    --bin pool_sv2 \
+    --bin translator_sv2 \
+    --bin mint \
+    --bin jd_server \
+    --bin jd_client_sv2 \
+    --bin stats_pool \
+    --bin stats_proxy \
+    --bin web_pool \
+    --bin web_proxy
 
-echo "✅ Build complete"
+  echo "✅ Build complete"
+  if [ "$BUILD_ONLY" -eq 1 ]; then
+    echo "✅ Build-only complete; skipping deploy."
+    exit 0
+  fi
+else
+  echo "⏭️  Skipping local build (ship-only deploy)..."
+  MISSING=0
+  for bin in "${REQUIRED_BINS[@]}"; do
+    if [ ! -f "$bin" ]; then
+      echo "Missing binary: $bin"
+      MISSING=1
+    fi
+  done
+  if [ "$MISSING" -ne 0 ]; then
+    echo "One or more binaries are missing. Build first or disable --skip-build."
+    exit 1
+  fi
+fi
 
 # Copy all files to VPS in one rsync operation
 echo "📤 Copying all files to VPS..."
@@ -91,6 +270,31 @@ cp "$LOCAL_DIR/scripts/hashpool-ctl.sh" "$STAGING_DIR/bin/"
 
 # Stage nginx configs
 cp -r "$LOCAL_DIR/scripts/nginx/sites-available" "$STAGING_DIR/nginx/"
+
+check_nix_abi() {
+  local bin_path="$1"
+  if command -v readelf >/dev/null 2>&1; then
+    local interp
+    interp="$(readelf -l "$bin_path" 2>/dev/null | awk '/interpreter/ {print $NF}' || true)"
+    if echo "$interp" | grep -q "/nix/store"; then
+      echo "Refusing to deploy Nix ABI binary: $bin_path (interpreter: $interp)"
+      exit 1
+    fi
+  elif command -v strings >/dev/null 2>&1; then
+    if strings -a "$bin_path" | grep -q "/nix/store/.*/ld-linux"; then
+      echo "Refusing to deploy Nix ABI binary: $bin_path (strings check)"
+      exit 1
+    fi
+  else
+    echo "Cannot verify ABI for $bin_path (missing readelf/strings)."
+    exit 1
+  fi
+}
+
+# Safety guard against Nix ABI binaries
+while IFS= read -r -d '' bin; do
+  check_nix_abi "$bin"
+done < <(find "$STAGING_DIR" -type f -perm -111 -print0)
 
 # Single rsync to VPS and run installation commands
 echo "📤 Deploying to VPS and installing..."
