@@ -25,8 +25,8 @@ share_batch_size = 10
 # Server ID (number to guarantee unique search space allocation across different Pool servers)
 server_id = 1
 
-# Stats server config (TCP address for stats-pool)
-stats_server_address = "127.0.0.1:9083"
+# Monitoring HTTP endpoint for Prometheus/VictoriaMetrics scraping
+monitoring_address = "127.0.0.1:9108"
 
 # Job Declarator Server address (for display purposes)
 jd_server_address = "127.0.0.1:34264"

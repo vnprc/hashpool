@@ -1,10 +1,7 @@
-use stats::stats_adapter::ProxySnapshot;
-use std::{sync::Arc, time::Duration};
-use tokio::time;
-use tracing::{error, info};
+use tracing::info;
 use tracing_subscriber;
 
-use web_proxy::{config::Config, SnapshotStorage};
+use web_proxy::{config::Config, prometheus::PrometheusClient};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -15,8 +12,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
 
-    let fmt_layer = tracing_subscriber::fmt()
-        .with_env_filter(env_filter);
+    let fmt_layer = tracing_subscriber::fmt().with_env_filter(env_filter);
 
     if let Some(log_file) = &config.log_file {
         let file = std::fs::OpenOptions::new()
@@ -30,29 +26,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     info!("Starting web-proxy service");
-    info!("Stats proxy URL: {}", config.stats_proxy_url);
+    info!("Metrics store URL: {}", config.metrics_store_url);
     info!("Web server address: {}", config.web_server_address);
-    info!("Stats poll interval: {}s", config.stats_poll_interval_secs);
+    info!(
+        "Metrics query step: {}s",
+        config.metrics_query_step_secs
+    );
     info!(
         "Client poll interval: {}s",
         config.client_poll_interval_secs
     );
 
-    // Create shared snapshot storage
-    let storage = Arc::new(SnapshotStorage::new());
-
-    // Spawn polling loop
-    let storage_clone = storage.clone();
-    let stats_proxy_url = config.stats_proxy_url.clone();
-    let poll_interval = config.stats_poll_interval_secs;
-    tokio::spawn(async move {
-        poll_stats_proxy(storage_clone, stats_proxy_url, poll_interval).await;
-    });
+    let prometheus = PrometheusClient::new(
+        config.metrics_store_url.clone(),
+        config.request_timeout_secs,
+        config.pool_idle_timeout_secs,
+    )?;
 
     // Start HTTP server
-    start_web_server(
+    web_proxy::web::run_http_server(
         config.web_server_address,
-        storage,
+        prometheus,
         config.faucet_enabled,
         config.faucet_url,
         config.downstream_address,
@@ -60,79 +54,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.upstream_address,
         config.upstream_port,
         config.client_poll_interval_secs,
+        config.metrics_query_step_secs,
     )
     .await?;
 
     Ok(())
-}
-
-async fn poll_stats_proxy(
-    storage: Arc<SnapshotStorage>,
-    stats_proxy_url: String,
-    poll_interval_secs: u64,
-) {
-    let client = reqwest::Client::builder()
-        .pool_idle_timeout(Duration::from_secs(300))
-        .pool_max_idle_per_host(1)
-        .build()
-        .unwrap();
-    let mut interval = time::interval(Duration::from_secs(poll_interval_secs));
-    let mut last_success = false;
-
-    loop {
-        interval.tick().await;
-
-        match client
-            .get(format!("{}/api/stats", stats_proxy_url))
-            .send()
-            .await
-        {
-            Ok(response) => match response.json::<ProxySnapshot>().await {
-                Ok(snapshot) => {
-                    if !last_success {
-                        info!("Successfully fetched snapshot from stats-proxy");
-                        last_success = true;
-                    }
-                    storage.update(snapshot);
-                }
-                Err(e) => {
-                    if last_success {
-                        error!("Failed to parse snapshot JSON: {}", e);
-                        last_success = false;
-                    }
-                }
-            },
-            Err(e) => {
-                if last_success {
-                    error!("Failed to fetch from stats-proxy: {}", e);
-                    last_success = false;
-                }
-            }
-        }
-    }
-}
-
-async fn start_web_server(
-    address: String,
-    storage: Arc<SnapshotStorage>,
-    faucet_enabled: bool,
-    faucet_url: Option<String>,
-    downstream_address: String,
-    downstream_port: u16,
-    upstream_address: String,
-    upstream_port: u16,
-    client_poll_interval_secs: u64,
-) -> Result<(), Box<dyn std::error::Error>> {
-    web_proxy::web::run_http_server(
-        address,
-        storage,
-        faucet_enabled,
-        faucet_url,
-        downstream_address,
-        downstream_port,
-        upstream_address,
-        upstream_port,
-        client_poll_interval_secs,
-    )
-    .await
 }

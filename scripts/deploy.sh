@@ -139,8 +139,6 @@ REQUIRED_BINS=(
   "$LOCAL_DIR/roles/target/debug/mint"
   "$LOCAL_DIR/roles/target/debug/jd_server"
   "$LOCAL_DIR/roles/target/debug/jd_client_sv2"
-  "$LOCAL_DIR/roles/target/debug/stats_pool"
-  "$LOCAL_DIR/roles/target/debug/stats_proxy"
   "$LOCAL_DIR/roles/target/debug/web_pool"
   "$LOCAL_DIR/roles/target/debug/web_proxy"
 )
@@ -230,8 +228,6 @@ if [ "$CONFIG_ONLY" -eq 0 ] && [ "$SKIP_BUILD" -eq 0 ]; then
     --bin mint \
     --bin jd_server \
     --bin jd_client_sv2 \
-    --bin stats_pool \
-    --bin stats_proxy \
     --bin web_pool \
     --bin web_proxy
 
@@ -273,8 +269,6 @@ if [ "$CONFIG_ONLY" -eq 0 ]; then
   cp "$LOCAL_DIR/roles/target/debug/mint" "$STAGING_DIR/bin/"
   cp "$LOCAL_DIR/roles/target/debug/jd_server" "$STAGING_DIR/bin/"
   cp "$LOCAL_DIR/roles/target/debug/jd_client_sv2" "$STAGING_DIR/bin/"
-  cp "$LOCAL_DIR/roles/target/debug/stats_pool" "$STAGING_DIR/bin/"
-  cp "$LOCAL_DIR/roles/target/debug/stats_proxy" "$STAGING_DIR/bin/"
   cp "$LOCAL_DIR/roles/target/debug/web_pool" "$STAGING_DIR/bin/"
   cp "$LOCAL_DIR/roles/target/debug/web_proxy" "$STAGING_DIR/bin/"
   cp /tmp/bitcoin "$STAGING_DIR/bin/"
@@ -286,6 +280,8 @@ fi
 # Stage configs - copy prod configs directly to config/ directory
 cp -r "$LOCAL_DIR/config/prod"/* "$STAGING_DIR/config/"
 cp "$LOCAL_DIR/config/sv2-tp.conf" "$STAGING_DIR/config/"
+cp "$LOCAL_DIR/config/prometheus-pool.yml" "$STAGING_DIR/config/"
+cp "$LOCAL_DIR/config/prometheus-proxy.yml" "$STAGING_DIR/config/"
 
 # Stage systemd services and control script
 cp "$LOCAL_DIR/scripts/systemd/"*.service "$STAGING_DIR/systemd/"
@@ -331,7 +327,7 @@ rsync -avz --progress --partial --bwlimit=5000 --compress-level=9 --timeout=300 
 ssh "$VPS_USER@$VPS_HOST" "CONFIG_ONLY=$CONFIG_ONLY bash -s" << 'EOF'
   # Stop all services first
   echo "Stopping services..."
-  systemctl stop hashpool-web-proxy hashpool-web-pool hashpool-proxy hashpool-jd-client hashpool-jd-server hashpool-pool hashpool-mint hashpool-stats-proxy hashpool-stats-pool hashpool-sv2-tp hashpool-bitcoin-node 2>/dev/null || true
+  systemctl stop hashpool-web-proxy hashpool-web-pool hashpool-proxy hashpool-jd-client hashpool-jd-server hashpool-pool hashpool-mint hashpool-sv2-tp hashpool-bitcoin-node hashpool-prometheus-pool hashpool-prometheus-proxy 2>/dev/null || true
 
   # Wait for services to fully terminate
   echo "Waiting for services to fully terminate..."
@@ -343,10 +339,10 @@ ssh "$VPS_USER@$VPS_HOST" "CONFIG_ONLY=$CONFIG_ONLY bash -s" << 'EOF'
   pkill -f mint || true
   pkill -f jd_server || true
   pkill -f jd_client_sv2 || true
-  pkill -f stats_pool || true
-  pkill -f stats_proxy || true
   pkill -f web_pool || true
   pkill -f web_proxy || true
+  pkill -f "prometheus.*prometheus-pool.yml" || true
+  pkill -f "prometheus.*prometheus-proxy.yml" || true
   pkill -f "bitcoin -m node" || true
   pkill -f sv2-tp || true
 
@@ -354,7 +350,13 @@ ssh "$VPS_USER@$VPS_HOST" "CONFIG_ONLY=$CONFIG_ONLY bash -s" << 'EOF'
 
   # Create necessary directories
   mkdir -p /opt/hashpool/{bin,libexec,config,config/shared}
-  mkdir -p /var/lib/hashpool/{translator,mint,pool,stats-pool,stats-proxy}
+  mkdir -p /var/lib/hashpool/{translator,mint,pool}
+  mkdir -p /var/lib/hashpool/{prometheus-pool,prometheus-proxy}
+
+  if ! command -v prometheus >/dev/null 2>&1; then
+    apt-get update
+    apt-get install -y prometheus
+  fi
 
   # Move files from staging to final location
   if [ "${CONFIG_ONLY:-0}" -eq 0 ]; then
@@ -411,7 +413,7 @@ ssh "$VPS_USER@$VPS_HOST" "CONFIG_ONLY=$CONFIG_ONLY bash -s" << 'EOF'
   sleep 2
   systemctl start hashpool-sv2-tp
   sleep 2
-  systemctl start hashpool-stats-pool hashpool-stats-proxy
+  systemctl start hashpool-prometheus-pool hashpool-prometheus-proxy
   sleep 1
   systemctl start hashpool-mint
   sleep 1
@@ -437,7 +439,7 @@ echo "  sudo hashpool-ctl restart   # Restart all services"
 echo "  sudo hashpool-ctl status    # Check service status"
 echo ""
 echo "To enable services at boot:"
-echo "  sudo systemctl enable hashpool-{bitcoin-node,sv2-tp,stats-pool,stats-proxy,mint,pool,jd-server,jd-client,proxy,web-pool,web-proxy}"
+echo "  sudo systemctl enable hashpool-{bitcoin-node,sv2-tp,prometheus-pool,prometheus-proxy,mint,pool,jd-server,jd-client,proxy,web-pool,web-proxy}"
 echo ""
 echo "Individual service management:"
 echo "  sudo systemctl start hashpool-pool"

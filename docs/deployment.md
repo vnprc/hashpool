@@ -8,6 +8,8 @@ This guide is the canonical deployment path for Hashpool. It assumes a Debian 12
 
 Hashpool ships two deployment workflows for Debian 12:
 
+**Note:** Each deployment now requires a local Prometheus or VictoriaMetrics instance scraping `/metrics` from the pool or translator. Web dashboards query that metrics store directly.
+
 1. **Build-in-place (recommended)** — build on the VPS and install from there.
 2. **Ship-only** — build locally, then rsync binaries/configs to the VPS.
 
@@ -134,7 +136,7 @@ sudo hashpool-ctl status
 Enable services at boot:
 
 ```bash
-sudo systemctl enable hashpool-{bitcoin-node,sv2-tp,stats-pool,stats-proxy,mint,pool,jd-server,jd-client,proxy,web-pool,web-proxy}
+sudo systemctl enable hashpool-{bitcoin-node,sv2-tp,mint,pool,jd-server,jd-client,proxy,web-pool,web-proxy}
 ```
 
 ---

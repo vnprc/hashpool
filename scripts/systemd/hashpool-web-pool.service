@@ -1,7 +1,6 @@
 [Unit]
 Description=Hashpool Pool Web Dashboard
-After=network.target hashpool-stats-pool.service
-Requires=hashpool-stats-pool.service
+After=network.target
 
 [Service]
 Type=simple

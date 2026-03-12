@@ -22,12 +22,8 @@ user_identity = "hashpool"
 # Aggregate all downstream miners into single upstream channel
 aggregate_channels = false
 
-# Stats server config (TCP address for stats-proxy)
-stats_server_address = "127.0.0.1:8082"
-
-# Stats polling interval (seconds)
-[stats]
-snapshot_poll_interval_secs = 15
+# Monitoring HTTP endpoint for Prometheus/VictoriaMetrics scraping
+monitoring_address = "127.0.0.1:9109"
 
 # Redact miner IP addresses from database and website (prod)
 redact_ip = true
@@ -35,6 +31,9 @@ redact_ip = true
 # Faucet configuration
 faucet_port = 8083
 faucet_timeout = 3
+
+# Miner hashrate metrics window (seconds)
+metrics_window_secs = 300
 
 # Primary upstream pool server (for web-proxy connection display)
 upstream_address = "127.0.0.1"

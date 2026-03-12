@@ -901,7 +901,7 @@ mod tests {
         let (_downstream_sender, cm_receiver) = unbounded();
         let config = create_test_config();
         let addr = "127.0.0.1:3333".parse().unwrap();
-        let miner_tracker = std::sync::Arc::new(crate::miner_stats::MinerTracker::new());
+        let miner_tracker = std::sync::Arc::new(crate::miner_stats::MinerTracker::new(300));
 
         Sv1Server::new(addr, cm_receiver, cm_sender, config, miner_tracker)
     }
@@ -926,7 +926,7 @@ mod tests {
         let (cm_sender, _cm_receiver) = unbounded();
         let (_downstream_sender, cm_receiver) = unbounded();
         let addr = "127.0.0.1:3333".parse().unwrap();
-        let miner_tracker = std::sync::Arc::new(crate::miner_stats::MinerTracker::new());
+        let miner_tracker = std::sync::Arc::new(crate::miner_stats::MinerTracker::new(300));
 
         let server = Sv1Server::new(addr, cm_receiver, cm_sender, config, miner_tracker);
 
@@ -943,7 +943,7 @@ mod tests {
         let (cm_sender, _cm_receiver) = unbounded();
         let (_downstream_sender, cm_receiver) = unbounded();
         let addr = "127.0.0.1:3333".parse().unwrap();
-        let miner_tracker = std::sync::Arc::new(crate::miner_stats::MinerTracker::new());
+        let miner_tracker = std::sync::Arc::new(crate::miner_stats::MinerTracker::new(300));
 
         let server = Sv1Server::new(addr, cm_receiver, cm_sender, config, miner_tracker);
 
@@ -994,7 +994,7 @@ mod tests {
         let (cm_sender, _cm_receiver) = unbounded();
         let (_downstream_sender, cm_receiver) = unbounded();
         let addr = "127.0.0.1:3333".parse().unwrap();
-        let miner_tracker = std::sync::Arc::new(crate::miner_stats::MinerTracker::new());
+        let miner_tracker = std::sync::Arc::new(crate::miner_stats::MinerTracker::new(300));
 
         let server = Sv1Server::new(addr, cm_receiver, cm_sender, config, miner_tracker);
         let target: Target = hash_rate_to_target(200.0, 5.0).unwrap();
@@ -1017,7 +1017,7 @@ mod tests {
         let (cm_sender, _cm_receiver) = unbounded();
         let (_downstream_sender, cm_receiver) = unbounded();
         let addr = "127.0.0.1:3333".parse().unwrap();
-        let miner_tracker = std::sync::Arc::new(crate::miner_stats::MinerTracker::new());
+        let miner_tracker = std::sync::Arc::new(crate::miner_stats::MinerTracker::new(300));
 
         let server = Sv1Server::new(addr, cm_receiver, cm_sender, config, miner_tracker);
         let target: Target = hash_rate_to_target(200.0, 5.0).unwrap();

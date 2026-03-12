@@ -1,7 +1,6 @@
 [Unit]
 Description=Hashpool Proxy (Translator SV2)
-After=network.target hashpool-stats-proxy.service hashpool-pool.service
-Requires=hashpool-stats-proxy.service
+After=network.target hashpool-pool.service
 
 [Service]
 Type=simple

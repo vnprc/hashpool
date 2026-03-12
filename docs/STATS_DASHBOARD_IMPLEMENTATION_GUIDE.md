@@ -1,5 +1,7 @@
 # Stats Dashboard Implementation Guide
 
+**Note:** This guide documents the legacy stats-pool/stats-proxy snapshot stack. Hashpool now uses Prometheus/VictoriaMetrics with `/metrics` endpoints on pool/translator, and web dashboards query the metrics store directly. Refer to `docs/PATH_A_STATS_REPLACEMENT_PLAN.md` and current web-* code for the new flow.
+
 Complete specification for building independent stats dashboard UIs - one for Translator (web-proxy) and one for Pool (web-pool).
 
 ---

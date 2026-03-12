@@ -45,12 +45,9 @@ pub struct TranslatorConfig {
     pub mint: Option<MintConfig>,
     /// The path to the log file for the Translator.
     log_file: Option<PathBuf>,
-    /// Optional address of the stats service for sending snapshots
+    /// Optional monitoring HTTP address for Prometheus scraping
     #[serde(default)]
-    pub stats_server_address: Option<String>,
-    /// Snapshot poll interval in seconds
-    #[serde(default = "default_snapshot_poll_interval_secs")]
-    pub snapshot_poll_interval_secs: u64,
+    pub monitoring_address: Option<String>,
     /// Whether to redact IP addresses in stats
     #[serde(default = "default_redact_ip")]
     pub redact_ip: bool,
@@ -60,6 +57,9 @@ pub struct TranslatorConfig {
     /// Faucet rate limit timeout in seconds
     #[serde(default = "default_faucet_timeout")]
     pub faucet_timeout: u64,
+    /// Window size (seconds) for miner hashrate metrics.
+    #[serde(default = "default_metrics_window_secs")]
+    pub metrics_window_secs: u64,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -84,10 +84,6 @@ impl Upstream {
 }
 
 /// Default snapshot poll interval (5 seconds)
-fn default_snapshot_poll_interval_secs() -> u64 {
-    5
-}
-
 /// Default IP redaction setting (true for privacy)
 fn default_redact_ip() -> bool {
     true
@@ -101,6 +97,11 @@ fn default_faucet_port() -> u16 {
 /// Default faucet rate limit timeout (3 seconds)
 fn default_faucet_timeout() -> u64 {
     3
+}
+
+/// Default metrics window (5 minutes)
+fn default_metrics_window_secs() -> u64 {
+    300
 }
 
 impl TranslatorConfig {
@@ -133,11 +134,11 @@ impl TranslatorConfig {
             wallet,
             mint,
             log_file: None,
-            stats_server_address: None,
-            snapshot_poll_interval_secs: 5,
+            monitoring_address: None,
             redact_ip: true,
             faucet_port: 8083,
             faucet_timeout: 3,
+            metrics_window_secs: default_metrics_window_secs(),
         }
     }
 
@@ -150,10 +151,6 @@ impl TranslatorConfig {
         self.log_file.as_deref()
     }
 
-    /// Set the snapshot poll interval from shared config
-    pub fn set_snapshot_poll_interval_secs(&mut self, interval: u64) {
-        self.snapshot_poll_interval_secs = interval;
-    }
 }
 
 /// Configuration settings for managing difficulty adjustments on the downstream connection.

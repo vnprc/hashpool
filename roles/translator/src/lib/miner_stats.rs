@@ -16,7 +16,7 @@ pub struct MinerInfo {
     pub last_share_time: Option<Instant>,
     pub estimated_hashrate: f64, // H/s
 
-    // Shared windowed metrics collector (60-second / 1-minute window)
+    // Shared windowed metrics collector (configurable window)
     pub metrics_collector: WindowedMetricsCollector,
 }
 
@@ -42,13 +42,15 @@ pub struct MinerApiInfo {
 pub struct MinerTracker {
     miners: Arc<RwLock<HashMap<u32, MinerInfo>>>,
     next_id: Arc<RwLock<u32>>,
+    metrics_window_secs: u64,
 }
 
 impl MinerTracker {
-    pub fn new() -> Self {
+    pub fn new(metrics_window_secs: u64) -> Self {
         Self {
             miners: Arc::new(RwLock::new(HashMap::new())),
             next_id: Arc::new(RwLock::new(1)),
+            metrics_window_secs,
         }
     }
 
@@ -66,7 +68,7 @@ impl MinerTracker {
             shares_submitted: 0,
             last_share_time: None,
             estimated_hashrate: 0.0,
-            metrics_collector: WindowedMetricsCollector::new(60), // 60-second (1-minute) window
+            metrics_collector: WindowedMetricsCollector::new(self.metrics_window_secs),
         };
 
         self.miners.write().await.insert(id, miner);
@@ -189,6 +191,6 @@ impl MinerTracker {
 
 impl Default for MinerTracker {
     fn default() -> Self {
-        Self::new()
+        Self::new(300)
     }
 }

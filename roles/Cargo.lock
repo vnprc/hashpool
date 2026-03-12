@@ -4470,6 +4470,7 @@ dependencies = [
  "async-channel 1.9.0",
  "async-recursion 1.1.1",
  "async-trait",
+ "axum",
  "binary_sv2",
  "bitcoin 0.32.8",
  "buffer_sv2 3.0.0",
@@ -4497,7 +4498,6 @@ dependencies = [
  "sha2 0.10.9",
  "share-hooks",
  "shared_config",
- "stats",
  "stats-sv2",
  "stratum-common",
  "tokio",
@@ -5984,16 +5984,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
-name = "stats"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "stats-sv2"
 version = "0.1.0"
 dependencies = [
@@ -6005,45 +5995,6 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "stats_pool"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "http-body-util",
- "hyper 1.8.1",
- "hyper-util",
- "serde",
- "serde_json",
- "stats",
- "stats-sv2",
- "tokio",
- "toml 0.8.23",
- "tracing",
- "tracing-subscriber",
- "web_assets",
-]
-
-[[package]]
-name = "stats_proxy"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "http-body-util",
- "hyper 1.8.1",
- "hyper-util",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "stats",
- "stats-sv2",
- "tokio",
- "toml 0.8.23",
- "tracing",
- "tracing-subscriber",
- "web_assets",
 ]
 
 [[package]]
@@ -6815,6 +6766,7 @@ version = "2.0.0"
 dependencies = [
  "anyhow",
  "async-channel 1.9.0",
+ "axum",
  "binary_sv2",
  "bip39",
  "bitcoin 0.32.8",
@@ -6838,7 +6790,6 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "shared_config",
- "stats",
  "stats-sv2",
  "stratum-common",
  "stratum_translation",
@@ -7233,7 +7184,6 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
- "stats",
  "tokio",
  "tokio-util",
  "toml 0.8.23",
@@ -7251,7 +7201,6 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
- "stats",
  "tokio",
  "tokio-util",
  "toml 0.8.23",

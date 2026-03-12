@@ -35,7 +35,6 @@ key-utils = { path = "../../utils/key-utils" }
 clap = { version = "4.5.39", features = ["derive"] }
 config_helpers_sv2 = { path = "../roles-utils/config-helpers" }
 shared_config = { path = "../roles-utils/config" }
-stats = { path = "../roles-utils/stats" }
 stats-sv2 = { path = "../roles-utils/stats-sv2" }
 cdk = { git = "https://github.com/vnprc/cdk.git", rev = "77df2ae4" }
 cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", rev = "77df2ae4" }
@@ -51,6 +50,7 @@ hex = "0.4"
 hyper = { version = "1.0", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"
+axum = "0.8"
 
 
 [dev-dependencies]

@@ -24,19 +24,12 @@
   bitcoindDataDir = "${config.devenv.root}/.devenv/state/bitcoind";
   translatorWalletDb = "${config.devenv.root}/.devenv/state/translator/wallet.sqlite";
   mintDb = "${config.devenv.root}/.devenv/state/mint/mint.sqlite";
-  statsPoolMetricsDb = "${config.devenv.root}/.devenv/state/stats-pool/metrics.db";
-  statsProxyMetricsDb = "${config.devenv.root}/.devenv/state/stats-proxy/metrics.db";
-
+  prometheusPoolDataDir = "${config.devenv.root}/.devenv/state/prometheus-pool";
+  prometheusProxyDataDir = "${config.devenv.root}/.devenv/state/prometheus-proxy";
   # Service ports (now loaded from config files)
   # These are kept for compatibility but the actual ports are defined in:
-  # - config/stats-pool.config.toml
-  # - config/stats-proxy.config.toml
   # - config/web-pool.config.toml
   # - config/web-proxy.config.toml
-  statsPoolTcpPort = 9083;
-  statsPoolHttpPort = 9084;
-  statsProxyTcpPort = 8082;
-  statsProxyHttpPort = 8084;
   webPoolPort = 8081;
   webProxyPort = 3030;
 
@@ -93,10 +86,17 @@ in {
       mkdir -p ${config.devenv.root}/logs
       mkdir -p $(dirname ${translatorWalletDb})
       mkdir -p $(dirname ${mintDb})
-      mkdir -p $(dirname ${statsPoolMetricsDb})
-      mkdir -p $(dirname ${statsProxyMetricsDb})
+      mkdir -p ${prometheusPoolDataDir}
+      mkdir -p ${prometheusProxyDataDir}
     '';
-    before = ["devenv:processes:proxy" "devenv:processes:pool" "devenv:processes:stats_pool" "devenv:processes:stats_proxy" "devenv:processes:web_pool" "devenv:processes:web_proxy"];
+    before = [
+      "devenv:processes:proxy"
+      "devenv:processes:pool"
+      "devenv:processes:prometheus_pool"
+      "devenv:processes:prometheus_proxy"
+      "devenv:processes:web_pool"
+      "devenv:processes:web_proxy"
+    ];
   };
 
   # Build CDK CLI from remote repo using same CDK version as hashpool
@@ -137,6 +137,7 @@ in {
       pkgs.pkg-config
       pkgs.sqlite # Add SQLite3 for database operations
       pkgs.protobuf # Required by cdk-signatory (gRPC/protobuf support)
+      pkgs.prometheus
     ]
     ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [pkgs.darwin.apple_sdk.frameworks.Security];
 
@@ -151,7 +152,6 @@ in {
   processes = {
     pool = {
       exec = withLogging ''
-        ${waitForPort 9083 "Stats-Pool"}
         ${waitForPort 18447 "sv2-tp"}
         cd ${config.devenv.root} && cargo -C roles/pool -Z unstable-options run -- \
           -c ${config.devenv.root}/config/pool.config.toml \
@@ -190,12 +190,31 @@ in {
     proxy = {
       exec = withLogging ''
         export CDK_WALLET_DB_PATH=${config.env.TRANSLATOR_WALLET_DB}
-        ${waitForPort 8082 "Stats-Proxy"}
         ${waitForPort minerConfig.pool.port "Pool"}
         cd ${config.devenv.root} && cargo -C roles/translator -Z unstable-options run -- \
           -c ${config.devenv.root}/config/tproxy.config.toml \
           -g ${config.devenv.root}/config/shared/miner.toml
       '' "proxy.log";
+    };
+
+    prometheus_pool = {
+      exec = withLogging ''
+        ${waitForPort 9108 "Pool monitoring"}
+        prometheus \
+          --config.file=${config.devenv.root}/config/prometheus-pool.yml \
+          --storage.tsdb.path=${prometheusPoolDataDir} \
+          --web.listen-address=127.0.0.1:9090
+      '' "prometheus-pool.log";
+    };
+
+    prometheus_proxy = {
+      exec = withLogging ''
+        ${waitForPort 9109 "Translator monitoring"}
+        prometheus \
+          --config.file=${config.devenv.root}/config/prometheus-proxy.yml \
+          --storage.tsdb.path=${prometheusProxyDataDir} \
+          --web.listen-address=127.0.0.1:9091
+      '' "prometheus-proxy.log";
     };
 
     bitcoin_node = {
@@ -257,27 +276,9 @@ in {
       '' "miner.log";
     };
 
-    stats_pool = {
-      exec = withLogging ''
-        cd ${config.devenv.root} && cargo -C roles/stats-pool -Z unstable-options run -- \
-          --config ${config.devenv.root}/config/stats-pool.config.toml \
-          --metrics-db-path ${statsPoolMetricsDb}
-      '' "stats_pool.log";
-    };
-
-    stats_proxy = {
-      exec = withLogging ''
-        cd ${config.devenv.root} && cargo -C roles/stats-proxy -Z unstable-options run -- \
-          --config ${config.devenv.root}/config/stats-proxy.config.toml \
-          --tproxy-config ${config.devenv.root}/config/tproxy.config.toml \
-          --shared-config ${config.devenv.root}/config/shared/miner.toml \
-          --db-path ${statsProxyMetricsDb}
-      '' "stats_proxy.log";
-    };
-
     web_pool = {
       exec = withLogging ''
-        ${waitForPort statsPoolTcpPort "Stats-Pool"}
+        ${waitForPort 9090 "Prometheus (pool-side)"}
         cd ${config.devenv.root} && cargo -C roles/web-pool -Z unstable-options run -- \
           --web-pool-config ${config.devenv.root}/config/web-pool.config.toml \
           --shared-config ${config.devenv.root}/config/shared/pool.toml
@@ -286,7 +287,7 @@ in {
 
     web_proxy = {
       exec = withLogging ''
-        ${waitForPort statsProxyTcpPort "Stats-Proxy"}
+        ${waitForPort 9091 "Prometheus (proxy-side)"}
         cd ${config.devenv.root} && cargo -C roles/web-proxy -Z unstable-options run -- \
           --web-proxy-config ${config.devenv.root}/config/web-proxy.config.toml \
           --config ${config.devenv.root}/config/shared/miner.toml \

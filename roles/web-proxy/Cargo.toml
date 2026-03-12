@@ -25,6 +25,3 @@ reqwest = { version = "0.12", features = ["json"] }
 # Web assets
 web_assets = { path = "../roles-utils/web-assets" }
 web_utils = { path = "../roles-utils/web-utils" }
-
-# Stats adapter (for ProxySnapshot type)
-stats = { path = "../roles-utils/stats" }

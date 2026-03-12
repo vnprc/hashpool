@@ -40,7 +40,7 @@ pub mod config;
 pub mod error;
 pub mod faucet_api;
 pub mod miner_stats;
-pub mod stats_integration;
+pub mod monitoring;
 pub mod status;
 pub mod sv1;
 pub mod sv2;
@@ -71,10 +71,13 @@ impl TranslatorSv2 {
     /// Initializes the translator with the given configuration and sets up
     /// the reconnect wait time.
     pub fn new(config: TranslatorConfig) -> Self {
+        let metrics_window_secs = config.metrics_window_secs;
         Self {
             config,
             wallet: None,
-            miner_tracker: Arc::new(miner_stats::MinerTracker::new()),
+            miner_tracker: Arc::new(miner_stats::MinerTracker::new(
+                metrics_window_secs,
+            )),
         }
     }
 
@@ -200,28 +203,16 @@ impl TranslatorSv2 {
             debug!("Quote sweeper and faucet disabled: wallet not configured");
         }
 
-        // Start snapshot-based stats polling loop to send stats to stats service
-        let stats_addr_opt = self.config.stats_server_address.clone();
-        let stats_poll_interval = self.config.snapshot_poll_interval_secs;
-        let translator_clone = self.clone();
-        if let Some(stats_addr) = stats_addr_opt {
-            use stats::stats_adapter::StatsSnapshotProvider;
-            use stats::stats_client::StatsClient;
-
-            info!("Starting stats polling loop, sending to {} every {} seconds",
-                  stats_addr, stats_poll_interval);
-
-            let translator_for_stats = translator_clone.clone();
-            let stats_addr_clone = stats_addr.clone();
+        if let Some(monitoring_address) = self.config.monitoring_address.clone() {
+            let translator_for_metrics = self.clone();
             task_manager.spawn(async move {
-                let mut interval = tokio::time::interval(std::time::Duration::from_secs(stats_poll_interval));
-                let status_client = StatsClient::new(stats_addr.clone());
-                let metrics_client = StatsClient::new(stats_addr_clone);
-
-                loop {
-                    interval.tick().await;
-                    let _ = status_client.send_snapshot(translator_for_stats.get_snapshot()).await;
-                    let _ = metrics_client.send_snapshot(translator_for_stats.get_metrics_snapshot()).await;
+                if let Err(err) = monitoring::run_monitoring_server(
+                    monitoring_address,
+                    translator_for_metrics,
+                )
+                .await
+                {
+                    error!("Failed to start translator monitoring server: {}", err);
                 }
             });
         }
@@ -325,7 +316,7 @@ impl TranslatorSv2 {
             loop {
                 tokio::select! {
                     _ = tokio::signal::ctrl_c() => {
-                        info!("Ctrl+C received — initiating graceful shutdown...");
+                        info!("Ctrl+C received - initiating graceful shutdown...");
                         let _ = notify_shutdown_clone.send(ShutdownMessage::ShutdownAll);
                         break;
                     }
@@ -333,21 +324,21 @@ impl TranslatorSv2 {
                         if let Ok(status) = message {
                             match status.state {
                                 State::DownstreamShutdown{downstream_id,..} => {
-                                    warn!("Downstream {downstream_id:?} disconnected — notifying SV1 server.");
+                                    warn!("Downstream {downstream_id:?} disconnected - notifying SV1 server.");
                                     let _ = notify_shutdown_clone.send(ShutdownMessage::DownstreamShutdown(downstream_id));
                                 }
                                 State::Sv1ServerShutdown(_) => {
-                                    warn!("SV1 Server shutdown requested — initiating full shutdown.");
+                                    warn!("SV1 Server shutdown requested - initiating full shutdown.");
                                     let _ = notify_shutdown_clone.send(ShutdownMessage::ShutdownAll);
                                     break;
                                 }
                                 State::ChannelManagerShutdown(_) => {
-                                    warn!("Channel Manager shutdown requested — initiating full shutdown.");
+                                    warn!("Channel Manager shutdown requested - initiating full shutdown.");
                                     let _ = notify_shutdown_clone.send(ShutdownMessage::ShutdownAll);
                                     break;
                                 }
                                 State::UpstreamShutdown(msg) => {
-                                    warn!("Upstream connection dropped: {msg:?} — attempting reconnection...");
+                                    warn!("Upstream connection dropped: {msg:?} - attempting reconnection...");
 
                                     match Upstream::new(
                                         &upstream_addresses,
@@ -410,7 +401,7 @@ impl TranslatorSv2 {
                 info!("All subsystems reported shutdown complete.");
             }
             _ = tokio::time::sleep(shutdown_timeout) => {
-                warn!("Graceful shutdown timed out after {shutdown_timeout:?} — forcing shutdown.");
+                warn!("Graceful shutdown timed out after {shutdown_timeout:?} - forcing shutdown.");
                 task_manager.abort_all().await;
             }
         }

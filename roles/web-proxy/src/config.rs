@@ -3,7 +3,7 @@ use std::{env, fs};
 
 #[derive(Debug, Clone)]
 pub struct Config {
-    pub stats_proxy_url: String,
+    pub metrics_store_url: String,
     pub web_server_address: String,
     pub downstream_address: String,
     pub downstream_port: u16,
@@ -11,8 +11,10 @@ pub struct Config {
     pub upstream_port: u16,
     pub faucet_enabled: bool,
     pub faucet_url: Option<String>,
-    pub stats_poll_interval_secs: u64,
+    pub metrics_query_step_secs: u64,
     pub client_poll_interval_secs: u64,
+    pub request_timeout_secs: u64,
+    pub pool_idle_timeout_secs: u64,
     pub log_file: Option<String>,
 }
 
@@ -28,6 +30,8 @@ struct TproxyConfig {
 struct WebProxyConfig {
     #[serde(default)]
     server: ServerConfig,
+    #[serde(default)]
+    metrics_store: MetricsStoreConfig,
     #[serde(default)]
     stats_proxy: StatsProxyConfig,
     #[serde(default)]
@@ -48,15 +52,26 @@ impl Default for ServerConfig {
 }
 
 #[derive(Debug, Deserialize)]
+struct MetricsStoreConfig {
+    url: Option<String>,
+}
+
+impl Default for MetricsStoreConfig {
+    fn default() -> Self {
+        Self {
+            url: Some("http://127.0.0.1:9090".to_string()),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
 struct StatsProxyConfig {
     url: Option<String>,
 }
 
 impl Default for StatsProxyConfig {
     fn default() -> Self {
-        Self {
-            url: Some("http://127.0.0.1:8084".to_string()),
-        }
+        Self { url: None }
     }
 }
 
@@ -98,6 +113,7 @@ impl Config {
         let web_proxy_config: WebProxyConfig = if web_proxy_config_str.is_empty() {
             WebProxyConfig {
                 server: ServerConfig::default(),
+                metrics_store: MetricsStoreConfig::default(),
                 stats_proxy: StatsProxyConfig::default(),
                 http_client: HttpClientConfig::default(),
             }
@@ -106,13 +122,20 @@ impl Config {
         };
 
         // Parse command line arguments (with config file as fallback)
-        let stats_proxy_url = args
+        let metrics_store_url = args
             .iter()
-            .position(|arg| arg == "--stats-proxy-url" || arg == "-s")
+            .position(|arg| arg == "--metrics-store-url" || arg == "-m")
             .and_then(|i| args.get(i + 1))
             .cloned()
-            .or_else(|| web_proxy_config.stats_proxy.url)
-            .ok_or("Missing required config: stats_proxy.url")?;
+            .or_else(|| {
+                args.iter()
+                    .position(|arg| arg == "--stats-proxy-url" || arg == "-s")
+                    .and_then(|i| args.get(i + 1))
+                    .cloned()
+            })
+            .or_else(|| web_proxy_config.metrics_store.url.clone())
+            .or_else(|| web_proxy_config.stats_proxy.url.clone())
+            .ok_or("Missing required config: metrics_store.url")?;
 
         let web_server_address = args
             .iter()
@@ -203,11 +226,14 @@ impl Config {
         };
 
         // Extract web_proxy poll intervals (with defaults)
-        let stats_poll_interval_secs = shared_config
+        let metrics_query_step_secs = shared_config
             .get("web_proxy")
-            .and_then(|w| w.get("stats_poll_interval_secs"))
+            .and_then(|w| {
+                w.get("metrics_query_step_secs")
+                    .or_else(|| w.get("stats_poll_interval_secs"))
+            })
             .and_then(|i| i.as_integer())
-            .unwrap_or(3) as u64;
+            .unwrap_or(15) as u64;
 
         let client_poll_interval_secs = shared_config
             .get("web_proxy")
@@ -216,7 +242,7 @@ impl Config {
             .unwrap_or(3) as u64;
 
         Ok(Config {
-            stats_proxy_url,
+            metrics_store_url,
             web_server_address,
             downstream_address: tproxy.downstream_address,
             downstream_port: tproxy.downstream_port,
@@ -224,8 +250,16 @@ impl Config {
             upstream_port: tproxy.upstream_port,
             faucet_enabled,
             faucet_url,
-            stats_poll_interval_secs,
+            metrics_query_step_secs,
             client_poll_interval_secs,
+            request_timeout_secs: web_proxy_config
+                .http_client
+                .request_timeout_secs
+                .unwrap_or(60),
+            pool_idle_timeout_secs: web_proxy_config
+                .http_client
+                .pool_idle_timeout_secs
+                .unwrap_or(300),
             log_file,
         })
     }
@@ -241,8 +275,8 @@ mod tests {
             [server]
             listen_address = "127.0.0.1:4000"
 
-            [stats_proxy]
-            url = "http://stats.example.com:8084"
+            [metrics_store]
+            url = "http://prometheus.example.com:9090"
 
             [http_client]
             pool_idle_timeout_secs = 400
@@ -254,8 +288,8 @@ mod tests {
             Some("127.0.0.1:4000".to_string())
         );
         assert_eq!(
-            config.stats_proxy.url,
-            Some("http://stats.example.com:8084".to_string())
+            config.metrics_store.url,
+            Some("http://prometheus.example.com:9090".to_string())
         );
         assert_eq!(config.http_client.pool_idle_timeout_secs, Some(400));
         assert_eq!(config.http_client.request_timeout_secs, Some(85));

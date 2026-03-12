@@ -3,8 +3,6 @@ resolver="2"
 
 members = [
     "pool",
-    "stats-pool",
-    "stats-proxy",
     "web-proxy",
     "web-pool",
     "test-utils/mining-device",
@@ -16,7 +14,6 @@ members = [
     "roles-utils/share-hooks",
     # "roles-utils/pool-messages",  # TODO: Phase 2 - will be activated when mint role is enabled
     "roles-utils/web-assets",
-    "roles-utils/stats",
     "roles-utils/stats-sv2",
     "roles-utils/network-helpers",
     "roles-utils/stratum-translation",

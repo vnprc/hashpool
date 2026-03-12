@@ -8,8 +8,8 @@
 pub mod config;
 pub mod error;
 pub mod mining_pool;
+pub mod monitoring;
 pub mod share_validation;
-pub mod stats_integration;
 pub mod status;
 pub mod template_receiver;
 use async_channel::{bounded, unbounded};
@@ -168,6 +168,22 @@ impl PoolSv2 {
             recv_stop_signal,
         )
         .await?;
+
+        if let Some(monitoring_address) = config.monitoring_address().map(|s| s.to_string()) {
+            let listen_address = config.listen_address().clone();
+            let pool_clone = pool.clone();
+            tokio::spawn(async move {
+                if let Err(err) = monitoring::run_monitoring_server(
+                    monitoring_address,
+                    pool_clone,
+                    listen_address,
+                )
+                .await
+                {
+                    error!("Failed to start pool monitoring server: {}", err);
+                }
+            });
+        }
 
         // Monitor the status of Template Receiver and downstream connections.
         // Start the error handling loop

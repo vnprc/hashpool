@@ -79,3 +79,24 @@ Choose one:
 ## Notes
 - Service count stays the same per deployment, but the custom code surface shrinks substantially.
 - No cross-deployment coupling: each install has its own metrics store.
+
+---
+
+## Implementation Status (2026-03-12)
+
+### Completed
+- Removed `stats-pool`, `stats-proxy`, snapshot pollers, TCP JSON ingestion, and in-memory snapshot stores.
+- Added `/metrics` HTTP endpoints on pool and translator with per-deployment `monitoring_address`.
+- Web dashboards now query Prometheus/VictoriaMetrics directly; JSON response shapes preserved.
+- Updated configs, systemd units, deploy scripts, and devenv to remove stats services.
+
+### In Progress
+- Add two Prometheus instances in devenv (pool-side + proxy-side) with separate configs/ports.
+- Wire web services to their local Prometheus instance.
+- Re-smoke test dashboards and verify stats are populated.
+
+### Next Steps (to working impl)
+1) Build `pool_sv2` and resolve compile errors introduced by monitoring refactor.
+2) Build `translator_sv2`, `web_pool`, `web_proxy` and fix any remaining errors.
+3) Run a full roles workspace build (or targeted binaries) to ensure no regressions.
+4) Smoke test with `devenv up` and validate dashboards against two local Prometheus instances.

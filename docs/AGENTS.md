@@ -66,7 +66,7 @@ There is **NO** direct communication between:
    - SV2 mining pool that coordinates work
    - Communicates with separate Mint service via TCP (SV2 MintQuote protocol)
    - Sends MintQuoteRequest messages to mint when shares are accepted
-   - Sends stats snapshots to stats-pool service every 5s via TCP
+   - Exposes `/metrics` for Prometheus/VictoriaMetrics scraping (per-deployment)
    - Configuration: `config/pool.config.toml`, `config/shared/pool.toml`
 
 2. **Mint** (`roles/mint/`)
@@ -107,15 +107,9 @@ This is because:
 
 See [SV2 Job Declaration Protocol (section 6)](../../sv2-spec/06-Job-Declaration-Protocol.md) for full protocol details and role descriptions.
 
-4. **stats-pool** (`roles/stats-pool/`)
-   - Receives snapshot-based stats from Pool via TCP
-   - Stores latest snapshot in memory (no database)
-   - Exposes HTTP API for web-pool to consume
-   - Staleness detection: marks data stale after 15s without updates
-
-5. **web-pool** (`roles/web-pool/`)
+4. **web-pool** (`roles/web-pool/`)
    - Web dashboard showing pool status and connections
-   - Polls stats-pool HTTP API every 5s
+   - Queries Prometheus/VictoriaMetrics HTTP API for stats
    - Serves HTML dashboard with services table and downstream proxies table
    - Pure hashpool code, completely separate from Pool
 
@@ -126,7 +120,7 @@ See [SV2 Job Declaration Protocol (section 6)](../../sv2-spec/06-Job-Declaration
    - Integrated Cashu wallet for managing ehash tokens
    - Bundles blinded messages with shares sent upstream to pool
    - Receives blinded signatures from pool and stores complete tokens
-   - Sends stats snapshots to stats-proxy service every 5s via TCP
+   - Exposes `/metrics` for Prometheus/VictoriaMetrics scraping (per-deployment)
    - SQLite database at `.devenv/state/translator/wallet.sqlite`
    - Configuration: `config/tproxy.config.toml`, `config/shared/miner.toml`
 
@@ -138,15 +132,9 @@ See [SV2 Job Declaration Protocol (section 6)](../../sv2-spec/06-Job-Declaration
    - Configuration: `config/jdc.config.toml`
    - See note above for JDC vs JDS distinction
 
-3. **stats-proxy** (`roles/stats-proxy/`)
-   - Receives snapshot-based stats from Translator via TCP
-   - Stores latest snapshot in memory (no database)
-   - Exposes HTTP API for web-proxy to consume
-   - Staleness detection: marks data stale after 15s without updates
-
-4. **web-proxy** (`roles/web-proxy/`)
+3. **web-proxy** (`roles/web-proxy/`)
    - Web dashboard showing miner stats and wallet balance
-   - Polls stats-proxy HTTP API every 5s
+   - Queries Prometheus/VictoriaMetrics HTTP API for stats
    - Serves three HTML pages: wallet (with faucet), miners, pool
    - Proxies faucet requests to translator's /mint/tokens endpoint
    - Pure hashpool code, completely separate from Translator
@@ -157,47 +145,26 @@ Both pool and miner sides have separate web services for dashboards:
 - **web-pool**: Shows pool status, connected services, and downstream proxies
 - **web-proxy**: Shows wallet balance, miner stats, upstream pool connection, and ehash redemption interface
 
-## Stats Architecture (Snapshot-Based)
+## Monitoring + Metrics Store
 
-Hashpool uses a **snapshot-based stats architecture** to minimize SRI code changes and enable easy rebasing:
-
-### Design Goals
-- **Minimal SRI coupling**: Only ~80 lines of SRI code touch stats (trait implementations)
-- **Rebase-friendly**: Adapter trait pattern isolates SRI changes
-- **Resilient**: Full state snapshots every 5s prevent synchronization bugs
-- **Flexible**: Separate web services enable alternative UIs (TUI, mobile, etc.)
+Hashpool now uses Prometheus/VictoriaMetrics as the **per-deployment metrics store**. Pool and Translator expose `/metrics`, and web dashboards query the metrics store API directly.
 
 ### Data Flow
 
 **Miner Side:**
 ```
-Translator → TCP (5s heartbeat) → stats-proxy → HTTP API
-                                       ↓
-                                  web-proxy polls every 5s → Serves HTML
+Translator → /metrics → Prometheus/VictoriaMetrics → web-proxy queries HTTP API
 ```
 
 **Pool Side:**
 ```
-Pool → TCP (5s heartbeat) → stats-pool → HTTP API
-                                ↓
-                           web-pool polls every 5s → Serves HTML
+Pool → /metrics → Prometheus/VictoriaMetrics → web-pool queries HTTP API
 ```
 
-### Key Features
-1. **Snapshot messages**: Pool/Translator send complete state every 5s (not incremental events)
-2. **In-memory storage**: stats services store only the latest snapshot (no database)
-3. **Staleness detection**: If no update for >15s, data marked as stale
-4. **Adapter traits**: `StatsSnapshotProvider` trait in `roles-utils/stats` defines the interface
-5. **Zero SRI knowledge**: Polling loops and stats services are 100% hashpool code
-
-### Implementation Details
-- **Translator**: Implements `StatsSnapshotProvider` trait in `roles/translator/src/lib/stats_integration.rs` (~35 lines)
-- **Pool**: Implements `StatsSnapshotProvider` trait in `roles/pool/src/lib/stats_integration.rs` (~80 lines)
-- **Generic polling**: `roles-utils/stats/src/stats_poller.rs` works with any `StatsSnapshotProvider`
-- **Stats services**: Listen on TCP, parse JSON snapshots, expose HTTP APIs
-- **Web services**: Poll stats services, cache in memory, serve HTML dashboards
-
-This architecture ensures that when rebasing to new SRI versions, only the small trait implementations need updating—all other stats/web code remains unchanged.
+### Key Properties
+1. **Per-deployment isolation**: pool and miner deployments each run their own metrics store.
+2. **No custom stats services**: stats-pool/stats-proxy removed; no TCP snapshot pipeline.
+3. **Stable UI surface**: web dashboards preserve the existing JSON shapes via PromQL adapters.
 
 ## Development Commands
 

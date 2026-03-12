@@ -68,24 +68,21 @@ generate-blocks COUNT="1":
     @bitcoin-cli -datadir=.devenv/state/bitcoind -conf=$(pwd)/config/bitcoin.conf -rpcuser=username -rpcpassword=password -regtest -rpcwallet=regtest -generate {{COUNT}}
 
 # Open sqlite terminal client for various databases
-# Usage: just db [wallet|mint|stats|all]
+# Usage: just db [wallet|mint|all]
 db TYPE="":
     @if [ "{{TYPE}}" = "wallet" ]; then \
         sqlite3 -cmd ".mode line" .devenv/state/translator/wallet.sqlite; \
     elif [ "{{TYPE}}" = "mint" ]; then \
         sqlite3 -cmd ".mode line" .devenv/state/mint/mint.sqlite; \
-    elif [ "{{TYPE}}" = "stats" ]; then \
-        sqlite3 -cmd ".mode line" .devenv/state/stats-pool/metrics.db; \
     elif [ "{{TYPE}}" = "all" ]; then \
         echo "Available databases:"; \
         echo "  - Wallet:     .devenv/state/translator/wallet.sqlite"; \
         echo "  - Mint:       .devenv/state/mint/mint.sqlite"; \
-        echo "  - Stats Pool: .devenv/state/stats-pool/metrics.db"; \
         echo ""; \
-        echo "Usage: just db [wallet|mint|stats-pool|stats|all]"; \
+        echo "Usage: just db [wallet|mint|all]"; \
     else \
-        echo "Error: TYPE must be 'wallet', 'mint', 'stats', or 'all'"; \
-        echo "Usage: just db [wallet|mint|stats-pool|stats|all]"; \
+        echo "Error: TYPE must be 'wallet', 'mint', or 'all'"; \
+        echo "Usage: just db [wallet|mint|all]"; \
         exit 1; \
     fi
 
@@ -125,7 +122,7 @@ set-min-diff DIFFICULTY:
     @echo "✅ Updated config/shared/pool.toml"
     @echo "Note: Production configs unchanged. Restart services for changes to take effect."
 
-# delete persistent storage; options: cashu, regtest, testnet4, stats, logs
+# delete persistent storage; options: cashu, regtest, testnet4, logs
 clean TYPE="":
     @if [ "{{TYPE}}" = "cashu" ]; then \
         echo "deleting all sqlite data..."; \
@@ -144,20 +141,11 @@ clean TYPE="":
         echo "deleting testnet4 data..."; \
         rm -rf .devenv/state/bitcoind/testnet4; \
         echo "testnet4 data deleted"; \
-    elif [ "{{TYPE}}" = "stats" ]; then \
-        echo "deleting stats data..."; \
-        rm -f .devenv/state/stats-pool/metrics.db \
-              .devenv/state/stats-pool/metrics.db-shm \
-              .devenv/state/stats-pool/metrics.db-wal \
-              .devenv/state/stats-proxy/metrics.db \
-              .devenv/state/stats-proxy/metrics.db-shm \
-              .devenv/state/stats-proxy/metrics.db-wal; \
-        echo "stats data deleted"; \
     elif [ "{{TYPE}}" = "logs" ]; then \
         echo "deleting logs..."; \
         rm -rf logs/*; \
         echo "logs deleted"; \
     else \
-        echo "Error: TYPE must be 'cashu', 'regtest', 'testnet4', 'stats', or 'logs'"; \
+        echo "Error: TYPE must be 'cashu', 'regtest', 'testnet4', or 'logs'"; \
         exit 1; \
     fi

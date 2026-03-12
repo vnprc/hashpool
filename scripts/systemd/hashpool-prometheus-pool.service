@@ -1,0 +1,19 @@
+[Unit]
+Description=Hashpool Prometheus (Pool Metrics)
+After=network.target
+
+[Service]
+Type=simple
+User=prometheus
+Group=prometheus
+WorkingDirectory=/opt/hashpool
+ExecStartPre=+/bin/sh -c 'mkdir -p /var/lib/hashpool/prometheus-pool && chown -R prometheus:prometheus /var/lib/hashpool/prometheus-pool'
+ExecStart=/usr/bin/prometheus \
+  --config.file=/opt/hashpool/config/prometheus-pool.yml \
+  --storage.tsdb.path=/var/lib/hashpool/prometheus-pool \
+  --web.listen-address=127.0.0.1:9090
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

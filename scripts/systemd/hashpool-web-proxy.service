@@ -1,7 +1,6 @@
 [Unit]
 Description=Hashpool Proxy Web Dashboard
-After=network.target hashpool-stats-proxy.service
-Requires=hashpool-stats-proxy.service
+After=network.target
 
 [Service]
 Type=simple

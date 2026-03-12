@@ -1255,8 +1255,6 @@ impl Pool {
         }
 
         // Extract stats configuration before config is moved
-        let stats_addr_opt = config.stats_server_address().map(|s| s.to_string());
-        let stats_poll_interval = config.snapshot_poll_interval_secs();
 
         info!("Starting up Pool server");
         let status_tx_clone = status_tx.clone();
@@ -1319,40 +1317,6 @@ impl Pool {
                 error!("Downstream shutdown and Status Channel dropped");
             }
         });
-
-        // Start snapshot-based stats polling loop to send stats to stats service
-        if let Some(stats_addr) = stats_addr_opt {
-            use stats::{
-                stats_adapter::StatsSnapshotProvider,
-                stats_client::StatsClient,
-            };
-
-            info!("Starting stats polling loop, sending to {} every {} seconds",
-                  stats_addr, stats_poll_interval);
-
-            let pool_clone = cloned3.clone();
-            let stats_addr_clone = stats_addr.clone();
-            task::spawn(async move {
-                let mut interval = tokio::time::interval(std::time::Duration::from_secs(stats_poll_interval));
-                let status_client = StatsClient::new(stats_addr);
-                let metrics_client = StatsClient::new(stats_addr_clone);
-
-                loop {
-                    interval.tick().await;
-
-                    // Get both snapshots while holding lock, then send without lock
-                    let (status, metrics) = match pool_clone.safe_lock(|p| {
-                        (p.get_snapshot(), p.get_metrics_snapshot())
-                    }) {
-                        Ok(pair) => pair,
-                        Err(_) => continue,
-                    };
-
-                    let _ = status_client.send_snapshot(status).await;
-                    let _ = metrics_client.send_snapshot(metrics).await;
-                }
-            });
-        }
 
         Ok(cloned3)
     }

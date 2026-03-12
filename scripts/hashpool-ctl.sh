@@ -7,8 +7,8 @@ set -euo pipefail
 SERVICES=(
   "hashpool-bitcoin-node"
   "hashpool-sv2-tp"
-  "hashpool-stats-pool"
-  "hashpool-stats-proxy"
+  "hashpool-prometheus-pool"
+  "hashpool-prometheus-proxy"
   "hashpool-mint"
   "hashpool-pool"
   "hashpool-jd-server"
@@ -139,16 +139,6 @@ clean_data() {
       rm -rf "$DATADIR/testnet4"
       echo "✅ Testnet4 data deleted"
       ;;
-    stats)
-      echo "🗑️  Deleting stats databases..."
-      rm -f "$DATADIR/stats-pool/metrics.db" \
-            "$DATADIR/stats-pool/metrics.db-shm" \
-            "$DATADIR/stats-pool/metrics.db-wal" \
-            "$DATADIR/stats-proxy/stats.db" \
-            "$DATADIR/stats-proxy/stats.db-shm" \
-            "$DATADIR/stats-proxy/stats.db-wal"
-      echo "✅ Stats data deleted"
-      ;;
     logs)
       echo "🗑️  Deleting service logs..."
       rm -f /var/log/hashpool/*.log
@@ -156,7 +146,7 @@ clean_data() {
       ;;
     *)
       echo "Error: Unknown clean type '$2'"
-      echo "Valid types: cashu, regtest, testnet4, stats, logs"
+      echo "Valid types: cashu, regtest, testnet4, logs"
       exit 1
       ;;
   esac
@@ -187,7 +177,7 @@ case "${1:-}" in
   *)
     echo "Usage: $0 {start|stop|restart|status|logs <service>|watch|clean <type>}"
     echo ""
-    echo "Clean types: cashu, regtest, testnet4, stats, logs"
+    echo "Clean types: cashu, regtest, testnet4, logs"
     exit 1
     ;;
 esac

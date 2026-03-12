@@ -61,27 +61,22 @@ The development environment initializes a containerized system with the followin
    - generate ehash and ecash tokens
    - redeem ehash and ecash tokens
 
-9. `stats-pool` - **Stats Service (Pool Side)**
-   - collects and serves pool-side mining statistics
-   - TCP interface to collect stats from Sv2 services
-   - HTTP APIs to serve stats to the web service
-
-10. `stats-proxy` - **Stats Service (Proxy Side)**
-    - collects and serves proxy-side mining statistics
-    - TCP interface to collect stats from Sv2 services
-    - HTTP APIs to serve stats to the web service
-
-11. `web-pool` - **Web Dashboard (Pool Side)**
+9. `web-pool` - **Web Dashboard (Pool Side)**
     - web interface for pool statistics and monitoring
     - displays pool hashrate, services, and connected proxies
     - deployed at [pool.hashpool.dev](https://pool.hashpool.dev/)
 
-12. `web-proxy` - **Web Dashboard (Proxy Side)**
+10. `web-proxy` - **Web Dashboard (Proxy Side)**
     - web interface for proxy statistics and monitoring
     - wallet page displays ehash balance and an ehash faucet
     - miners page displays miner connection info and connected miners
     - pool page displays upstream pool and blockchain stats
     - deployed at [proxy.hashpool.dev](https://proxy.hashpool.dev/)
+
+11. `prometheus` / `victoria-metrics` - **Metrics Stores (Two per Deployment)**
+    - one metrics store for the pool, one for the translator
+    - each scrapes `/metrics` from its service
+    - provides the HTTP API that the corresponding web dashboard queries
 
 ---
 
@@ -101,7 +96,7 @@ For deploying Hashpool on Debian 12, see the
   replaces the Sjors SV2 fork; connects via unix IPC socket
 - **Ehash mint flow redesign**: end-to-end minting and share accounting were
   reworked across pool, translator, and mint services
-- **New roles**: stats + web services for pool/proxy monitoring and wallet UX
+- **New roles**: web services for pool/proxy monitoring and wallet UX
 - **Testnet staging**: dedicated testnet deployment configs and workflow
 - **Fixed**: share difficulty formula in the SV1 translator now uses the SV2
   formula (`2^256 / target`) matching miner expectations

@@ -18,8 +18,6 @@ listen_jd_address = "127.0.0.1:34264"
 # Template Provider listening address for JDC connections
 listen_tp_address = "127.0.0.1:48442"
 
-# Stats server config (TCP address for stats-pool service)
-stats_server_address = "127.0.0.1:9083"
 
 # Bitcoin Core RPC config for mempool access
 core_rpc_url = "http://127.0.0.1"

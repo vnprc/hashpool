@@ -3,9 +3,9 @@ use std::{env, fs};
 
 #[derive(Debug, Clone)]
 pub struct Config {
-    pub stats_pool_url: String,
+    pub metrics_store_url: String,
     pub web_server_address: String,
-    pub stats_poll_interval_secs: u64,
+    pub metrics_query_step_secs: u64,
     pub client_poll_interval_secs: u64,
     pub request_timeout_secs: u64,
     pub pool_idle_timeout_secs: u64,
@@ -16,6 +16,8 @@ pub struct Config {
 struct WebPoolConfig {
     #[serde(default)]
     server: ServerConfig,
+    #[serde(default)]
+    metrics_store: MetricsStoreConfig,
     #[serde(default)]
     stats_pool: StatsPoolConfig,
     #[serde(default)]
@@ -36,15 +38,26 @@ impl Default for ServerConfig {
 }
 
 #[derive(Debug, Deserialize)]
+struct MetricsStoreConfig {
+    url: Option<String>,
+}
+
+impl Default for MetricsStoreConfig {
+    fn default() -> Self {
+        Self {
+            url: Some("http://127.0.0.1:9090".to_string()),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
 struct StatsPoolConfig {
     url: Option<String>,
 }
 
 impl Default for StatsPoolConfig {
     fn default() -> Self {
-        Self {
-            url: Some("http://127.0.0.1:9084".to_string()),
-        }
+        Self { url: None }
     }
 }
 
@@ -86,6 +99,7 @@ impl Config {
         let web_pool_config: WebPoolConfig = if web_pool_config_str.is_empty() {
             WebPoolConfig {
                 server: ServerConfig::default(),
+                metrics_store: MetricsStoreConfig::default(),
                 stats_pool: StatsPoolConfig::default(),
                 http_client: HttpClientConfig::default(),
             }
@@ -94,13 +108,20 @@ impl Config {
         };
 
         // Parse command line arguments (with config file as fallback)
-        let stats_pool_url = args
+        let metrics_store_url = args
             .iter()
-            .position(|arg| arg == "--stats-pool-url" || arg == "-s")
+            .position(|arg| arg == "--metrics-store-url" || arg == "-m")
             .and_then(|i| args.get(i + 1))
             .cloned()
-            .or_else(|| web_pool_config.stats_pool.url)
-            .ok_or("Missing required config: stats_pool.url")?;
+            .or_else(|| {
+                args.iter()
+                    .position(|arg| arg == "--stats-pool-url" || arg == "-s")
+                    .and_then(|i| args.get(i + 1))
+                    .cloned()
+            })
+            .or_else(|| web_pool_config.metrics_store.url.clone())
+            .or_else(|| web_pool_config.stats_pool.url.clone())
+            .ok_or("Missing required config: metrics_store.url")?;
 
         let web_server_address = args
             .iter()
@@ -122,11 +143,14 @@ impl Config {
         let shared_config: toml::Value = toml::from_str(&shared_config_str)?;
 
         // Extract web_pool poll intervals (with defaults)
-        let stats_poll_interval_secs = shared_config
+        let metrics_query_step_secs = shared_config
             .get("web_pool")
-            .and_then(|w| w.get("stats_poll_interval_secs"))
+            .and_then(|w| {
+                w.get("metrics_query_step_secs")
+                    .or_else(|| w.get("stats_poll_interval_secs"))
+            })
             .and_then(|i| i.as_integer())
-            .unwrap_or(3) as u64;
+            .unwrap_or(15) as u64;
 
         let client_poll_interval_secs = shared_config
             .get("web_pool")
@@ -135,9 +159,9 @@ impl Config {
             .unwrap_or(3) as u64;
 
         Ok(Config {
-            stats_pool_url,
+            metrics_store_url,
             web_server_address,
-            stats_poll_interval_secs,
+            metrics_query_step_secs,
             client_poll_interval_secs,
             request_timeout_secs: web_pool_config
                 .http_client
@@ -162,8 +186,8 @@ mod tests {
             [server]
             listen_address = "127.0.0.1:7070"
 
-            [stats_pool]
-            url = "http://custom-stats:9084"
+            [metrics_store]
+            url = "http://prometheus:9090"
 
             [http_client]
             pool_idle_timeout_secs = 500
@@ -175,8 +199,8 @@ mod tests {
             Some("127.0.0.1:7070".to_string())
         );
         assert_eq!(
-            config.stats_pool.url,
-            Some("http://custom-stats:9084".to_string())
+            config.metrics_store.url,
+            Some("http://prometheus:9090".to_string())
         );
         assert_eq!(config.http_client.pool_idle_timeout_secs, Some(500));
         assert_eq!(config.http_client.request_timeout_secs, Some(100));

@@ -32,9 +32,7 @@ pub struct PoolConfig {
     #[serde(default)]
     locking_pubkey: Option<String>,
     #[serde(default)]
-    stats_server_address: Option<String>,
-    #[serde(default = "default_snapshot_poll_interval_secs")]
-    snapshot_poll_interval_secs: u64,
+    monitoring_address: Option<String>,
     #[serde(default)]
     jd_server_address: Option<String>,
     #[serde(skip)]
@@ -78,8 +76,7 @@ impl PoolConfig {
             log_file: None,
             server_id,
             locking_pubkey: None,
-            stats_server_address: None,
-            snapshot_poll_interval_secs: 5,
+            monitoring_address: None,
             jd_server_address: None,
             sv2_messaging: None,
             minimum_difficulty: None,
@@ -225,25 +222,15 @@ impl PoolConfig {
         self.min_downstream_hashrate = hashrate;
     }
 
-    /// Returns the optional stats server address for sending snapshots.
-    pub fn stats_server_address(&self) -> Option<&str> {
-        self.stats_server_address.as_deref()
-    }
-
-    /// Returns the snapshot poll interval in seconds.
-    pub fn snapshot_poll_interval_secs(&self) -> u64 {
-        self.snapshot_poll_interval_secs
+    /// Returns the optional monitoring HTTP address for Prometheus scraping.
+    pub fn monitoring_address(&self) -> Option<&str> {
+        self.monitoring_address.as_deref()
     }
 
     /// Returns the optional JD-Server address (Job Declarator Server).
     pub fn jd_server_address(&self) -> Option<&str> {
         self.jd_server_address.as_deref()
     }
-}
-
-/// Default snapshot poll interval (5 seconds)
-fn default_snapshot_poll_interval_secs() -> u64 {
-    5
 }
 
 /// Configuration for connecting to a Template Provider.
