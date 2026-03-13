@@ -33,7 +33,7 @@ faucet_port = 8083
 faucet_timeout = 3
 
 # Miner hashrate metrics window (seconds)
-metrics_window_secs = 300
+metrics_window_secs = 600
 
 # Primary upstream pool server (for web-proxy connection display)
 upstream_address = "127.0.0.1"
