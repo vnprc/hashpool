@@ -172,6 +172,39 @@ The mint service connects to the pool using `PlainConnection` which:
 
 ## Medium Priority
 
+### Intermittent SV2 Frame Parse Failure After MintQuoteNotification
+
+**Status:** Intermittent; not reproducible as of 2026-03-13 (resolved after restarting services)
+**Priority:** Medium - Can crash translator upstream channel manager
+
+**Symptoms:**
+Translator receives malformed MintQuoteNotification `quote_id` (non‑UTF8 hex) and then fails to parse a subsequent upstream frame, causing ChannelManager shutdown and cascading disconnects.
+
+**Full Error Message (proxy.log):**
+```
+WARN  mint_quote_state_mining_share{quote_id="0x00000001aa54b4690000002001004600020000" mint_url=http://localhost:3338}: cdk::wallet::mint_connector::transport: Http Response error: missing field `quote` at line 1 column 94
+WARN  cdk::wallet::issue::issue_mining_share: failed to fetch mining share quote state quote_id="0x00000001aa54b4690000002001004600020000" mint_url=http://localhost:3338 error=Unknown error response: `code: 4040, detail: Mining share quote 0x00000001aa54b4690000002001004600020000 not found`
+WARN  translator_sv2::sv2::channel_manager::channel_manager: Translator: failed to persist mint quote 0x00000001aa54b4690000002001004600020000 to wallet: UnknownErrorResponse("code: 4040, detail: Mining share quote 0x00000001aa54b4690000002001004600020000 not found")
+ERROR translator_sv2::sv2::channel_manager::channel_manager: Failed to parse upstream frame into AnyMessage: BinaryError(ReadError(180, 207))
+ERROR translator_sv2::status: Error in ChannelManager(Sender { .. }): General("Failed to parse AnyMessage")
+WARN  translator_sv2::status: ChannelManager shutting down due to error: General("Failed to parse AnyMessage")
+```
+
+**Hypothesis:**
+Upstream frames become desynchronized, possibly due to a malformed MintQuoteNotification payload (quote_id bytes not UTF‑8 / wrong length), causing subsequent frames to be misread.
+
+**Evidence:**
+- Quote_id shows up as hex `0x00000001aa54b469...` instead of UUID.
+- Immediately followed by `BinaryError(ReadError(180, 207))`.
+
+**What Needs To Happen:**
+1. Instrument pool + translator to log MintQuoteNotification payload lengths + quote_id bytes (info level).
+2. Confirm whether pool is emitting malformed frames or corruption occurs in transit.
+3. Add validation in pool to reject non‑UTF8 quote_id before sending, or log + drop.
+4. Consider hardening translator to drop only the bad message instead of crashing the channel manager.
+
+---
+
 ### Stats Protocol: Newline-Delimited JSON
 
 **Status:** Custom ad-hoc protocol
