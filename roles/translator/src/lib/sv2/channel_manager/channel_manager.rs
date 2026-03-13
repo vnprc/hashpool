@@ -212,6 +212,11 @@ impl ChannelManager {
         match message_type {
             MESSAGE_TYPE_MINT_QUOTE_NOTIFICATION => {
                 let mut payload = frame.payload().to_vec();
+                debug!(
+                    "MintQuoteNotification raw payload: len={} hex={}",
+                    payload.len(),
+                    hex::encode(payload.iter().copied().take(64).collect::<Vec<u8>>())
+                );
                 match binary_sv2::from_bytes::<MintQuoteNotification>(&mut payload) {
                     Ok(notification) => {
                         self.handle_mint_quote_notification(notification.into_static())

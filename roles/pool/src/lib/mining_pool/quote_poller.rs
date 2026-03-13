@@ -323,6 +323,13 @@ impl QuotePoller {
         quote_id: &str,
         amount: u64,
     ) -> Result<(), String> {
+        debug!(
+            "Preparing MintQuoteNotification: channel_id={} quote_id='{}' quote_id_len={} quote_id_hex={}",
+            channel_id,
+            quote_id,
+            quote_id.len(),
+            hex::encode(quote_id.as_bytes())
+        );
         // Create MintQuoteNotification extension message
         let notification = MintQuoteNotification {
             channel_id,

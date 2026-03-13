@@ -663,6 +663,11 @@ impl Sv1Server {
         let min_extranonce_size = self.config.downstream_extranonce2_size;
         let vardiff_enabled = config.enable_vardiff;
 
+        debug!(
+            "SV1 vardiff config: enable_vardiff={}, min_individual_miner_hashrate={}, shares_per_minute={}",
+            vardiff_enabled, hashrate, shares_per_min
+        );
+
         let max_target: U256<'static> = if vardiff_enabled {
             hash_rate_to_target(hashrate, shares_per_min)
                 .unwrap()
@@ -786,6 +791,12 @@ impl Sv1Server {
                 if let Ok(set_difficulty_msg) =
                     build_sv1_set_difficulty_from_sv2_target(target.clone())
                 {
+                    if let v1::json_rpc::Message::Notification(n) = &set_difficulty_msg {
+                        debug!(
+                            "SV1 set_difficulty to downstream {}: {:?}",
+                            downstream_id, n.params
+                        );
+                    }
                     if let Err(e) = self
                         .sv1_server_channel_state
                         .sv1_server_to_downstream_sender
@@ -832,11 +843,17 @@ impl Sv1Server {
             });
 
             // Send set_difficulty message
-            if let Ok(set_difficulty_msg) = build_sv1_set_difficulty_from_sv2_target(target) {
-                if let Err(e) = self
-                    .sv1_server_channel_state
-                    .sv1_server_to_downstream_sender
-                    .send((channel_id, Some(downstream_id), set_difficulty_msg))
+                if let Ok(set_difficulty_msg) = build_sv1_set_difficulty_from_sv2_target(target) {
+                    if let v1::json_rpc::Message::Notification(n) = &set_difficulty_msg {
+                        debug!(
+                            "SV1 set_difficulty to downstream {}: {:?}",
+                            downstream_id, n.params
+                        );
+                    }
+                    if let Err(e) = self
+                        .sv1_server_channel_state
+                        .sv1_server_to_downstream_sender
+                        .send((channel_id, Some(downstream_id), set_difficulty_msg))
                 {
                     error!(
                         "Failed to send SetDifficulty to downstream {}: {:?}",
