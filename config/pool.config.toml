@@ -17,6 +17,7 @@ pool_signature = "Stratum v2 SRI Pool"
 tp_address = "127.0.0.1:18447"
 
 # Target number of shares per minute from miners
+# Dev CPU miner: ~1 share every 60 seconds
 shares_per_minute = 1.0
 
 # Share batch size

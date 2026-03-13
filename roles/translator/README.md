@@ -6,6 +6,8 @@ A proxy that translates between Stratum V1 (SV1) and Stratum V2 (SV2) mining pro
 
 The translator sits between SV1 downstream roles (mining devices) and SV2 upstream roles (pool servers or proxies), providing seamless protocol translation and advanced features like channel aggregation and failover.
 
+In this repository's dev setup, the translator is treated as a **self-hosted service for individual miners** (primarily to run the local Cashu wallet). In that mode it **does not manage vardiff** and simply forwards upstream difficulty targets to the miner.
+
 ```
 <--- Most Downstream ----------------------------------------- Most Upstream --->
 
@@ -47,7 +49,7 @@ aggregate_channels = true  # true: shared channel, false: individual channels
 [downstream_difficulty_config]
 min_individual_miner_hashrate = 10_000_000_000_000.0  # 10 TH/s
 shares_per_minute = 6.0
-enable_vardiff = true  # Set to false when using with Job Declarator Client (JDC)
+enable_vardiff = true  # Set to false for self-hosted wallet proxy (upstream controls difficulty)
 
 # Upstream SV2 Connections (supports multiple with failover)
 [[upstreams]]
@@ -80,7 +82,7 @@ authority_pubkey = "9auqWEzQDVyd2oe1JVGFLMLHZtCo2FFqZwtKA5gd9xbuEu7PH72"
 #### **Difficulty Configuration**
 - `min_individual_miner_hashrate`: Expected hashrate of weakest miner (in H/s)
 - `shares_per_minute`: Target share submission rate
-- `enable_vardiff`: Enable/disable variable difficulty adjustment (set to false when using with JDC)
+- `enable_vardiff`: Enable/disable variable difficulty adjustment (set to false when using with JDC or the self-hosted wallet proxy)
   - When `true`: Translator manages difficulty adjustments based on share submission rates
   - When `false`: Upstream manages difficulty, translator forwards SetTarget messages to miners
 
