@@ -56,9 +56,9 @@ authority_pubkey = "9auqWEzQDVyd2oe1JVGFLMLHZtCo2FFqZwtKA5gd9xbuEu7PH72"
 # Difficulty params
 [downstream_difficulty_config]
 # minimum hashrate expected from an individual miner on the downstream connection (in Hz)
-min_individual_miner_hashrate = 1000.0
+min_individual_miner_hashrate = 1_000_000_000_000.0
 # target number of shares per minute the miner should be sending
-shares_per_minute = 6.0
+shares_per_minute = 1.0
 # enable variable difficulty adjustment mechanism
 # if false, difficulty will be managed by upstream (useful with JDC)
 enable_vardiff = true

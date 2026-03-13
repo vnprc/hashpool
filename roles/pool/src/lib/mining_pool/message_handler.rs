@@ -934,19 +934,19 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
         let res = standard_channel.validate_share(m.clone());
         vardiff.increment_shares_since_last_update();
 
-        // Record share with difficulty for time-series metrics
-        if let Some(stats) = self.stats_registry.get_stats(self.id) {
-            let target = standard_channel.get_target().clone();
-            let difficulty = target_to_difficulty(target.clone());
-            stats.record_share_with_difficulty(difficulty);
-        }
-
         match res {
             Ok(ShareValidationResult::Valid(hash)) => {
                 let header_hash = *hash.as_byte_array();
 
                 if let Some(error_response) = validate_minimum_share_difficulty(&header_hash, self.minimum_share_difficulty_bits, channel_id, m.sequence_number) {
                     return Ok(error_response);
+                }
+
+                // Record share with difficulty for time-series metrics (accepted shares only).
+                if let Some(stats) = self.stats_registry.get_stats(self.id) {
+                    let target = standard_channel.get_target().clone();
+                    let difficulty = target_to_difficulty(target);
+                    stats.record_share_with_difficulty(difficulty);
                 }
 
                 send_share_quote_request(self, channel_id, m.sequence_number, header_hash, &m);
@@ -972,6 +972,14 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
             Ok(ShareValidationResult::BlockFound(hash, template_id, coinbase)) => {
                 info!("SubmitSharesStandard: 💰 Block Found!!! 💰");
                 let header_hash = *hash.as_byte_array();
+
+                // Record share with difficulty for time-series metrics (accepted shares only).
+                if let Some(stats) = self.stats_registry.get_stats(self.id) {
+                    let target = standard_channel.get_target().clone();
+                    let difficulty = target_to_difficulty(target);
+                    stats.record_share_with_difficulty(difficulty);
+                }
+
                 send_share_quote_request(self, channel_id, m.sequence_number, header_hash, &m);
                 // if we have a template id (i.e.: this was not a custom job)
                 // we can propagate the solution to the TP
@@ -1110,19 +1118,19 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
         let res = extended_channel.validate_share(m.clone());
         vardiff.increment_shares_since_last_update();
 
-        // Record share with difficulty for time-series metrics
-        if let Some(stats) = self.stats_registry.get_stats(self.id) {
-            let target = extended_channel.get_target().clone();
-            let difficulty = target_to_difficulty(target);
-            stats.record_share_with_difficulty(difficulty);
-        }
-
         match res {
             Ok(ShareValidationResult::Valid(hash)) => {
                 let header_hash = *hash.as_byte_array();
 
                 if let Some(error_response) = validate_minimum_share_difficulty(&header_hash, self.minimum_share_difficulty_bits, channel_id, m.sequence_number) {
                     return Ok(error_response);
+                }
+
+                // Record share with difficulty for time-series metrics (accepted shares only).
+                if let Some(stats) = self.stats_registry.get_stats(self.id) {
+                    let target = extended_channel.get_target().clone();
+                    let difficulty = target_to_difficulty(target);
+                    stats.record_share_with_difficulty(difficulty);
                 }
 
                 send_extended_share_quote_request(
@@ -1154,6 +1162,14 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
             Ok(ShareValidationResult::BlockFound(hash, template_id, coinbase)) => {
                 info!("SubmitSharesExtended: 💰 Block Found!!! 💰");
                 let header_hash = *hash.as_byte_array();
+
+                // Record share with difficulty for time-series metrics (accepted shares only).
+                if let Some(stats) = self.stats_registry.get_stats(self.id) {
+                    let target = extended_channel.get_target().clone();
+                    let difficulty = target_to_difficulty(target);
+                    stats.record_share_with_difficulty(difficulty);
+                }
+
                 send_extended_share_quote_request(
                     self,
                     channel_id,

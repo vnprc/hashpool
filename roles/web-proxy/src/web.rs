@@ -323,6 +323,8 @@ async fn get_miner_stats(prometheus: &PrometheusClient) -> Result<serde_json::Va
 
     let now = unix_timestamp();
 
+    let mut miners = miners;
+    miners.sort_by_key(|miner| miner.id);
     let miners_json = miners
         .into_iter()
         .map(|miner| {

@@ -109,22 +109,13 @@ pub fn build_sv1_set_difficulty_from_sv2_set_target(
     build_sv1_set_difficulty_from_sv2_target(Target::from_le_bytes(bytes))
 }
 
-/// Converts a Bitcoin `Target` to an SV2-style difficulty for `mining.set_difficulty`.
+/// Converts a Bitcoin `Target` to an SV1 difficulty for `mining.set_difficulty`.
 ///
-/// Uses the formula `difficulty = 2^256 / target`, which matches the miner's inverse:
-/// `target = (2^256 - 1) / difficulty`. This differs from Bitcoin's traditional difficulty
-/// (`genesis_target / target`) and ensures that miners using the SV2 convention correctly
-/// round-trip the target through the difficulty value.
-fn sv2_target_to_difficulty(target: Target) -> f64 {
-    const TWO_POW_256: f64 = 1.157920892373162e77;
-    let bytes = target.to_le_bytes();
-    let low = u128::from_le_bytes(bytes[0..16].try_into().expect("16-byte slice"));
-    let high = u128::from_le_bytes(bytes[16..32].try_into().expect("16-byte slice"));
-    let target_f64 = (high as f64) * 2.0f64.powi(128) + (low as f64);
-    if target_f64 == 0.0 {
-        return f64::MAX;
-    }
-    TWO_POW_256 / target_f64
+/// Uses the Bitcoin definition: `difficulty = max_target / target`. This matches what
+/// SV1 miners expect for `mining.set_difficulty` and aligns with the traditional
+/// "difficulty 1" baseline.
+fn sv1_target_to_difficulty(target: Target) -> f64 {
+    target.difficulty_float()
 }
 
 /// Builds an SV1 `mining.set_difficulty` JSON-RPC message from an SV2 target.
@@ -135,7 +126,8 @@ fn sv2_target_to_difficulty(target: Target) -> f64 {
 /// # Returns
 /// * `Ok(json_rpc::Message)` - The constructed SV1 mining.set_difficulty message.
 pub fn build_sv1_set_difficulty_from_sv2_target(target: Target) -> Result<json_rpc::Message> {
-    let value = sv2_target_to_difficulty(target);
+    let value = sv1_target_to_difficulty(target);
+    tracing::debug!("SV1 set_difficulty value computed from SV2 target: {}", value);
     let set_target = v1::methods::server_to_client::SetDifficulty { value };
     Ok(set_target.into())
 }
