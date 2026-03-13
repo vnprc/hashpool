@@ -516,20 +516,29 @@ impl IsClient<'static> for Client {
 }
 
 fn target_from_difficulty(diff: f64) -> Option<U256> {
-    // Use 2^256 reference to match SV2 difficulty scale: target = (2^256 - 1) / difficulty
+    // SV1/Bitcoin pdiff scale: target = diff1_target / difficulty
     if diff == 0.0 {
         return Some(U256::from_big_endian(&[0xff; 32]));
     }
-    let max_target = BigUint::from_bytes_be(&[0xff; 32]);
-    let diff_as_big = BigUint::from_f64(diff.max(1.0))?;
-    let target_big = max_target / diff_as_big;
+    // Genesis block target: 0x00000000ffff0000000000000000000000000000000000000000000000000000
+    let max_target = BigUint::from_bytes_be(&[
+        0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+    ]);
+    // Use fixed-point division to preserve fractional difficulties (< 1.0).
+    let scale: u128 = 1_000_000_000_000; // 1e12 precision
+    let denom = (diff * scale as f64).round() as u128;
+    if denom == 0 {
+        return Some(U256::from_big_endian(&[0xff; 32]));
+    }
+    let target_big = max_target * BigUint::from(scale) / BigUint::from(denom);
     let mut bytes = target_big.to_bytes_be();
     if bytes.len() > 32 {
-        None
-    } else {
-        let mut front_padding = vec![0u8; 32 - bytes.len()];
-        front_padding.append(&mut bytes);
-        let as_u256: [u8; 32] = front_padding.try_into().unwrap();
-        Some(U256::from_big_endian(as_u256.as_ref()))
+        return Some(U256::from_big_endian(&[0xff; 32]));
     }
+    let mut front_padding = vec![0u8; 32 - bytes.len()];
+    front_padding.append(&mut bytes);
+    let as_u256: [u8; 32] = front_padding.try_into().unwrap();
+    Some(U256::from_big_endian(as_u256.as_ref()))
 }
