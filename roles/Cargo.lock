@@ -1359,8 +1359,6 @@ dependencies = [
 [[package]]
 name = "channels_sv2"
 version = "3.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c772413052982c31fa030bf4ded35d046d3523da117cbc3e67fd25cecb07b93"
 dependencies = [
  "binary_sv2",
  "bitcoin 0.32.8",

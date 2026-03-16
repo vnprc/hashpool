@@ -357,7 +357,7 @@ async fn fetch_miners(prometheus: &PrometheusClient) -> Result<Vec<MinerMetrics>
     let mut miners: HashMap<u32, MinerMetrics> = HashMap::new();
 
     let info_samples = prometheus
-        .query_instant("hashpool_translator_miner_info")
+        .query_instant("present_over_time(hashpool_translator_miner_info[30s])")
         .await?;
     for sample in info_samples {
         if let Some(id) = metric_id(&sample.metric) {
@@ -389,8 +389,9 @@ async fn fetch_miners(prometheus: &PrometheusClient) -> Result<Vec<MinerMetrics>
         .await?;
     for sample in shares_samples {
         if let Some(id) = metric_id(&sample.metric) {
-            let entry = miners.entry(id).or_insert_with(MinerMetrics::default);
-            entry.shares = parse_sample_value(&sample.value.1) as u64;
+            if let Some(entry) = miners.get_mut(&id) {
+                entry.shares = parse_sample_value(&sample.value.1) as u64;
+            }
         }
     }
 
@@ -399,8 +400,9 @@ async fn fetch_miners(prometheus: &PrometheusClient) -> Result<Vec<MinerMetrics>
         .await?;
     for sample in connected_samples {
         if let Some(id) = metric_id(&sample.metric) {
-            let entry = miners.entry(id).or_insert_with(MinerMetrics::default);
-            entry.connected_at = parse_sample_value(&sample.value.1) as u64;
+            if let Some(entry) = miners.get_mut(&id) {
+                entry.connected_at = parse_sample_value(&sample.value.1) as u64;
+            }
         }
     }
 
@@ -419,9 +421,10 @@ where
     let samples = prometheus.query_instant(metric_name).await?;
     for sample in samples {
         if let Some(id) = metric_id(&sample.metric) {
-            let entry = miners.entry(id).or_insert_with(MinerMetrics::default);
-            let value = parse_sample_value(&sample.value.1);
-            apply(entry, value);
+            if let Some(entry) = miners.get_mut(&id) {
+                let value = parse_sample_value(&sample.value.1);
+                apply(entry, value);
+            }
         }
     }
     Ok(())

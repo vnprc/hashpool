@@ -354,7 +354,9 @@ async fn fetch_downstreams(
         }
     }
 
-    Ok(downstreams.into_values().collect())
+    let mut result: Vec<DownstreamMetrics> = downstreams.into_values().collect();
+    result.sort_by_key(|d| d.id);
+    Ok(result)
 }
 
 async fn merge_metric<F>(
