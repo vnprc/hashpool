@@ -11,11 +11,10 @@ license = "MIT OR Apache-2.0"
 binary_sv2 = "5.0.1"
 mint_quote_sv2 = { version = "^1.0.0", path = "../v2/subprotocols/mint-quote" }
 thiserror = "1"
-cdk = { git = "https://github.com/vnprc/cdk", rev = "77df2ae4" }
-cdk-common = { git = "https://github.com/vnprc/cdk", rev = "77df2ae4" }
+hex = "0.4"
+serde_json = "1"
+cdk-common = { git = "https://github.com/vnprc/cdk", rev = "acf94ebb" }
 derive_codec_sv2 = "1.1.2"
-# Force std feature on toml to fix trait bound issues when used with CDK
-toml = { git = "https://github.com/diondokter/toml-rs", rev = "c4161aa", features = ["std"] }
 
 [dev-dependencies]
 rand = "0.8"

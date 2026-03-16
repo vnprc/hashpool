@@ -12,6 +12,7 @@ use tokio::sync::Mutex;
 use tracing::{info, error, warn};
 use serde_json::json;
 
+use cdk::amount::SplitTarget;
 use cdk::wallet::Wallet;
 use cdk::Amount;
 
@@ -59,13 +60,18 @@ async fn create_mint_token(wallet: Arc<Wallet>) -> Result<String, Box<dyn std::e
         return Err("Insufficient balance in wallet".into());
     }
 
-    // First, swap to get exactly one proof of 32 sats
-    // This ensures we have the exact denomination we need
-    let single_proof = match wallet.swap_from_unspent(amount, None, false).await {
-        Ok(proofs) => {
+    // Swap to get exactly the amount needed
+    let unspent_proofs = wallet.get_unspent_proofs().await
+        .map_err(|e| format!("Failed to get unspent proofs: {}", e))?;
+    let single_proof = match wallet.swap(Some(amount), SplitTarget::default(), unspent_proofs, None, false, false).await {
+        Ok(Some(proofs)) => {
             let total_amount: Amount = proofs.iter().fold(Amount::ZERO, |acc, p| acc + p.amount);
             info!("💱 Swapped for {} proofs totaling {} ehash", proofs.len(), total_amount);
             proofs
+        }
+        Ok(None) => {
+            error!("❌ Swap returned no proofs");
+            return Err("Failed to prepare token: swap returned no proofs".into());
         }
         Err(e) => {
             error!("❌ Failed to swap for exact amount: {:?}", e);

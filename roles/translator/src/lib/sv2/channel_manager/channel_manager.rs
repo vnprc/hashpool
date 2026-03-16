@@ -12,7 +12,7 @@ use crate::{
     utils::{into_static, ShutdownMessage},
 };
 use async_channel::{Receiver, Sender};
-use cdk::wallet::Wallet;
+use cdk::{nuts::PaymentMethod, wallet::Wallet};
 use mint_quote_sv2::{
     MintQuoteFailure, MintQuoteNotification, MESSAGE_TYPE_MINT_QUOTE_FAILURE,
     MESSAGE_TYPE_MINT_QUOTE_NOTIFICATION,
@@ -714,7 +714,10 @@ impl ChannelManager {
 
         if let Some(wallet) = &self.wallet {
             let wallet = wallet.clone();
-            if let Err(e) = wallet.mint_quote_state_mining_share(&quote_id).await {
+            if let Err(e) = wallet
+                .fetch_mint_quote(&quote_id, Some(PaymentMethod::Custom("ehash".to_string())))
+                .await
+            {
                 warn!(
                     "Translator: failed to persist mint quote {} to wallet: {:?}",
                     quote_id, e

@@ -1,6 +1,11 @@
 use anyhow::Result;
 use binary_sv2::Str0255;
-use cdk::mint::Mint;
+use cdk::mint::{Mint, MintQuoteRequest, MintQuoteResponse as CdkMintQuoteResponse};
+use cdk::{
+    cdk_payment::{PaymentIdentifier, WaitPaymentResponse},
+    nuts::CurrencyUnit,
+    Amount,
+};
 use codec_sv2::StandardEitherFrame;
 use mint_quote_sv2::MESSAGE_TYPE_MINT_QUOTE_REQUEST;
 use hex;
@@ -46,23 +51,49 @@ pub async fn process_mint_quote_message(
                 locking_key_hex
             );
 
-            let cdk_request = parsed_request
+            let cdk_custom_request = parsed_request
                 .to_cdk_request()
                 .map_err(|e| anyhow::anyhow!("Failed to convert MintQuoteRequest: {e}"))?;
 
-            match mint.create_mint_mining_share_quote(cdk_request).await {
-                Ok(quote_response) => {
+            let mint_quote_request = MintQuoteRequest::Custom {
+                method: "ehash".to_string(),
+                request: cdk_custom_request,
+            };
+
+            match mint.get_mint_quote(mint_quote_request).await {
+                Ok(cdk_response) => {
+                    let custom_response = match cdk_response {
+                        CdkMintQuoteResponse::Custom { response, .. } => response,
+                        _ => {
+                            return Err(anyhow::anyhow!(
+                                "Expected Custom mint quote response, got different variant"
+                            ));
+                        }
+                    };
+
+                    let quote_id_str = custom_response.quote.to_string();
                     info!(
                         "Successfully created mint quote: quote_id={} share_hash={} amount={}",
-                        quote_response.id, share_hash, amount,
+                        quote_id_str, share_hash, amount,
                     );
 
-                    let sv2_response = mint_quote_response_from_cdk(share_hash, quote_response)
+                    // Mark quote as paid immediately — pool validated the share before sending this message.
+                    let header_hash_hex = hex::encode(share_hash.as_bytes());
+                    let amount_with_unit = Amount::new(amount, CurrencyUnit::Custom("hash".to_string()));
+
+                    mint.pay_mint_quote_for_request_id(WaitPaymentResponse {
+                        payment_identifier: PaymentIdentifier::CustomId(header_hash_hex.clone()),
+                        payment_amount: amount_with_unit,
+                        payment_id: header_hash_hex,
+                    })
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Failed to pay ehash quote: {e}"))?;
+
+                    let sv2_response = mint_quote_response_from_cdk(share_hash, custom_response)
                         .map_err(|e| {
                             anyhow::anyhow!("Failed to convert mint quote response: {e}")
                         })?;
 
-                    // Send response back to pool
                     send_quote_response_to_pool(sv2_response, sender).await?;
 
                     Ok(())

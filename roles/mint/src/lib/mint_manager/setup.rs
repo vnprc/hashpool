@@ -3,18 +3,17 @@ use std::{collections::HashMap, path::PathBuf, str::FromStr, sync::Arc};
 use anyhow::Result;
 use bip39::Mnemonic;
 use cdk::{
-    cdk_payment,
     cdk_payment::MintPayment,
-    mint::Mint,
-    nuts::{CurrencyUnit, MintInfo, MintMethodSettings, Nuts, PaymentMethod},
-    types::{PaymentProcessorKey, QuoteTTL},
-    Amount,
+    mint::{Mint, MintBuilder, MintMeltLimits, UnitConfig},
+    nuts::{CurrencyUnit, PaymentMethod},
+    types::QuoteTTL,
 };
-use cdk_mintd::config::{self};
-use cdk_signatory::db_signatory::DbSignatory;
+use cdk_ehash::EhashPaymentProcessor;
+use cdk_mintd::config;
+use cdk_signatory::{db_signatory::DbSignatory, signatory::Signatory};
 use cdk_sqlite::MintSqliteDatabase;
 
-/// Setup and initialize the mint with all required components  
+/// Setup and initialize the mint with all required components
 pub async fn setup_mint(mint_settings: config::Settings, db_path: String) -> Result<Arc<Mint>> {
     // TODO add to config
     const NUM_KEYS: u8 = 64;
@@ -23,10 +22,11 @@ pub async fn setup_mint(mint_settings: config::Settings, db_path: String) -> Res
         .map_err(|e| anyhow::anyhow!("Invalid mnemonic in mint config: {}", e))?;
     let seed_bytes: &[u8] = &mnemonic.to_seed("");
 
-    let hash_currency_unit = CurrencyUnit::Custom("HASH".to_string());
+    let hash_currency_unit = CurrencyUnit::Custom("hash".to_string());
 
+    let amounts: Vec<u64> = (0..NUM_KEYS as u32).map(|i| 2_u64.pow(i)).collect();
     let mut currency_units = HashMap::new();
-    currency_units.insert(hash_currency_unit.clone(), (0, NUM_KEYS));
+    currency_units.insert(hash_currency_unit.clone(), (0_u64, amounts.clone()));
 
     // Database setup
     let mint_db_path = resolve_and_prepare_db_path(&db_path);
@@ -39,41 +39,52 @@ pub async fn setup_mint(mint_settings: config::Settings, db_path: String) -> Res
             .unwrap(),
     );
 
-    let ln: HashMap<
-        PaymentProcessorKey,
-        Arc<dyn MintPayment<Err = cdk_payment::Error> + Send + Sync>,
-    > = HashMap::new();
+    let ehash_processor = Arc::new(EhashPaymentProcessor::new(hash_currency_unit.clone()));
 
-    // Configure NUT-04 settings for MiningShare payment method with HASH unit
-    let mining_share_method = MintMethodSettings {
-        method: PaymentMethod::MiningShare,
-        unit: hash_currency_unit.clone(),
-        min_amount: Some(Amount::from(1)),
-        // TODO update units to 2^bits not just raw bits
-        max_amount: Some(Amount::from(u64::MAX)),
-        options: None,
-    };
+    let mut builder = MintBuilder::new(db)
+        .with_name(mint_settings.mint_info.name.clone())
+        .with_description(mint_settings.mint_info.description.clone())
+        .with_urls(vec![mint_settings.info.url.clone()]);
 
-    let mut nuts = Nuts::new();
-    nuts.nut04.methods.push(mining_share_method);
-    nuts.nut04.disabled = false;
+    builder
+        .configure_unit(
+            hash_currency_unit.clone(),
+            UnitConfig {
+                amounts,
+                input_fee_ppk: 0,
+            },
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to configure unit: {}", e))?;
 
-    let mint_info = MintInfo {
-        name: Some(mint_settings.mint_info.name.clone()),
-        description: Some(mint_settings.mint_info.description.clone()),
-        pubkey: None,
-        version: None,
-        description_long: None,
-        contact: None,
-        nuts,
-        icon_url: None,
-        urls: Some(vec![mint_settings.info.url.clone()]),
-        motd: None,
-        time: None,
-        tos_url: None,
-    };
+    builder
+        .add_payment_processor(
+            hash_currency_unit.clone(),
+            PaymentMethod::Custom("ehash".to_string()),
+            MintMeltLimits::new(1, u64::MAX),
+            ehash_processor as Arc<dyn MintPayment<Err = cdk::cdk_payment::Error> + Send + Sync>,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to add payment processor: {}", e))?;
 
-    let mint = Arc::new(Mint::new(mint_info, signatory, db, ln).await.unwrap());
+    // Save current NUT-04 config before building (for DB migration below)
+    let current_nut04 = builder.current_mint_info().nuts.nut04.clone();
+
+    let signatory_dyn: Arc<dyn Signatory + Send + Sync> = signatory;
+    let mint = Arc::new(
+        builder
+            .build_with_signatory(signatory_dyn)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to build mint: {}", e))?,
+    );
+
+    // Ensure NUT-04 settings reflect the current code configuration.
+    // Mint::new merges only pubkey/nut21/nut22 from the provided mint_info when a
+    // stored config already exists, so NUT-04 may be stale after an upgrade.
+    {
+        let mut stored_info = mint.mint_info().await?;
+        stored_info.nuts.nut04 = current_nut04;
+        mint.set_mint_info(stored_info).await?;
+    }
 
     mint.set_quote_ttl(QuoteTTL::new(10_000, 10_000)).await?;
 

@@ -4,16 +4,16 @@ use std::{
 };
 
 use binary_sv2::{Deserialize, PubKey};
-use cdk::{
-    amount::Amount,
-    nuts::{CurrencyUnit, KeySet, Keys, PublicKey},
+use cdk_common::{
+    Amount,
+    nuts::{CurrencyUnit, KeySet, Keys, PublicKey, nut02},
 };
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum KeysetConversionError {
     #[error("invalid keyset id: {0:?}")]
-    InvalidKeysetId(cdk::nuts::nut02::Error),
+    InvalidKeysetId(nut02::Error),
     #[error("expected 64 signing keys, found {0}")]
     InvalidKeyCount(usize),
     #[error("failed to parse public key: {0}")]
@@ -21,7 +21,7 @@ pub enum KeysetConversionError {
 }
 
 #[derive(Debug, Clone)]
-pub struct KeysetId(pub cdk::nuts::nut02::Id);
+pub struct KeysetId(pub nut02::Id);
 
 impl From<KeysetId> for u64 {
     fn from(id: KeysetId) -> Self {
@@ -33,16 +33,16 @@ impl From<KeysetId> for u64 {
 }
 
 impl TryFrom<u64> for KeysetId {
-    type Error = cdk::nuts::nut02::Error;
+    type Error = nut02::Error;
 
     fn try_from(value: u64) -> Result<Self, Self::Error> {
         let bytes = value.to_be_bytes();
-        cdk::nuts::nut02::Id::from_bytes(&bytes).map(KeysetId)
+        nut02::Id::from_bytes(&bytes).map(KeysetId)
     }
 }
 
 impl std::ops::Deref for KeysetId {
-    type Target = cdk::nuts::nut02::Id;
+    type Target = nut02::Id;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -105,7 +105,7 @@ pub fn signing_keys_to_cdk(keys: &[SigningKey]) -> Result<Keys, KeysetConversion
 pub fn calculate_keyset_id(keys: &[SigningKey]) -> u64 {
     match signing_keys_to_cdk(keys) {
         Ok(keys_map) => {
-            let id = cdk::nuts::nut02::Id::v1_from_keys(&keys_map);
+            let id = nut02::Id::v1_from_keys(&keys_map);
             let id_bytes = id.to_bytes();
             let mut padded = [0u8; 8];
             padded[..id_bytes.len()].copy_from_slice(&id_bytes);
@@ -123,35 +123,37 @@ pub fn build_cdk_keyset(
     let keys = signing_keys_to_cdk(signing_keys)?;
     Ok(KeySet {
         id,
-        unit: CurrencyUnit::Custom("HASH".to_string()),
+        unit: CurrencyUnit::Custom("hash".to_string()),
+        active: None,
         keys,
+        input_fee_ppk: 0,
         final_expiry: None,
     })
 }
 
 pub fn keyset_from_sv2_bytes(
     bytes: &[u8],
-) -> Result<cdk::nuts::nut02::Id, cdk::nuts::nut02::Error> {
+) -> Result<nut02::Id, nut02::Error> {
     if bytes.is_empty() {
-        return cdk::nuts::nut02::Id::from_bytes(&[0u8; 8]);
+        return nut02::Id::from_bytes(&[0u8; 8]);
     }
 
     let has_real_data = bytes.iter().any(|&x| x != 0);
     if !has_real_data {
-        return cdk::nuts::nut02::Id::from_bytes(&[0u8; 8]);
+        return nut02::Id::from_bytes(&[0u8; 8]);
     }
 
     match bytes.len() {
-        8 | 33 => cdk::nuts::nut02::Id::from_bytes(bytes),
+        8 | 33 => nut02::Id::from_bytes(bytes),
         len if len >= 8 => {
             let mut temp = [0u8; 8];
             temp.copy_from_slice(&bytes[len - 8..]);
-            cdk::nuts::nut02::Id::from_bytes(&temp)
+            nut02::Id::from_bytes(&temp)
         }
         _ => {
             let mut temp = [0u8; 8];
             temp[..bytes.len()].copy_from_slice(bytes);
-            cdk::nuts::nut02::Id::from_bytes(&temp)
+            nut02::Id::from_bytes(&temp)
         }
     }
 }

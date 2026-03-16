@@ -15,12 +15,13 @@ use anyhow::{Context, Result};
 use async_channel::unbounded;
 use bip39::Mnemonic;
 use cdk::{
-    nuts::{CurrencyUnit, Id, SecretKey},
+    amount::SplitTarget,
+    nuts::{CurrencyUnit, SecretKey, SpendingConditions},
     wallet::Wallet,
-    Amount, MiningShareBatchEntry,
+    Amount,
 };
 use cdk_sqlite::WalletSqliteDatabase;
-use std::{collections::HashMap, net::SocketAddr, path::Path, str::FromStr, sync::Arc};
+use std::{net::SocketAddr, path::Path, str::FromStr, sync::Arc};
 use tokio::{sync::mpsc, time::Duration};
 use tracing::{debug, error, info, warn};
 
@@ -126,10 +127,10 @@ impl TranslatorSv2 {
             .context("WalletSqliteDatabase::new failed")?;
 
         debug!("Creating wallet...");
-        // TODO: Move "HASH" currency unit to configuration (Phase 2)
+        // TODO: Move "hash" currency unit to configuration (Phase 2)
         let wallet = Wallet::new(
             &mint_url,
-            CurrencyUnit::Custom("HASH".to_string()),
+            CurrencyUnit::Custom("hash".to_string()),
             Arc::new(localstore),
             seed,
             None,
@@ -446,7 +447,7 @@ impl TranslatorSv2 {
         wallet: &Arc<Wallet>,
         locking_privkey: Option<&str>,
     ) -> Result<u64> {
-        let pending_quotes = match wallet.get_unpaid_mint_quotes().await {
+        let pending_quotes = match wallet.get_unissued_mint_quotes().await {
             Ok(quotes) => quotes,
             Err(e) => {
                 error!("Failed to fetch pending quotes from wallet: {}", e);
@@ -468,65 +469,7 @@ impl TranslatorSv2 {
             pending_quotes.len()
         );
 
-        let quote_ids: Vec<String> = pending_quotes.iter().map(|q| q.id.clone()).collect();
-
-        if quote_ids.is_empty() {
-            return Ok(0);
-        }
-
-        let mut quotes_by_keyset: HashMap<Id, Vec<MiningShareBatchEntry>> = HashMap::new();
-
-        for quote_id in quote_ids.iter() {
-            debug!("🔍 Fetching quote {} from mint", quote_id);
-            match wallet
-                .mint_quote_state_mining_share(quote_id)
-                .await
-                .with_context(|| format!("Failed to fetch quote {} from mint", quote_id))
-            {
-                Ok(quote_response) => {
-                    debug!(
-                        "💾 Quote {} fetched and added to wallet (state: {:?})",
-                        quote_id, quote_response.state
-                    );
-
-                    if quote_response.is_fully_issued() {
-                        continue;
-                    }
-
-                    let total_amount = match quote_response.amount {
-                        Some(amount) => amount,
-                        None => {
-                            warn!("Quote {} missing amount, skipping", quote_id);
-                            continue;
-                        }
-                    };
-
-                    if total_amount <= quote_response.amount_issued {
-                        continue;
-                    }
-
-                    let amount_to_mint = total_amount - quote_response.amount_issued;
-                    if amount_to_mint == Amount::ZERO {
-                        continue;
-                    }
-
-                    quotes_by_keyset
-                        .entry(quote_response.keyset_id)
-                        .or_default()
-                        .push(MiningShareBatchEntry::new(
-                            quote_id.clone(),
-                            amount_to_mint,
-                            quote_response.keyset_id,
-                        ));
-                }
-                Err(e) => {
-                    warn!("Failed to fetch quote {} details: {}", quote_id, e);
-                }
-            }
-        }
-
-        if quotes_by_keyset.is_empty() {
-            warn!("😞 No tokens were minted from any quotes");
+        if pending_quotes.is_empty() {
             return Ok(0);
         }
 
@@ -545,25 +488,48 @@ impl TranslatorSv2 {
                 }
             },
             None => {
-                error!("Secret key is required for mining share minting");
+                debug!("Skipping mint: no locking_privkey configured");
                 return Ok(0);
             }
         };
 
+        let pubkey = secret_key.public_key();
+        let spending_conditions = SpendingConditions::new_p2pk(pubkey, None);
+
         let mut total_minted = 0u64;
         let mut minted_quote_count = 0usize;
 
-        for (keyset_id, entries) in quotes_by_keyset.into_iter() {
-            debug!(?keyset_id, quote_count = entries.len(), "Minting mining share batch");
-            match wallet.mint_mining_share_batch(&entries, &secret_key).await {
+        for quote in pending_quotes.iter() {
+            debug!("🔍 Checking quote {} state from mint", quote.id);
+            let quote = match wallet.check_mint_quote_status(&quote.id).await {
+                Ok(q) => q,
+                Err(e) => {
+                    warn!("Failed to fetch quote {} details: {}", quote.id, e);
+                    continue;
+                }
+            };
+
+            debug!(
+                "💾 Quote {} state: {:?}, mintable: {}",
+                quote.id, quote.state, quote.amount_mintable()
+            );
+
+            if quote.amount_mintable() == Amount::ZERO {
+                continue;
+            }
+
+            match wallet
+                .mint(&quote.id, SplitTarget::default(), Some(spending_conditions.clone()))
+                .await
+            {
                 Ok(proofs) => {
-                    let batch_amount: u64 = proofs.iter().map(|p| u64::from(p.amount)).sum();
-                    total_minted += batch_amount;
-                    minted_quote_count += entries.len();
-                    info!(?keyset_id, minted_amount = batch_amount, quote_count = entries.len());
+                    let minted_amount: u64 = proofs.iter().map(|p| u64::from(p.amount)).sum();
+                    total_minted += minted_amount;
+                    minted_quote_count += 1;
+                    info!(quote_id = %quote.id, minted_amount, "Minted tokens for quote");
                 }
                 Err(e) => {
-                    warn!(?keyset_id, "Failed to mint mining share batch: {}", e);
+                    warn!(quote_id = %quote.id, "Failed to mint quote: {}", e);
                 }
             }
         }

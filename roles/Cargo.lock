@@ -45,12 +45,6 @@ dependencies = [
 
 [[package]]
 name = "ahash"
-version = "0.3.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8fd72866655d1904d6b0997d0b07ba561047d070fbe29de039031c641b61217"
-
-[[package]]
-name = "ahash"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "891477e0c6a8957309ee5c45a6368af3ae14bb510732d2684ffa19af310920f9"
@@ -891,16 +885,16 @@ checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 
 [[package]]
 name = "cashu"
-version = "0.14.0"
-source = "git+https://github.com/vnprc/cdk?rev=77df2ae4#77df2ae4b011c129fd0666978ac7953e642d71a0"
+version = "0.15.1"
+source = "git+https://github.com/vnprc/cdk?rev=acf94ebb#acf94ebb3db7aca3663654b305bf38ebcc116252"
 dependencies = [
  "bitcoin 0.32.8",
  "cbor-diag",
  "ciborium",
  "lightning",
  "lightning-invoice",
+ "nostr-sdk",
  "once_cell",
- "regex",
  "serde",
  "serde_json",
  "serde_with",
@@ -963,8 +957,8 @@ dependencies = [
 
 [[package]]
 name = "cdk"
-version = "0.14.0"
-source = "git+https://github.com/vnprc/cdk?rev=77df2ae4#77df2ae4b011c129fd0666978ac7953e642d71a0"
+version = "0.15.1"
+source = "git+https://github.com/vnprc/cdk?rev=acf94ebb#acf94ebb3db7aca3663654b305bf38ebcc116252"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -983,7 +977,6 @@ dependencies = [
  "lightning-invoice",
  "nostr-sdk",
  "regex",
- "reqwest 0.12.28",
  "ring",
  "rustls 0.23.37",
  "serde",
@@ -991,7 +984,6 @@ dependencies = [
  "serde_with",
  "thiserror 2.0.18",
  "tokio",
- "tokio-tungstenite 0.26.2",
  "tokio-util",
  "tracing",
  "url",
@@ -1002,8 +994,8 @@ dependencies = [
 
 [[package]]
 name = "cdk-axum"
-version = "0.14.0"
-source = "git+https://github.com/vnprc/cdk?rev=77df2ae4#77df2ae4b011c129fd0666978ac7953e642d71a0"
+version = "0.15.1"
+source = "git+https://github.com/vnprc/cdk?rev=acf94ebb#acf94ebb3db7aca3663654b305bf38ebcc116252"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1022,8 +1014,8 @@ dependencies = [
 
 [[package]]
 name = "cdk-cln"
-version = "0.14.0"
-source = "git+https://github.com/vnprc/cdk?rev=77df2ae4#77df2ae4b011c129fd0666978ac7953e642d71a0"
+version = "0.15.1"
+source = "git+https://github.com/vnprc/cdk?rev=acf94ebb#acf94ebb3db7aca3663654b305bf38ebcc116252"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.8",
@@ -1040,14 +1032,15 @@ dependencies = [
 
 [[package]]
 name = "cdk-common"
-version = "0.14.0"
-source = "git+https://github.com/vnprc/cdk?rev=77df2ae4#77df2ae4b011c129fd0666978ac7953e642d71a0"
+version = "0.15.1"
+source = "git+https://github.com/vnprc/cdk?rev=acf94ebb#acf94ebb3db7aca3663654b305bf38ebcc116252"
 dependencies = [
  "anyhow",
  "async-trait",
  "bitcoin 0.32.8",
  "cashu",
  "cbor-diag",
+ "cdk-http-client",
  "cdk-prometheus",
  "ciborium",
  "futures",
@@ -1055,11 +1048,13 @@ dependencies = [
  "lightning",
  "lightning-invoice",
  "parking_lot",
+ "paste",
  "serde",
  "serde_json",
  "serde_with",
  "thiserror 2.0.18",
  "tokio",
+ "tonic",
  "tracing",
  "url",
  "uuid",
@@ -1069,9 +1064,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "cdk-ehash"
+version = "0.15.1"
+source = "git+https://github.com/vnprc/cdk?rev=acf94ebb#acf94ebb3db7aca3663654b305bf38ebcc116252"
+dependencies = [
+ "async-trait",
+ "cdk-common",
+ "futures",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "cdk-fake-wallet"
-version = "0.14.0"
-source = "git+https://github.com/vnprc/cdk?rev=77df2ae4#77df2ae4b011c129fd0666978ac7953e642d71a0"
+version = "0.15.1"
+source = "git+https://github.com/vnprc/cdk?rev=acf94ebb#acf94ebb3db7aca3663654b305bf38ebcc116252"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.8",
@@ -1079,7 +1091,6 @@ dependencies = [
  "futures",
  "lightning",
  "lightning-invoice",
- "reqwest 0.12.28",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -1088,12 +1099,34 @@ dependencies = [
  "tokio-util",
  "tracing",
  "uuid",
+ "web-time",
+]
+
+[[package]]
+name = "cdk-http-client"
+version = "0.15.1"
+source = "git+https://github.com/vnprc/cdk?rev=acf94ebb#acf94ebb3db7aca3663654b305bf38ebcc116252"
+dependencies = [
+ "futures",
+ "futures-channel",
+ "js-sys",
+ "regex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio-tungstenite 0.26.2",
+ "tracing",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
 name = "cdk-lnbits"
-version = "0.14.0"
-source = "git+https://github.com/vnprc/cdk?rev=77df2ae4#77df2ae4b011c129fd0666978ac7953e642d71a0"
+version = "0.15.1"
+source = "git+https://github.com/vnprc/cdk?rev=acf94ebb#acf94ebb3db7aca3663654b305bf38ebcc116252"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1111,8 +1144,8 @@ dependencies = [
 
 [[package]]
 name = "cdk-lnd"
-version = "0.14.0"
-source = "git+https://github.com/vnprc/cdk?rev=77df2ae4#77df2ae4b011c129fd0666978ac7953e642d71a0"
+version = "0.15.1"
+source = "git+https://github.com/vnprc/cdk?rev=acf94ebb#acf94ebb3db7aca3663654b305bf38ebcc116252"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1130,14 +1163,15 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tonic",
- "tonic-build",
+ "tonic-prost",
+ "tonic-prost-build",
  "tracing",
 ]
 
 [[package]]
 name = "cdk-mint-rpc"
-version = "0.14.0"
-source = "git+https://github.com/vnprc/cdk?rev=77df2ae4#77df2ae4b011c129fd0666978ac7953e642d71a0"
+version = "0.15.1"
+source = "git+https://github.com/vnprc/cdk?rev=acf94ebb#acf94ebb3db7aca3663654b305bf38ebcc116252"
 dependencies = [
  "anyhow",
  "cdk",
@@ -1151,15 +1185,16 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tonic",
- "tonic-build",
+ "tonic-prost",
+ "tonic-prost-build",
  "tracing",
  "tracing-subscriber",
 ]
 
 [[package]]
 name = "cdk-mintd"
-version = "0.14.0"
-source = "git+https://github.com/vnprc/cdk?rev=77df2ae4#77df2ae4b011c129fd0666978ac7953e642d71a0"
+version = "0.15.1"
+source = "git+https://github.com/vnprc/cdk?rev=acf94ebb#acf94ebb3db7aca3663654b305bf38ebcc116252"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1193,8 +1228,8 @@ dependencies = [
 
 [[package]]
 name = "cdk-payment-processor"
-version = "0.14.0"
-source = "git+https://github.com/vnprc/cdk?rev=77df2ae4#77df2ae4b011c129fd0666978ac7953e642d71a0"
+version = "0.15.1"
+source = "git+https://github.com/vnprc/cdk?rev=acf94ebb#acf94ebb3db7aca3663654b305bf38ebcc116252"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1219,7 +1254,8 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "tonic",
- "tonic-build",
+ "tonic-prost",
+ "tonic-prost-build",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -1227,8 +1263,8 @@ dependencies = [
 
 [[package]]
 name = "cdk-prometheus"
-version = "0.14.0"
-source = "git+https://github.com/vnprc/cdk?rev=77df2ae4#77df2ae4b011c129fd0666978ac7953e642d71a0"
+version = "0.15.1"
+source = "git+https://github.com/vnprc/cdk?rev=acf94ebb#acf94ebb3db7aca3663654b305bf38ebcc116252"
 dependencies = [
  "anyhow",
  "futures",
@@ -1243,25 +1279,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "cdk-redb"
-version = "0.14.0"
-source = "git+https://github.com/vnprc/cdk?rev=77df2ae4#77df2ae4b011c129fd0666978ac7953e642d71a0"
-dependencies = [
- "async-trait",
- "cdk-common",
- "lightning-invoice",
- "redb",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tracing",
- "uuid",
-]
-
-[[package]]
 name = "cdk-signatory"
-version = "0.14.0"
-source = "git+https://github.com/vnprc/cdk?rev=77df2ae4#77df2ae4b011c129fd0666978ac7953e642d71a0"
+version = "0.15.1"
+source = "git+https://github.com/vnprc/cdk?rev=acf94ebb#acf94ebb3db7aca3663654b305bf38ebcc116252"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1278,15 +1298,16 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tonic",
- "tonic-build",
+ "tonic-prost",
+ "tonic-prost-build",
  "tracing",
  "tracing-subscriber",
 ]
 
 [[package]]
 name = "cdk-sql-common"
-version = "0.14.0"
-source = "git+https://github.com/vnprc/cdk?rev=77df2ae4#77df2ae4b011c129fd0666978ac7953e642d71a0"
+version = "0.15.1"
+source = "git+https://github.com/vnprc/cdk?rev=acf94ebb#acf94ebb3db7aca3663654b305bf38ebcc116252"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.8",
@@ -1303,14 +1324,15 @@ dependencies = [
 
 [[package]]
 name = "cdk-sqlite"
-version = "0.14.0"
-source = "git+https://github.com/vnprc/cdk?rev=77df2ae4#77df2ae4b011c129fd0666978ac7953e642d71a0"
+version = "0.15.1"
+source = "git+https://github.com/vnprc/cdk?rev=acf94ebb#acf94ebb3db7aca3663654b305bf38ebcc116252"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.8",
  "cdk-common",
  "cdk-sql-common",
  "lightning-invoice",
+ "paste",
  "rusqlite",
  "serde",
  "serde_json",
@@ -1769,7 +1791,7 @@ dependencies = [
  "csv",
  "futures",
  "is-terminal",
- "itertools 0.10.5",
+ "itertools",
  "num-traits",
  "once_cell",
  "oorandom",
@@ -1790,7 +1812,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b50826342786a51a89e2da3a28f1c32b06e387201bc2d19791f622c673706b1"
 dependencies = [
  "cast",
- "itertools 0.10.5",
+ "itertools",
 ]
 
 [[package]]
@@ -2027,12 +2049,12 @@ name = "ehash"
 version = "0.1.0"
 dependencies = [
  "binary_sv2",
- "cdk",
  "cdk-common",
  "derive_codec_sv2",
+ "hex",
  "mint_quote_sv2",
+ "serde_json",
  "thiserror 1.0.69",
- "toml 0.5.6",
 ]
 
 [[package]]
@@ -2545,16 +2567,6 @@ dependencies = [
  "parsers_sv2",
  "template_distribution_sv2",
  "trait-variant",
-]
-
-[[package]]
-name = "hashbrown"
-version = "0.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96282e96bfcd3da0d3aa9938bedf1e50df3269b6db08b4876d2da0bb1a0841cf"
-dependencies = [
- "ahash 0.3.8",
- "autocfg",
 ]
 
 [[package]]
@@ -3266,15 +3278,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "itertools"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
-dependencies = [
- "either",
-]
-
-[[package]]
 name = "itoa"
 version = "1.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3468,9 +3471,9 @@ dependencies = [
 
 [[package]]
 name = "lightning"
-version = "0.1.8"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ffe63f56b10d214be1ade8698ee80af82d981237cae3e581e7a631f5f4959f3"
+checksum = "4c90397b635e3ece6b9a723fb470a46cb9b3592f217d72e40540a5fada00289d"
 dependencies = [
  "bech32 0.11.1",
  "bitcoin 0.32.8",
@@ -3478,15 +3481,16 @@ dependencies = [
  "hashbrown 0.13.2",
  "libm",
  "lightning-invoice",
+ "lightning-macros",
  "lightning-types",
  "possiblyrandom",
 ]
 
 [[package]]
 name = "lightning-invoice"
-version = "0.33.2"
+version = "0.34.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11209f386879b97198b2bfc9e9c1e5d42870825c6bd4376f17f95357244d6600"
+checksum = "b85e5e14bcdb30d746e9785b04f27938292e8944f78f26517e01e91691f6b3f2"
 dependencies = [
  "bech32 0.11.1",
  "bitcoin 0.32.8",
@@ -3495,10 +3499,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "lightning-types"
-version = "0.2.0"
+name = "lightning-macros"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2cd84d4e71472035903e43caded8ecc123066ce466329ccd5ae537a8d5488c7"
+checksum = "d4c717494cdc2c8bb85bee7113031248f5f6c64f8802b33c1c9e2d98e594aa71"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
+name = "lightning-types"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb1aac93f22f2c2eac8a0ee83bb1a1ea58673caa2c82847302710b83364d04e6"
 dependencies = [
  "bitcoin 0.32.8",
 ]
@@ -3725,8 +3740,8 @@ dependencies = [
  "bitcoin 0.32.8",
  "cdk",
  "cdk-axum",
+ "cdk-ehash",
  "cdk-mintd",
- "cdk-redb",
  "cdk-signatory",
  "cdk-sqlite",
  "codec_sv2",
@@ -3886,9 +3901,9 @@ dependencies = [
 
 [[package]]
 name = "nostr"
-version = "0.43.1"
+version = "0.44.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62a97d745f1bd8d5e05a978632bbb87b0614567d5142906fe7c86fb2440faac6"
+checksum = "3aa5e3b6a278ed061835fe1ee293b71641e6bf8b401cfe4e1834bbf4ef0a34e1"
 dependencies = [
  "aes",
  "base64 0.22.1",
@@ -3899,6 +3914,7 @@ dependencies = [
  "chacha20",
  "chacha20poly1305",
  "getrandom 0.2.17",
+ "hex",
  "instant",
  "scrypt",
  "secp256k1 0.29.1",
@@ -3910,9 +3926,9 @@ dependencies = [
 
 [[package]]
 name = "nostr-database"
-version = "0.43.0"
+version = "0.44.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1c75a8c2175d2785ba73cfddef21d1e30da5fbbdf158569b6808ba44973a15b"
+checksum = "7462c9d8ae5ef6a28d66a192d399ad2530f1f2130b13186296dbb11bdef5b3d1"
 dependencies = [
  "lru",
  "nostr",
@@ -3920,14 +3936,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "nostr-relay-pool"
-version = "0.43.1"
+name = "nostr-gossip"
+version = "0.44.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b2f43b70d13dfc50508a13cd902e11f4625312b2ce0e4b7c4c2283fd04001bd"
+checksum = "ade30de16869618919c6b5efc8258f47b654a98b51541eb77f85e8ec5e3c83a6"
+dependencies = [
+ "nostr",
+]
+
+[[package]]
+name = "nostr-relay-pool"
+version = "0.44.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b1073ccfbaea5549fb914a9d52c68dab2aecda61535e5143dd73e95445a804b"
 dependencies = [
  "async-utility",
  "async-wsocket",
  "atomic-destructor",
+ "hex",
  "lru",
  "negentropy",
  "nostr",
@@ -3938,15 +3964,17 @@ dependencies = [
 
 [[package]]
 name = "nostr-sdk"
-version = "0.43.0"
+version = "0.44.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "599f8963d6a1522a13b1a2b0ea6e168acfc367706606f1d33fa595e91fa22db0"
+checksum = "471732576710e779b64f04c55e3f8b5292f865fea228436daf19694f0bf70393"
 dependencies = [
  "async-utility",
  "nostr",
  "nostr-database",
+ "nostr-gossip",
  "nostr-relay-pool",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -4315,11 +4343,12 @@ dependencies = [
 
 [[package]]
 name = "petgraph"
-version = "0.7.1"
+version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3672b37090dbd86368a4145bc067582552b29c27377cad4e0a306c97f9bd7772"
+checksum = "8701b58ea97060d5e5b155d383a69952a60943f0e6dfe30b04c287beb0b27455"
 dependencies = [
  "fixedbitset",
+ "hashbrown 0.15.5",
  "indexmap 2.13.0",
 ]
 
@@ -4597,9 +4626,9 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.13.5"
+version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2796faa41db3ec313a31f7624d9286acf277b52de526150b7e69f3debf891ee5"
+checksum = "d2ea70524a2f82d518bce41317d0fae74151505651af45faf1ffbd6fd33f0568"
 dependencies = [
  "bytes",
  "prost-derive",
@@ -4607,19 +4636,20 @@ dependencies = [
 
 [[package]]
 name = "prost-build"
-version = "0.13.5"
+version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
+checksum = "343d3bd7056eda839b03204e68deff7d1b13aba7af2b2fd16890697274262ee7"
 dependencies = [
  "heck",
- "itertools 0.14.0",
+ "itertools",
  "log",
  "multimap",
- "once_cell",
  "petgraph",
  "prettyplease",
  "prost",
  "prost-types",
+ "pulldown-cmark",
+ "pulldown-cmark-to-cmark",
  "regex",
  "syn 2.0.117",
  "tempfile",
@@ -4627,12 +4657,12 @@ dependencies = [
 
 [[package]]
 name = "prost-derive"
-version = "0.13.5"
+version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
+checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -4640,9 +4670,9 @@ dependencies = [
 
 [[package]]
 name = "prost-types"
-version = "0.13.5"
+version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52c2c1bf36ddb1a1c396b3601a3cec27c2462e45f07c386894ec3ccf5332bd16"
+checksum = "8991c4cbdb8bc5b11f0b074ffe286c30e523de90fee5ba8132f1399f23cb3dd7"
 dependencies = [
  "prost",
 ]
@@ -4652,6 +4682,26 @@ name = "protobuf"
 version = "2.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "106dd99e98437432fed6519dedecfade6a06a73bb7b2a1e019fdd2bee5778d94"
+
+[[package]]
+name = "pulldown-cmark"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83c41efbf8f90ac44de7f3a868f0867851d261b56291732d0cbf7cceaaeb55a6"
+dependencies = [
+ "bitflags 2.11.0",
+ "memchr",
+ "unicase",
+]
+
+[[package]]
+name = "pulldown-cmark-to-cmark"
+version = "22.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "50793def1b900256624a709439404384204a5dc3a6ec580281bfaac35e882e90"
+dependencies = [
+ "pulldown-cmark",
+]
 
 [[package]]
 name = "quinn"
@@ -4829,15 +4879,6 @@ checksum = "22e18b0f0062d30d4230b2e85ff77fdfe4326feb054b9783a3460d8435c8ab91"
 dependencies = [
  "crossbeam-deque",
  "crossbeam-utils",
-]
-
-[[package]]
-name = "redb"
-version = "2.6.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8eca1e9d98d5a7e9002d0013e18d5a9b000aee942eb134883a82f06ebffb6c01"
-dependencies = [
- "libc",
 ]
 
 [[package]]
@@ -6458,15 +6499,6 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "0.5.6"
-source = "git+https://github.com/diondokter/toml-rs?rev=c4161aa#c4161aa70202b3992dbec79b76e7a8659713b604"
-dependencies = [
- "hashbrown 0.7.2",
- "serde",
-]
-
-[[package]]
-name = "toml"
 version = "0.8.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc1beb996b9d83529a9e75c17a1686767d148d70663143c7854d8b4a09ced362"
@@ -6560,9 +6592,9 @@ checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
 
 [[package]]
 name = "tonic"
-version = "0.13.1"
+version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e581ba15a835f4d9ea06c55ab1bd4dce26fc53752c69a04aac00703bfb49ba9"
+checksum = "fec7c61a0695dc1887c1b53952990f3ad2e3a31453e1f49f10e75424943a93ec"
 dependencies = [
  "async-trait",
  "axum",
@@ -6577,8 +6609,8 @@ dependencies = [
  "hyper-util",
  "percent-encoding",
  "pin-project",
- "prost",
- "socket2 0.5.10",
+ "socket2 0.6.2",
+ "sync_wrapper 1.0.2",
  "tokio",
  "tokio-rustls",
  "tokio-stream",
@@ -6590,9 +6622,32 @@ dependencies = [
 
 [[package]]
 name = "tonic-build"
-version = "0.13.1"
+version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eac6f67be712d12f0b41328db3137e0d0757645d8904b4cb7d51cd9c2279e847"
+checksum = "1882ac3bf5ef12877d7ed57aad87e75154c11931c2ba7e6cde5e22d63522c734"
+dependencies = [
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
+name = "tonic-prost"
+version = "0.14.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a55376a0bbaa4975a3f10d009ad763d8f4108f067c7c2e74f3001fb49778d309"
+dependencies = [
+ "bytes",
+ "prost",
+ "tonic",
+]
+
+[[package]]
+name = "tonic-prost-build"
+version = "0.14.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3144df636917574672e93d0f56d7edec49f90305749c668df5101751bb8f95a"
 dependencies = [
  "prettyplease",
  "proc-macro2",
@@ -6600,6 +6655,8 @@ dependencies = [
  "prost-types",
  "quote",
  "syn 2.0.117",
+ "tempfile",
+ "tonic-build",
 ]
 
 [[package]]

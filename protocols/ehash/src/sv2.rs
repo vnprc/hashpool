@@ -2,7 +2,7 @@ use core::array;
 use std::convert::{TryFrom, TryInto};
 
 use binary_sv2::{self, PubKey as Sv2PubKey, B064K as KeySetBytes};
-use cdk::nuts::KeySet;
+use cdk_common::nuts::KeySet;
 
 use crate::{
     build_cdk_keyset, calculate_keyset_id, signing_keys_from_cdk, KeysetConversionError, KeysetId,
@@ -170,7 +170,7 @@ impl<'a> TryFrom<Sv2KeySet<'a>> for KeySet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cdk::amount::Amount;
+    use cdk_common::{Amount, nuts::{CurrencyUnit, Keys, PublicKey, nut02}};
     use rand::{Rng, RngCore};
     use secp256k1::{PublicKey as SecpPublicKey, Secp256k1, SecretKey};
     use std::collections::BTreeMap;
@@ -185,12 +185,12 @@ mod tests {
         }
     }
 
-    fn make_pubkey() -> cdk::nuts::PublicKey {
+    fn make_pubkey() -> PublicKey {
         let secp = Secp256k1::new();
         let mut rng = rand::thread_rng();
         let sk = fresh_secret_key(&mut rng);
         let pk: SecpPublicKey = SecpPublicKey::from_secret_key(&secp, &sk);
-        cdk::nuts::PublicKey::from_slice(&pk.serialize()).unwrap()
+        PublicKey::from_slice(&pk.serialize()).unwrap()
     }
 
     fn test_sv2_keyset() -> Sv2KeySet<'static> {
@@ -225,13 +225,15 @@ mod tests {
         for i in 0..64 {
             map.insert(Amount::from(1u64 << i), make_pubkey());
         }
-        let keys = cdk::nuts::Keys::new(map);
-        let id = cdk::nuts::nut02::Id::v1_from_keys(&keys);
+        let keys = Keys::new(map);
+        let id = nut02::Id::v1_from_keys(&keys);
 
         let keyset = KeySet {
             id,
-            unit: cdk::nuts::CurrencyUnit::Custom("HASH".to_string()),
+            unit: CurrencyUnit::Custom("hash".to_string()),
+            active: None,
             keys,
+            input_fee_ppk: 0,
             final_expiry: None,
         };
 

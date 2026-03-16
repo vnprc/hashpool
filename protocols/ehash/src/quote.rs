@@ -1,13 +1,13 @@
 use std::convert::{TryFrom, TryInto};
 
 use binary_sv2::{self, Str0255, Sv2Option, U256};
-use cdk::{
-    nuts::{nutXX::MintQuoteMiningShareRequest, CurrencyUnit, PublicKey},
-    secp256k1::hashes::Hash as CdkHash,
-    Amount,
+use cdk_common::{
+    nuts::{CurrencyUnit, MintQuoteCustomRequest, MintQuoteCustomResponse},
+    Amount, PublicKey,
 };
-use cdk_common::mint::MintQuote;
+use cdk_common::quote_id::QuoteId;
 use mint_quote_sv2::{CompressedPubKey, MintQuoteRequest, MintQuoteResponse};
+use serde_json::json;
 use thiserror::Error;
 
 use crate::share::{ShareHash, ShareHashError};
@@ -79,8 +79,6 @@ pub enum QuoteParseError {
 pub enum QuoteConversionError {
     #[error("invalid share hash encoding: {0}")]
     ShareHash(#[from] ShareHashError),
-    #[error("failed to convert header hash for CDK request: {0}")]
-    InvalidHeaderHash(String),
     #[error("failed to convert locking key for CDK request: {0}")]
     InvalidLockingKey(String),
     #[error("invalid quote identifier: {0:?}")]
@@ -95,30 +93,22 @@ pub struct ParsedMintQuoteRequest {
 }
 
 impl ParsedMintQuoteRequest {
-    /// Convert the parsed SV2 request into a CDK quote request.
-    pub fn to_cdk_request(&self) -> Result<MintQuoteMiningShareRequest, QuoteConversionError> {
+    /// Convert the parsed SV2 request into a CDK custom quote request.
+    pub fn to_cdk_request(&self) -> Result<MintQuoteCustomRequest, QuoteConversionError> {
         let amount = Amount::from(self.request.amount);
-        let unit = CurrencyUnit::Custom("HASH".to_string());
+        let unit = CurrencyUnit::Custom("hash".to_string());
 
-        let header_hash = CdkHash::from_slice(self.share_hash.as_bytes())
-            .map_err(|e| QuoteConversionError::InvalidHeaderHash(e.to_string()))?;
-
-        let description = self
-            .request
-            .description
-            .clone()
-            .into_inner()
-            .map(|s| String::from_utf8_lossy(s.inner_as_ref()).to_string());
+        let header_hash_hex = hex::encode(self.share_hash.as_bytes());
 
         let pubkey = PublicKey::from_slice(self.request.locking_key.inner_as_ref())
             .map_err(|e| QuoteConversionError::InvalidLockingKey(e.to_string()))?;
 
-        Ok(MintQuoteMiningShareRequest {
+        Ok(MintQuoteCustomRequest {
             amount,
             unit,
-            header_hash,
-            description,
-            pubkey,
+            description: None,
+            pubkey: Some(pubkey),
+            extra: json!({ "header_hash": header_hash_hex }),
         })
     }
 }
@@ -159,13 +149,13 @@ pub fn parse_mint_quote_request(payload: &[u8]) -> Result<ParsedMintQuoteRequest
     })
 }
 
-/// Convert a CDK mint quote response back into the SV2 wire format.
+/// Convert a CDK custom mint quote response back into the SV2 wire format.
 pub fn mint_quote_response_from_cdk(
     share_hash: ShareHash,
-    quote: MintQuote,
+    custom_response: MintQuoteCustomResponse<QuoteId>,
 ) -> Result<MintQuoteResponse<'static>, QuoteConversionError> {
-    let quote_id =
-        Str0255::try_from(quote.id.to_string()).map_err(QuoteConversionError::InvalidQuoteId)?;
+    let quote_id = Str0255::try_from(custom_response.quote.to_string())
+        .map_err(QuoteConversionError::InvalidQuoteId)?;
 
     let header_hash = share_hash.into_u256()?;
 
@@ -211,12 +201,10 @@ fn into_static_request(
     })
 }
 
-// TODO: Fix test implementations to work with current binary-sv2 codec API
-// The tests have integration issues that need to be resolved in a separate phase
-#[cfg(all(test, disabled_pending_fixes))]
+#[cfg(test)]
 mod tests {
     use super::*;
-    use binary_sv2::to_bytes;
+    use binary_sv2::{to_bytes, Deserialize};
     use mint_quote_sv2::CompressedPubKey;
     use secp256k1::{Secp256k1, SecretKey};
 
@@ -262,7 +250,7 @@ mod tests {
         let (locking_key, expected_pubkey) = sample_locking_key();
         let request = build_mint_quote_request(10, &hash, locking_key).unwrap();
 
-        let encoded = to_bytes(&request).expect("encode quote request");
+        let encoded = to_bytes(request.clone()).expect("encode quote request");
 
         let parsed = parse_mint_quote_request(&encoded).expect("parse payload");
         assert_eq!(parsed.share_hash.as_bytes(), &hash);
@@ -270,7 +258,8 @@ mod tests {
 
         let cdk_request = parsed.to_cdk_request().expect("convert to cdk");
         assert_eq!(cdk_request.amount, Amount::from(10_u64));
-        assert_eq!(cdk_request.unit, CurrencyUnit::Custom("HASH".to_string()));
-        assert_eq!(cdk_request.pubkey, expected_pubkey);
+        assert_eq!(cdk_request.unit, CurrencyUnit::Custom("hash".to_string()));
+        assert_eq!(cdk_request.pubkey, Some(expected_pubkey));
+        assert_eq!(cdk_request.extra["header_hash"], hex::encode(&hash));
     }
 }
