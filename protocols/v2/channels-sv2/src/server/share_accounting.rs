@@ -18,57 +18,27 @@
 //! Intended for use within mining server implementations that process SV2 share submissions and
 //! issue `SubmitShares.Success` messages. Not intended for use by mining clients.
 
-use bitcoin::hashes::{sha256d::Hash, Hash as _};
+use bitcoin::hashes::sha256d::Hash;
 use std::collections::HashSet;
 
 /// The outcome of share validation, from the perspective of a Mining Server.
 ///
-/// Each successful result includes an [`AcceptedShare`] which exposes the
-/// validated share hash. This allows downstream components to retrieve the
-/// header hash without relying on mutable accounting state.
+/// The [`ShareValidationResult::Valid`] variant carries the hash of the accepted share.
 ///
-/// The [`ShareValidationResult::ValidWithAcknowledgement`] variant additionally
-/// carries batch accounting metadata used to craft `SubmitShares.Success`
-/// messages.
-///
-/// The [`ShareValidationResult::BlockFound`] variant includes the optional
-/// `template_id` (present for non-custom jobs) and the serialized coinbase
-/// transaction for propagation upstream.
-#[derive(Debug, Clone, Copy)]
-pub struct AcceptedShare {
-    hash: Hash,
-}
-
-impl AcceptedShare {
-    /// Create a new `AcceptedShare` from the provided hash.
-    pub fn new(hash: Hash) -> Self {
-        Self { hash }
-    }
-
-    /// Returns the raw share hash (`sha256d`).
-    pub fn hash(&self) -> Hash {
-        self.hash
-    }
-
-    /// Returns the header hash bytes in big-endian order (suitable for difficulty checks).
-    pub fn header_hash_bytes(&self) -> [u8; 32] {
-        let mut bytes = self.hash.to_byte_array();
-        bytes.reverse();
-        bytes
-    }
-}
-
-/// The outcome of share validation, from the perspective of a Mining Server.
+/// The [`ShareValidationResult::BlockFound`] variant carries:
+/// - `share_hash`: The hash of the share that solved the block.
+/// - `template_id`: The template ID associated with the job (as `Option<u64>`), or `None` for custom jobs.
+/// - `coinbase`: The serialized coinbase transaction for the block (as `Vec<u8>`).
 #[derive(Debug)]
 pub enum ShareValidationResult {
     /// The share is valid and accepted.
-    Valid(AcceptedShare),
-    /// The share is valid and triggers a batch acknowledgment.
-    /// Contains the accepted share plus batch metadata.
-    ValidWithAcknowledgement(AcceptedShare, u32, u32, u64),
+    Valid(Hash),
     /// The share solves a block.
-    /// Contains the accepted share, template ID, and serialized coinbase transaction.
-    BlockFound(AcceptedShare, Option<u64>, Vec<u8>),
+    /// Contains:
+    /// - `share_hash`: The hash of the share that solved the block.
+    /// - `template_id`: The template ID associated with the job, or `None` for custom jobs.
+    /// - `coinbase`: The serialized coinbase transaction for the block.
+    BlockFound(Hash, Option<u64>, Vec<u8>),
 }
 
 /// The error variants that can occur during share validation.
@@ -90,6 +60,8 @@ pub enum ShareValidationError {
     InvalidCoinbase,
     /// No chain tip is set for the channel (required for share validation).
     NoChainTip,
+    /// The share extranonce size is different from the channel's rollable extranonce size.
+    BadExtranonceSize,
 }
 
 /// The state of share validation in the context of some specific channel (either Extended or
@@ -101,7 +73,9 @@ pub enum ShareValidationError {
 pub struct ShareAccounting {
     last_share_sequence_number: u32,
     shares_accepted: u32,
-    share_work_sum: u64,
+    share_work_sum: f64,
+    last_batch_accepted: u32,
+    last_batch_work_sum: f64,
     share_batch_size: usize,
     seen_shares: HashSet<Hash>,
     best_diff: f64,
@@ -115,7 +89,9 @@ impl ShareAccounting {
         Self {
             last_share_sequence_number: 0,
             shares_accepted: 0,
-            share_work_sum: 0,
+            share_work_sum: 0.0,
+            last_batch_accepted: 0,
+            last_batch_work_sum: 0.0,
             share_batch_size,
             seen_shares: HashSet::new(),
             best_diff: 0.0,
@@ -125,11 +101,12 @@ impl ShareAccounting {
     /// Updates internal accounting for a newly accepted share.
     ///
     /// - Increments total shares accepted and work sum.
+    /// - Increments last batch accepted and work sum if the share batch size is reached.
     /// - Updates last accepted sequence number.
     /// - Records the share hash to detect duplicates.
     pub fn update_share_accounting(
         &mut self,
-        share_work: u64,
+        share_work: f64,
         share_sequence_number: u32,
         share_hash: Hash,
     ) {
@@ -137,6 +114,13 @@ impl ShareAccounting {
         self.shares_accepted += 1;
         self.share_work_sum += share_work;
         self.seen_shares.insert(share_hash);
+
+        if self.should_acknowledge() {
+            let current_batch_accepted = self.shares_accepted - self.last_batch_accepted;
+            let current_batch_work_sum = self.share_work_sum - self.last_batch_work_sum;
+            self.last_batch_accepted = current_batch_accepted;
+            self.last_batch_work_sum = current_batch_work_sum;
+        }
     }
 
     /// Clears the set of seen share hashes.
@@ -152,13 +136,29 @@ impl ShareAccounting {
         self.last_share_sequence_number
     }
 
+    /// Returns the number of shares accepted in the last batch.
+    pub fn get_last_batch_accepted(&self) -> u32 {
+        self.last_batch_accepted
+    }
+
+    /// Returns the sum of work contributed by shares in the last batch.
+    pub fn get_last_batch_work_sum(&self) -> f64 {
+        self.last_batch_work_sum
+    }
+
     /// Returns the total number of shares accepted on this channel.
+    ///
+    /// Note: this is not what we use for `SubmitShares.Success` messages.
+    /// Instead, there we should use `get_last_batch_accepted()`.
     pub fn get_shares_accepted(&self) -> u32 {
         self.shares_accepted
     }
 
     /// Returns the sum of work contributed by all accepted shares.
-    pub fn get_share_work_sum(&self) -> u64 {
+    ///
+    /// Note: this is not what we use for `SubmitShares.Success` messages.
+    /// Instead, there we should use `get_last_batch_work_sum()`.
+    pub fn get_share_work_sum(&self) -> f64 {
         self.share_work_sum
     }
 

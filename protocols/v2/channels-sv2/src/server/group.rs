@@ -3,10 +3,9 @@
 //! This module defines the [`GroupChannel`] struct, which provides an abstraction of a Stratum V2
 //! (SV2) group channel as maintained by a mining server.
 //!
-//! A group channel represents a logical grouping of standard channels, allowing multiple mining
+//! A group channel represents a logical grouping of standard and extended channels, allowing multiple mining
 //! entities to share jobs. It manages job distribution and activation for all
-//! associated standard channels, but delegates share validation and accounting to those standard
-//! channels.
+//! associated channels, but delegates share validation and accounting to those channels.
 //!
 //! ## Responsibilities
 //!
@@ -14,7 +13,7 @@
 //! including:
 //!
 //! - **Group Channel ID**: Holds the unique `group_channel_id`.
-//! - **Standard Channel Management**: Tracks the set of associated standard channel IDs, allowing
+//! - **Channel Management**: Tracks the set of associated channel IDs, allowing
 //!   for dynamic addition and removal.
 //! - **Job Factory and Store**: Manages creation and storage of jobs (future and active) using the
 //!   job factory and job store abstractions.
@@ -26,10 +25,10 @@
 //!
 //! ## Notes
 //!
-//! - Share validation and accounting is handled at the standard channel level, not in the group
+//! - Share validation and accounting is handled at the channel level, not in the group
 //!   channel.
 //! - Past and stale jobs are not tracked in this abstraction.
-//! - Extranonce prefix management is deferred to standard channels; group jobs use an empty prefix.
+//! - Extranonce prefix management is deferred to channels; group jobs use an empty prefix.
 
 use crate::{
     chain_tip::ChainTip,
@@ -39,24 +38,22 @@ use crate::{
     },
 };
 use bitcoin::transaction::TxOut;
-use std::{
-    collections::{HashMap, HashSet},
-    marker::PhantomData,
-};
+use std::{collections::HashSet, marker::PhantomData};
 use template_distribution_sv2::{NewTemplate, SetNewPrevHash as SetNewPrevHashTdp};
 
 /// Abstraction of a Group Channel.
 ///
 /// It keeps track of:
 /// - the group channel's unique `group_channel_id`
-/// - the group channel's `standard_channels` (indexed by `channel_id`)
+/// - the group channel's `channels` (indexed by `channel_id`)
 /// - the group channel's job factory
 /// - the group channel's future jobs (indexed by `template_id`, to be activated upon receipt of a
 ///   `SetNewPrevHash` message)
 /// - the group channel's active job
 /// - the group channel's chain tip
+/// - the group channel's full extranonce size
 ///
-/// Since share validation happens at the Standard Channel level, we don't really keep track of:
+/// Since share validation happens at the Channel level, we don't really keep track of:
 /// - the group channel's past jobs
 /// - the group channel's stale jobs
 /// - the group channel's share validation state
@@ -66,10 +63,11 @@ where
     J: JobStore<ExtendedJob<'a>>,
 {
     group_channel_id: u32,
-    standard_channel_ids: HashSet<u32>,
+    channel_ids: HashSet<u32>,
     job_factory: JobFactory,
     job_store: J,
     chain_tip: Option<ChainTip>,
+    full_extranonce_size: usize,
     phantom: PhantomData<&'a ()>,
 }
 
@@ -85,8 +83,20 @@ where
     ///
     /// For non-JD jobs, `pool_tag_string` is added to the coinbase scriptSig in between `/`
     /// and `//` delimiters: `/pool_tag_string//`
-    pub fn new_for_pool(group_channel_id: u32, job_store: J, pool_tag_string: String) -> Self {
-        Self::new(group_channel_id, job_store, Some(pool_tag_string), None)
+    pub fn new_for_pool(
+        group_channel_id: u32,
+        job_store: J,
+        full_extranonce_size: usize,
+        pool_tag_string: String,
+    ) -> Result<Self, GroupChannelError> {
+        let group_channel = Self::new(
+            group_channel_id,
+            job_store,
+            full_extranonce_size,
+            Some(pool_tag_string),
+            None,
+        )?;
+        Ok(group_channel)
     }
 
     /// Constructor of `GroupChannel` for a Sv2 Job Declaration Client.
@@ -102,42 +112,71 @@ where
     pub fn new_for_job_declaration_client(
         group_channel_id: u32,
         job_store: J,
+        full_extranonce_size: usize,
         pool_tag_string: Option<String>,
         miner_tag_string: String,
-    ) -> Self {
-        Self::new(
+    ) -> Result<Self, GroupChannelError> {
+        let group_channel = Self::new(
             group_channel_id,
             job_store,
+            full_extranonce_size,
             pool_tag_string,
             Some(miner_tag_string),
-        )
+        )?;
+        Ok(group_channel)
     }
 
     // private constructor
     fn new(
         group_channel_id: u32,
         job_store: J,
+        full_extranonce_size: usize,
         pool_tag: Option<String>,
         miner_tag: Option<String>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, GroupChannelError> {
+        let script_sig_size = 5 + // BIP34
+            1 + // OP_PUSHBYTES
+            3 + // `/` delimiters
+            pool_tag.as_ref().map_or(0, |s| s.len()) +
+            miner_tag.as_ref().map_or(0, |s| s.len()) +
+            1 + // OP_PUSHBYTES
+            full_extranonce_size;
+
+        if script_sig_size > 100 {
+            return Err(GroupChannelError::ScriptSigSizeTooLarge);
+        }
+
+        Ok(Self {
             group_channel_id,
-            standard_channel_ids: HashSet::new(),
+            channel_ids: HashSet::new(),
             job_factory: JobFactory::new(true, pool_tag, miner_tag),
             job_store,
             chain_tip: None,
+            full_extranonce_size,
             phantom: PhantomData,
+        })
+    }
+
+    /// Adds a channel ID to this group channel. Also takes the `full_extranonce_size` of the channel to be added.
+    ///
+    /// Returns an error if the provided `full_extranonce_size` doesn't match the group channel's `full_extranonce_size`.
+    pub fn add_channel_id(
+        &mut self,
+        channel_id: u32,
+        full_extranonce_size: usize,
+    ) -> Result<(), GroupChannelError> {
+        self.channel_ids.insert(channel_id);
+
+        if self.full_extranonce_size != full_extranonce_size {
+            return Err(GroupChannelError::FullExtranonceSizeMismatch);
         }
+
+        Ok(())
     }
 
-    /// Adds a standard channel ID to this group channel.
-    pub fn add_standard_channel_id(&mut self, standard_channel_id: u32) {
-        self.standard_channel_ids.insert(standard_channel_id);
-    }
-
-    /// Removes a standard channel ID from this group channel.
-    pub fn remove_standard_channel_id(&mut self, standard_channel_id: u32) {
-        self.standard_channel_ids.remove(&standard_channel_id);
+    /// Removes a channel ID from this group channel.
+    pub fn remove_channel_id(&mut self, channel_id: u32) {
+        self.channel_ids.remove(&channel_id);
     }
 
     /// Returns the unique group channel ID for this group channel.
@@ -145,9 +184,23 @@ where
         self.group_channel_id
     }
 
-    /// Returns a reference to the set of standard channel IDs associated with this group channel.
-    pub fn get_standard_channel_ids(&self) -> &HashSet<u32> {
-        &self.standard_channel_ids
+    /// Set the full extranonce size for this group channel.
+    /// Also clears all channel IDs, as no channels can belong to the same group while having different `full_extranonce_size`s.
+    pub fn set_full_extranonce_size(&mut self, full_extranonce_size: usize) {
+        if self.full_extranonce_size != full_extranonce_size {
+            self.channel_ids.clear();
+        }
+
+        self.full_extranonce_size = full_extranonce_size;
+    }
+
+    pub fn get_full_extranonce_size(&self) -> usize {
+        self.full_extranonce_size
+    }
+
+    /// Returns a reference to the set of channel IDs associated with this group channel.
+    pub fn get_channel_ids(&self) -> &HashSet<u32> {
+        &self.channel_ids
     }
 
     /// Returns the current chain tip, if set.
@@ -161,19 +214,22 @@ where
         self.chain_tip = Some(chain_tip);
     }
 
-    /// Returns the currently active job, if any.
-    pub fn get_active_job(&self) -> Option<&ExtendedJob<'a>> {
+    /// Returns an owned copy of the currently active job, if any.
+    pub fn get_active_job(&self) -> Option<ExtendedJob<'a>> {
+        // cloning happens inside the job store
         self.job_store.get_active_job()
     }
 
-    /// Returns the mapping of future template IDs to job IDs.
-    pub fn get_future_template_to_job_id(&self) -> &HashMap<u64, u32> {
-        self.job_store.get_future_template_to_job_id()
+    /// Returns the job ID for a future job from a template ID, if any.
+    pub fn get_future_job_id_from_template_id(&self, template_id: u64) -> Option<u32> {
+        self.job_store
+            .get_future_job_id_from_template_id(template_id)
     }
 
-    /// Returns all future jobs for this group channel.
-    pub fn get_future_jobs(&self) -> &HashMap<u32, ExtendedJob<'a>> {
-        self.job_store.get_future_jobs()
+    /// Returns an owned copy of a future job from its job ID, if any.
+    pub fn get_future_job(&self, job_id: u32) -> Option<ExtendedJob<'a>> {
+        // cloning happens inside the job store
+        self.job_store.get_future_job(job_id)
     }
 
     /// Updates the group channel state with a new template.
@@ -194,10 +250,10 @@ where
                         self.group_channel_id,
                         None,
                         vec![], /* empty extranonce prefix, as it will be replaced by the
-                                 * standard channel's extranonce
-                                 * prefix */
+                                 * channel's extranonce prefix */
                         template.clone(),
                         coinbase_reward_outputs,
+                        self.full_extranonce_size,
                     )
                     .map_err(GroupChannelError::JobFactoryError)?;
                 self.job_store.add_future_job(template.template_id, new_job);
@@ -213,10 +269,10 @@ where
                                 self.group_channel_id,
                                 Some(chain_tip),
                                 vec![], /* empty extranonce prefix, as it will be replaced by
-                                         * the standard
-                                         * channel's extranonce prefix */
+                                         * the channel's extranonce prefix */
                                 template.clone(),
                                 coinbase_reward_outputs,
+                                self.full_extranonce_size,
                             )
                             .map_err(GroupChannelError::JobFactoryError)?;
                         self.job_store.add_active_job(new_job);
@@ -239,11 +295,11 @@ where
         &mut self,
         set_new_prev_hash: SetNewPrevHashTdp<'a>,
     ) -> Result<(), GroupChannelError> {
-        match self.job_store.get_future_jobs().is_empty() {
-            true => {
+        match self.job_store.has_future_jobs() {
+            false => {
                 return Err(GroupChannelError::TemplateIdNotFound);
             }
-            false => {
+            true => {
                 self.job_store.activate_future_job(
                     set_new_prev_hash.template_id,
                     set_new_prev_hash.header_timestamp,
@@ -262,12 +318,15 @@ where
 mod tests {
     use crate::{
         chain_tip::ChainTip,
-        server::{group::GroupChannel, jobs::job_store::DefaultJobStore},
+        server::{
+            group::GroupChannel,
+            jobs::job_store::{DefaultJobStore, JobStore},
+        },
     };
     use binary_sv2::Sv2Option;
     use bitcoin::{transaction::TxOut, Amount, ScriptBuf};
     use mining_sv2::NewExtendedMiningJob;
-    use std::convert::TryInto;
+    use std::{collections::HashSet, convert::TryInto};
     use template_distribution_sv2::{NewTemplate, SetNewPrevHash};
 
     const SATS_AVAILABLE_IN_TEMPLATE: u64 = 5000000000;
@@ -279,7 +338,15 @@ mod tests {
         // we use them as test vectors to assert correct behavior of job creation
         let group_channel_id = 1;
         let job_store = DefaultJobStore::new();
-        let mut group_channel = GroupChannel::new(group_channel_id, job_store, None, None);
+        let full_extranonce_size = 32;
+        let mut group_channel = GroupChannel::new(
+            group_channel_id,
+            job_store,
+            full_extranonce_size,
+            None,
+            None,
+        )
+        .unwrap();
 
         let template = NewTemplate {
             template_id: 1,
@@ -316,22 +383,17 @@ mod tests {
             script_pubkey: script,
         }];
 
-        assert!(group_channel.get_future_jobs().is_empty());
+        assert!(!group_channel.job_store.has_future_jobs());
         group_channel
             .on_new_template(template.clone(), coinbase_reward_outputs)
             .unwrap();
         assert!(group_channel.get_active_job().is_none());
 
         let future_job_id = group_channel
-            .get_future_template_to_job_id()
-            .get(&template.template_id)
+            .get_future_job_id_from_template_id(template.template_id)
             .unwrap();
 
-        let future_job = group_channel
-            .get_future_jobs()
-            .get(future_job_id)
-            .unwrap()
-            .clone();
+        let future_job = group_channel.get_future_job(future_job_id).unwrap();
 
         // we know that the provided template + coinbase_reward_outputs should generate this future
         // job
@@ -406,7 +468,15 @@ mod tests {
         let group_channel_id = 1;
 
         let job_store = DefaultJobStore::new();
-        let mut group_channel = GroupChannel::new(group_channel_id, job_store, None, None);
+        let full_extranonce_size = 32;
+        let mut group_channel = GroupChannel::new(
+            group_channel_id,
+            job_store,
+            full_extranonce_size,
+            None,
+            None,
+        )
+        .unwrap();
 
         let ntime = 1746839905;
         let prev_hash = [
@@ -496,7 +566,15 @@ mod tests {
         let group_channel_id = 1;
 
         let job_store = DefaultJobStore::new();
-        let mut group_channel = GroupChannel::new(group_channel_id, job_store, None, None);
+        let full_extranonce_size = 32;
+        let mut group_channel = GroupChannel::new(
+            group_channel_id,
+            job_store,
+            full_extranonce_size,
+            None,
+            None,
+        )
+        .unwrap();
 
         let template = NewTemplate {
             template_id: 1,
@@ -537,6 +615,67 @@ mod tests {
             .on_new_template(template.clone(), invalid_coinbase_reward_outputs)
             .is_err());
 
-        assert!(group_channel.get_future_jobs().is_empty());
+        assert!(!group_channel.job_store.has_future_jobs());
+    }
+
+    #[test]
+    fn test_add_channel_id() {
+        let group_channel_id = 1;
+        let job_store = DefaultJobStore::new();
+        let full_extranonce_size = 32;
+        let mut group_channel = GroupChannel::new(
+            group_channel_id,
+            job_store,
+            full_extranonce_size,
+            None,
+            None,
+        )
+        .unwrap();
+
+        // add a first channel with the correct full extranonce size
+        group_channel
+            .add_channel_id(1, full_extranonce_size)
+            .unwrap();
+        assert_eq!(group_channel.get_channel_ids(), &HashSet::from([1]));
+        assert_eq!(
+            group_channel.get_full_extranonce_size(),
+            full_extranonce_size
+        );
+
+        // add a second channel with the correct full extranonce size
+        group_channel
+            .add_channel_id(2, full_extranonce_size)
+            .unwrap();
+        assert_eq!(group_channel.get_channel_ids(), &HashSet::from([1, 2]));
+        assert_eq!(
+            group_channel.get_full_extranonce_size(),
+            full_extranonce_size
+        );
+
+        // add a third channel with a different full extranonce size
+        // this should return an error
+        let new_full_extranonce_size = 24;
+        assert!(group_channel
+            .add_channel_id(3, new_full_extranonce_size)
+            .is_err());
+
+        // set the full extranonce size to a new value
+        group_channel.set_full_extranonce_size(new_full_extranonce_size);
+        assert_eq!(
+            group_channel.get_full_extranonce_size(),
+            new_full_extranonce_size
+        );
+        // all channel IDs should be cleared
+        assert_eq!(group_channel.get_channel_ids(), &HashSet::new());
+
+        // add a fourth channel with the correct full extranonce size
+        group_channel
+            .add_channel_id(4, new_full_extranonce_size)
+            .unwrap();
+        assert_eq!(group_channel.get_channel_ids(), &HashSet::from([4]));
+
+        // add a fifth channel with the old full extranonce size
+        // this should return an error because the full extranonce size is now set to 24
+        assert!(group_channel.add_channel_id(5, 32).is_err());
     }
 }

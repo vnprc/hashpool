@@ -15,14 +15,23 @@
 //! - [`client`] module is `no_std` compatible. To enable it build the crate with `no_std` feature.
 #![cfg_attr(feature = "no_std", no_std)]
 
+/// Maximum length for extranonce prefixes in bytes
+const MAX_EXTRANONCE_PREFIX_LEN: usize = 32;
+
 #[cfg(not(feature = "no_std"))]
 pub mod server;
 
 #[cfg(not(feature = "no_std"))]
-pub mod template;
+pub mod outputs;
 
 pub mod bip141;
 pub mod chain_tip;
 pub mod client;
-mod merkle_root;
+pub mod merkle_root;
 pub mod target;
+
+#[cfg(not(feature = "no_std"))]
+pub mod vardiff;
+
+#[cfg(not(feature = "no_std"))]
+pub use vardiff::{classic::VardiffState, Vardiff};

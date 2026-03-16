@@ -3,42 +3,9 @@
 extern crate alloc;
 use alloc::string::String;
 use binary_sv2::U256;
-use bitcoin::{hash_types::BlockHash, hashes::Hash};
+use bitcoin::{hash_types::BlockHash, hashes::Hash, Target};
 use core::{cmp::max, fmt::Write, ops::Div};
-use mining_sv2::Target;
 use primitive_types::U256 as U256Primitive;
-/// Converts a `Target` to a `f64` difficulty.
-///
-/// Vardiff targets are inverted (reciprocal of Bitcoin difficulty targets).
-/// When a miner gets a vardiff target, a LARGER target value means LOWER difficulty.
-/// This function inverts that relationship to return proper difficulty units.
-///
-/// Bitcoin formula: difficulty = max_target / current_target
-/// Vardiff formula: target = 2^256 / desired_difficulty
-/// Therefore: difficulty = 2^256 / vardiff_target (which is the inverse)
-pub fn target_to_difficulty(target: Target) -> f64 {
-    // Maximum value for a 256-bit number
-    const TWO_POW_256: f64 = 1.157920892373162e77;  // 2^256
-
-    // Convert input target to U256Primitive
-    let target_u256: U256<'static> = target.into();
-    let mut target_bytes = [0u8; 32];
-    target_bytes.copy_from_slice(target_u256.inner_as_ref());
-    let target = U256Primitive::from_little_endian(&target_bytes);
-
-    // Convert to f64
-    // Extract high and low 128-bit parts
-    let target_high = (target >> 128).low_u128() as f64;
-    let target_low = target.low_u128() as f64;
-
-    // Combine high and low parts with appropriate scaling
-    let target_f64 = target_high * (2.0f64.powi(128)) + target_low;
-
-    // Difficulty = 2^256 / target
-    // Vardiff formula: target = 2^256 / desired_difficulty
-    // Therefore: difficulty = 2^256 / target
-    TWO_POW_256 / target_f64
-}
 
 /// Converts a `u256` to a [`BlockHash`] type.
 pub fn u256_to_block_hash(v: U256<'static>) -> BlockHash {
@@ -110,7 +77,7 @@ pub fn bytes_to_hex(bytes: &[u8]) -> String {
 pub fn hash_rate_to_target(
     hashrate: f64,
     share_per_min: f64,
-) -> Result<U256<'static>, HashRateToTargetError> {
+) -> Result<Target, HashRateToTargetError> {
     // checks that we are not dividing by zero
     if share_per_min == 0.0 {
         return Err(HashRateToTargetError::DivisionByZero);
@@ -147,9 +114,9 @@ pub fn hash_rate_to_target(
     h_times_s_array[16..].copy_from_slice(&h_times_s.to_be_bytes());
     let numerator = two_to_256_minus_one - U256Primitive::from_big_endian(h_times_s_array.as_ref());
 
-    let mut target = numerator.div(denominator).to_big_endian();
-    target.reverse();
-    Ok(U256::<'static>::from(target))
+    let mut target_bytes = numerator.div(denominator).to_big_endian();
+    target_bytes.reverse();
+    Ok(Target::from_le_bytes(target_bytes))
 }
 
 /// Converts a `u128` to a [`U256`].
@@ -162,7 +129,74 @@ pub fn from_u128_to_u256(input: u128) -> U256Primitive {
     U256Primitive::from_big_endian(be_bytes.as_ref())
 }
 
+#[derive(Debug)]
 pub enum HashRateToTargetError {
     DivisionByZero,
     NegativeInput,
+}
+
+#[derive(Debug)]
+pub enum InputError {
+    NegativeInput,
+    DivisionByZero,
+    ArithmeticOverflow,
+}
+
+/// Calculates the hashrate (H/s) required to produce a specific number of shares per minute for a
+/// given mining target (big endian).
+///
+/// It is the inverse of [`hash_rate_to_target`], enabling backward calculations to estimate a
+/// mining device's performance from its submitted shares.
+///
+/// Typically used to calculate the mining device's effective hashrate during runtime based on the
+/// submitted shares and the assigned target, also helps detect changes in miner performance and
+/// recalibrate the target (using [`hash_rate_to_target`]) if necessary.
+///
+/// ## Formula
+/// ```text
+/// h = (2^256 - t) / (s * (t + 1))
+/// ```
+///
+/// Where:
+/// - `h`: Mining device hashrate (H/s).
+/// - `t`: Target threshold.
+/// - `s`: Shares per minute.
+pub fn hash_rate_from_target(target: U256<'static>, share_per_min: f64) -> Result<f64, InputError> {
+    // checks that we are not dividing by zero
+    if share_per_min == 0.0 {
+        return Err(InputError::DivisionByZero);
+    }
+    if share_per_min.is_sign_negative() {
+        return Err(InputError::NegativeInput);
+    }
+    let mut target_arr: [u8; 32] = [0; 32];
+    let slice: &mut [u8] = &mut target_arr;
+    slice.copy_from_slice(target.inner_as_ref());
+    target_arr.reverse();
+    let target = U256Primitive::from_big_endian(target_arr.as_ref());
+    // we calculate the numerator 2^256-t
+    // note that [255_u8,;32] actually is 2^256 -1, but 2^256 -t = (2^256-1) - (t-1)
+    let max_target = [255_u8; 32];
+    let max_target = U256Primitive::from_big_endian(max_target.as_ref());
+    let numerator = max_target - (target - U256Primitive::one());
+    // now we calculate the denominator s(t+1)
+    // *100 here to move the fractional bit up so we can make this an int later
+    let shares_occurrency_frequence = 60_f64 / (share_per_min) * 100.0;
+    // note that t+1 cannot be zero because t unsigned. Therefore the denominator is zero if and
+    // only if s is zero.
+    let shares_occurrency_frequence = shares_occurrency_frequence as u128;
+    if shares_occurrency_frequence == 0_u128 {
+        return Err(InputError::DivisionByZero);
+    }
+    let shares_occurrency_frequence = from_u128_to_u256(shares_occurrency_frequence);
+    let target_plus_one = U256Primitive::from_big_endian(target_arr.as_ref())
+        .checked_add(U256Primitive::one())
+        .ok_or(InputError::ArithmeticOverflow)?;
+    let denominator = target_plus_one
+        .checked_mul(shares_occurrency_frequence)
+        .and_then(|e| e.checked_div(U256Primitive::from(100)))
+        .ok_or(InputError::ArithmeticOverflow)?;
+    let result = numerator.div(denominator).low_u128();
+    // we multiply back by 100 so that it cancels with the same factor at the denominator
+    Ok(result as f64)
 }

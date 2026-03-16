@@ -11,14 +11,18 @@ pub enum ExtendedChannelError {
     TemplateIdNotFound,
     JobIdNotFound,
     RequestedMinExtranonceSizeTooLarge,
-    NewExtranoncePrefixTooLarge,
+    ExtranoncePrefixTooLarge,
+    ScriptSigSizeTooLarge,
+    InvalidJobOrigin,
 }
 
 #[derive(Debug)]
 pub enum GroupChannelError {
+    FullExtranonceSizeMismatch,
     ChainTipNotSet,
     TemplateIdNotFound,
     JobFactoryError(JobFactoryError),
+    ScriptSigSizeTooLarge,
 }
 
 #[derive(Debug)]
@@ -26,8 +30,9 @@ pub enum StandardChannelError {
     TemplateIdNotFound,
     InvalidNominalHashrate,
     RequestedMaxTargetOutOfRange,
-    NewExtranoncePrefixTooLarge,
+    ExtranoncePrefixTooLarge,
     JobFactoryError(JobFactoryError),
     ChainTipNotSet,
     FailedToConvertToStandardJob,
+    ScriptSigSizeTooLarge,
 }

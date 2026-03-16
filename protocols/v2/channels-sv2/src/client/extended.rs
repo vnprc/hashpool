@@ -13,7 +13,8 @@ use crate::{
         share_accounting::{ShareAccounting, ShareValidationError, ShareValidationResult},
     },
     merkle_root::merkle_root_from_path,
-    target::{bytes_to_hex, target_to_difficulty, u256_to_block_hash},
+    target::{bytes_to_hex, u256_to_block_hash},
+    MAX_EXTRANONCE_PREFIX_LEN,
 };
 use alloc::{format, string::String, vec, vec::Vec};
 use binary_sv2::{self, Sv2Option};
@@ -23,21 +24,22 @@ use bitcoin::{
     consensus::{serialize, Decodable},
     hashes::sha256d::Hash,
     transaction::Version,
-    CompactTarget, OutPoint, Sequence, Target as BitcoinTarget, Transaction, TxIn, TxOut, Witness,
+    CompactTarget, OutPoint, Sequence, Target, Transaction, TxIn, TxOut, Witness,
 };
 use mining_sv2::{
     NewExtendedMiningJob, SetCustomMiningJob, SetCustomMiningJobSuccess,
-    SetNewPrevHash as SetNewPrevHashMp, SubmitSharesExtended, Target, MAX_EXTRANONCE_LEN,
+    SetNewPrevHash as SetNewPrevHashMp, SubmitSharesExtended,
 };
 use tracing::debug;
 
-/// A type alias representing an extended mining job tied to a specific `extranonce_prefix`.
+/// A type alias representing an extended mining job tied to a specific `extranonce_prefix` and target.
 ///
 /// Extended jobs allow Merkle root rolling, providing broader control over the search space.
 /// Each job includes:
 /// - A [`NewExtendedMiningJob`] message
 /// - The `extranonce_prefix` in use when the job was created
-pub type ExtendedJob<'a> = (NewExtendedMiningJob<'a>, Vec<u8>);
+/// - The target of the job
+pub type ExtendedJob<'a> = (NewExtendedMiningJob<'a>, Vec<u8>, Target);
 
 /// Mining Client abstraction for the state management of an Sv2 Extended Channel.
 ///
@@ -63,7 +65,7 @@ pub struct ExtendedChannel<'a> {
     user_identity: String,
     extranonce_prefix: Vec<u8>,
     rollable_extranonce_size: u16,
-    target: Target, // todo: try to use Target from rust-bitcoin
+    target: Target,
     nominal_hashrate: f32,
     version_rolling: bool,
     // future jobs are indexed with job_id (u32)
@@ -141,26 +143,23 @@ impl<'a> ExtendedChannel<'a> {
     /// Jobs created before this call retain the previous extranonce prefix,
     /// and share validation is performed accordingly.
     ///
-    /// Returns an error if the new prefix violates the minimum rollable extranonce size established
-    /// at channel creation.
+    /// Returns an error if the new extranonce prefix is too large.
     pub fn set_extranonce_prefix(
         &mut self,
         new_extranonce_prefix: Vec<u8>,
     ) -> Result<(), ExtendedChannelError> {
-        let new_rollable_extranonce_size =
-            MAX_EXTRANONCE_LEN as u16 - new_extranonce_prefix.len() as u16;
-
-        // we return an error if the new extranonce_prefix would violate
-        // min_rollable_extranonce_size that was already established with the client when the
-        // channel was created
-        if new_rollable_extranonce_size < self.rollable_extranonce_size {
+        if new_extranonce_prefix.len() > MAX_EXTRANONCE_PREFIX_LEN {
             return Err(ExtendedChannelError::NewExtranoncePrefixTooLarge);
         }
 
         self.extranonce_prefix = new_extranonce_prefix;
-        self.rollable_extranonce_size = new_rollable_extranonce_size;
 
         Ok(())
+    }
+
+    /// Returns the full extranonce size in bytes.
+    pub fn get_full_extranonce_size(&self) -> usize {
+        self.extranonce_prefix.len() + self.rollable_extranonce_size as usize
     }
 
     /// Returns the available size, in bytes, of the rollable portion of the extranonce.
@@ -210,6 +209,8 @@ impl<'a> ExtendedChannel<'a> {
 
     /// Handles a [`NewExtendedMiningJob`] message received from upstream.
     ///
+    /// The message could be either directed at this channel, or at a group channel it belongs to.
+    ///
     /// - If [`NewExtendedMiningJob::min_ntime`] is empty, the job is considered a future job and
     ///   added to the future jobs list (see [`get_future_jobs`](ExtendedChannel::get_future_jobs)).
     /// - Otherwise, the job is activated and previous active job moves to the past jobs list.
@@ -242,12 +243,20 @@ impl<'a> ExtendedChannel<'a> {
                 if let Some(active_job) = self.active_job.clone() {
                     self.past_jobs.insert(active_job.0.job_id, active_job);
                 }
-                self.active_job = Some((new_extended_mining_job, self.extranonce_prefix.clone()));
+                self.active_job = Some((
+                    new_extended_mining_job,
+                    self.extranonce_prefix.clone(),
+                    self.target,
+                ));
             }
             None => {
                 self.future_jobs.insert(
                     new_extended_mining_job.job_id,
-                    (new_extended_mining_job, self.extranonce_prefix.clone()),
+                    (
+                        new_extended_mining_job,
+                        self.extranonce_prefix.clone(),
+                        self.target,
+                    ),
                 );
             }
         }
@@ -296,7 +305,9 @@ impl<'a> ExtendedChannel<'a> {
 
         let mut script_sig = vec![];
         script_sig.extend_from_slice(set_custom_mining_job.coinbase_prefix.inner_as_ref());
-        script_sig.extend_from_slice(&[0; MAX_EXTRANONCE_LEN]);
+        let full_extranonce_size = self.get_full_extranonce_size();
+        let full_extranonce = vec![0; full_extranonce_size];
+        script_sig.extend_from_slice(&full_extranonce);
 
         let tx_in = TxIn {
             previous_output: OutPoint::null(),
@@ -326,7 +337,7 @@ impl<'a> ExtendedChannel<'a> {
 
         let coinbase_tx_prefix = serialized_coinbase[0..prefix_index].to_vec();
 
-        let suffix_index = prefix_index + MAX_EXTRANONCE_LEN;
+        let suffix_index = prefix_index + full_extranonce_size;
 
         let coinbase_tx_suffix = serialized_coinbase[suffix_index..].to_vec();
 
@@ -354,7 +365,11 @@ impl<'a> ExtendedChannel<'a> {
         if let Some(active_job) = self.active_job.clone() {
             self.past_jobs.insert(active_job.0.job_id, active_job);
         }
-        self.active_job = Some((new_extended_mining_job, self.extranonce_prefix.clone()));
+        self.active_job = Some((
+            new_extended_mining_job,
+            self.extranonce_prefix.clone(),
+            self.target,
+        ));
 
         Ok(())
     }
@@ -386,6 +401,8 @@ impl<'a> ExtendedChannel<'a> {
     }
 
     /// Handles a [`SetNewPrevHash`](SetNewPrevHashMp) message from upstream.
+    ///
+    /// The message could be either directed at this channel, or at a group channel it belongs to.
     ///
     /// - If the referenced `job_id` is not a future job, returns an error.
     /// - If it is a future job, activates it as the current job.
@@ -459,6 +476,11 @@ impl<'a> ExtendedChannel<'a> {
             return Err(ShareValidationError::InvalidJobId);
         };
 
+        let extranonce_size = share.extranonce.inner_as_ref().len();
+        if extranonce_size != self.rollable_extranonce_size as usize {
+            return Err(ShareValidationError::BadExtranonceSize);
+        }
+
         let mut full_extranonce = vec![];
         full_extranonce.extend_from_slice(job.1.as_slice());
         full_extranonce.extend_from_slice(share.extranonce.inner_as_ref());
@@ -507,54 +529,54 @@ impl<'a> ExtendedChannel<'a> {
         };
 
         // convert the header hash to a target type for easy comparison
-        let hash = header.block_hash();
-        let raw_hash: [u8; 32] = *hash.to_raw_hash().as_ref();
-        let hash_as_target: Target = raw_hash.into();
-        let hash_as_diff = target_to_difficulty(hash_as_target.clone());
+        let share_hash = header.block_hash();
+        let raw_share_hash: [u8; 32] = *share_hash.to_raw_hash().as_ref();
+        let share_hash_target = Target::from_le_bytes(raw_share_hash);
+        let share_hash_as_diff = share_hash_target.difficulty_float();
 
-        let network_target = BitcoinTarget::from_compact(nbits);
+        let network_target = Target::from_compact(nbits);
+        let job_target = job.2;
 
         // print hash_as_target and self.target as human readable hex
-        let hash_as_u256: binary_sv2::U256 = hash_as_target.clone().into();
-        let mut hash_bytes = hash_as_u256.to_vec();
-        hash_bytes.reverse(); // Convert to big-endian for display
-        let target_u256: binary_sv2::U256 = self.target.clone().into();
-        let mut target_bytes = target_u256.to_vec();
-        target_bytes.reverse(); // Convert to big-endian for display
+        let share_hash_target_bytes = share_hash_target.to_be_bytes();
+        let job_target_bytes = job_target.to_be_bytes();
 
         debug!(
-            "share validation \nshare:\t\t{}\nchannel target:\t{}\nnetwork target:\t{}",
-            bytes_to_hex(&hash_bytes),
-            bytes_to_hex(&target_bytes),
+            "share validation \nshare:\t\t{}\njob target:\t{}\nnetwork target:\t{}",
+            bytes_to_hex(&share_hash_target_bytes),
+            bytes_to_hex(&job_target_bytes),
             format!("{:x}", network_target)
         );
 
         // check if a block was found
-        if network_target.is_met_by(hash) {
+        if network_target.is_met_by(share_hash) {
             self.share_accounting.update_share_accounting(
-                target_to_difficulty(self.target.clone()) as u64,
+                job_target.difficulty_float(),
                 share.sequence_number,
-                hash.to_raw_hash(),
+                share_hash.to_raw_hash(),
             );
-            return Ok(ShareValidationResult::BlockFound);
+            return Ok(ShareValidationResult::BlockFound(share_hash.to_raw_hash()));
         }
 
-        // check if the share hash meets the channel target
-        if hash_as_target < self.target {
-            if self.share_accounting.is_share_seen(hash.to_raw_hash()) {
+        // check if the share hash meets the job target
+        if share_hash_target < job_target {
+            if self
+                .share_accounting
+                .is_share_seen(share_hash.to_raw_hash())
+            {
                 return Err(ShareValidationError::DuplicateShare);
             }
 
             self.share_accounting.update_share_accounting(
-                target_to_difficulty(self.target.clone()) as u64,
+                job_target.difficulty_float(),
                 share.sequence_number,
-                hash.to_raw_hash(),
+                share_hash.to_raw_hash(),
             );
 
             // update the best diff
-            self.share_accounting.update_best_diff(hash_as_diff);
+            self.share_accounting.update_best_diff(share_hash_as_diff);
 
-            return Ok(ShareValidationResult::Valid);
+            return Ok(ShareValidationResult::Valid(share_hash.to_raw_hash()));
         }
 
         Err(ShareValidationError::DoesNotMeetTarget)
@@ -568,9 +590,9 @@ mod tests {
         share_accounting::{ShareValidationError, ShareValidationResult},
     };
     use binary_sv2::Sv2Option;
+    use bitcoin::Target;
     use mining_sv2::{
         NewExtendedMiningJob, SetNewPrevHash as SetNewPrevHashMp, SubmitSharesExtended,
-        MAX_EXTRANONCE_LEN,
     };
     use std::convert::TryInto;
 
@@ -583,10 +605,10 @@ mod tests {
             0, 0, 0, 0, 0, 0, 1,
         ]
         .to_vec();
-        let target = [0xff; 32].into();
+        let target = Target::from_le_bytes([0xff; 32]);
         let nominal_hashrate = 1.0;
         let version_rolling = true;
-        let rollable_extranonce_size = (MAX_EXTRANONCE_LEN - extranonce_prefix.len()) as u16;
+        let rollable_extranonce_size = 4u16;
 
         let mut channel = ExtendedChannel::new(
             channel_id,
@@ -652,7 +674,11 @@ mod tests {
 
         assert_eq!(
             channel.get_active_job(),
-            Some(&(previously_future_job, extranonce_prefix))
+            Some(&(
+                previously_future_job,
+                extranonce_prefix,
+                channel.get_target().clone()
+            ))
         );
     }
 
@@ -665,10 +691,10 @@ mod tests {
             0, 0, 0, 0, 0, 0, 1,
         ]
         .to_vec();
-        let target = [0xff; 32].into();
+        let target = Target::from_le_bytes([0xff; 32]);
         let nominal_hashrate = 1.0;
         let version_rolling = true;
-        let rollable_extranonce_size = (MAX_EXTRANONCE_LEN - extranonce_prefix.len()) as u16;
+        let rollable_extranonce_size = 4u16;
 
         let mut channel = ExtendedChannel::new(
             channel_id,
@@ -712,7 +738,11 @@ mod tests {
         assert_eq!(channel.get_future_jobs().len(), 0);
         assert_eq!(
             channel.get_active_job(),
-            Some(&(active_job.clone(), extranonce_prefix.clone()))
+            Some(&(
+                active_job.clone(),
+                extranonce_prefix.clone(),
+                channel.get_target().clone()
+            ))
         );
         assert_eq!(channel.get_past_jobs().len(), 0);
 
@@ -725,7 +755,11 @@ mod tests {
         assert_eq!(channel.get_future_jobs().len(), 0);
         assert_eq!(
             channel.get_active_job(),
-            Some(&(new_active_job, extranonce_prefix))
+            Some(&(
+                new_active_job,
+                extranonce_prefix,
+                channel.get_target().clone()
+            ))
         );
         assert_eq!(channel.get_past_jobs().len(), 1);
     }
@@ -735,14 +769,13 @@ mod tests {
         let channel_id = 1;
         let user_identity = "user_identity".to_string();
         let extranonce_prefix = [
-            83, 116, 114, 97, 116, 117, 109, 32, 86, 50, 32, 83, 82, 73, 32, 80, 111, 111, 108, 0,
-            0, 0, 0, 0, 0, 0, 1,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
         ]
         .to_vec();
-        let target = [0xff; 32].into();
+        let target = Target::from_le_bytes([0xff; 32]);
         let nominal_hashrate = 1.0;
         let version_rolling = true;
-        let rollable_extranonce_size = (MAX_EXTRANONCE_LEN - extranonce_prefix.len()) as u16;
+        let rollable_extranonce_size = 8u16;
 
         let mut channel = ExtendedChannel::new(
             channel_id,
@@ -800,7 +833,7 @@ mod tests {
 
         channel.on_set_new_prev_hash(set_new_prev_hash).unwrap();
 
-        // this share has hash 38b6a7d5b2cae08bc6c8b4b4fc13ff129ae0a07309240108f46ddf48c498b120
+        // this share has hash 155d3f07a6fb97038dab34f71813b3f32e883c2d4ab4c75f606e1139d50eaebf
         // which satisfies network target
         // 7fffff0000000000000000000000000000000000000000000000000000000000
         let share_valid_block = SubmitSharesExtended {
@@ -810,12 +843,12 @@ mod tests {
             nonce: 741057,
             ntime: 1745596971,
             version: 536870912,
-            extranonce: vec![1, 0, 0, 0, 0].try_into().unwrap(),
+            extranonce: vec![1, 0, 0, 0, 0, 0, 0, 0].try_into().unwrap(),
         };
 
         let res = channel.validate_share(share_valid_block);
 
-        assert!(matches!(res, Ok(ShareValidationResult::BlockFound)));
+        assert!(matches!(res, Ok(ShareValidationResult::BlockFound(_))));
     }
 
     #[test]
@@ -823,20 +856,18 @@ mod tests {
         let channel_id = 1;
         let user_identity = "user_identity".to_string();
         let extranonce_prefix = [
-            83, 116, 114, 97, 116, 117, 109, 32, 86, 50, 32, 83, 82, 73, 32, 80, 111, 111, 108, 0,
-            0, 0, 0, 0, 0, 0, 1,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
         ]
         .to_vec();
         // channel target: 0000ffff00000000000000000000000000000000000000000000000000000000
-        let target = [
+        let target = Target::from_be_bytes([
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0xff, 0xff, 0x00, 0x00,
-        ]
-        .into();
+        ]);
         let nominal_hashrate = 1.0;
         let version_rolling = true;
-        let rollable_extranonce_size = (MAX_EXTRANONCE_LEN - extranonce_prefix.len()) as u16;
+        let rollable_extranonce_size = 8u16;
 
         let mut channel = ExtendedChannel::new(
             channel_id,
@@ -894,7 +925,7 @@ mod tests {
 
         channel.on_set_new_prev_hash(set_new_prev_hash).unwrap();
 
-        // this share has hash bc1f25bceec05b1cc60fd0f0a3ede685efbb00d2a7d39c879d2c187b2af3538d
+        // this share has hash 84d3931c81d0e5af5440bf3ff94d84ff19a4dc0113e65cc11703330a7d599f61
         // which does not meet the channel target
         // 0000ffff00000000000000000000000000000000000000000000000000000000
         let share_low_diff = SubmitSharesExtended {
@@ -904,7 +935,7 @@ mod tests {
             nonce: 741057,
             ntime: 1745596971,
             version: 536870912,
-            extranonce: vec![1, 0, 0, 0, 0].try_into().unwrap(),
+            extranonce: vec![1, 0, 0, 0, 0, 0, 0, 0].try_into().unwrap(),
         };
 
         let res = channel.validate_share(share_low_diff);
@@ -920,20 +951,18 @@ mod tests {
         let channel_id = 1;
         let user_identity = "user_identity".to_string();
         let extranonce_prefix = [
-            83, 116, 114, 97, 116, 117, 109, 32, 86, 50, 32, 83, 82, 73, 32, 80, 111, 111, 108, 0,
-            0, 0, 0, 0, 0, 0, 1,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
         ]
         .to_vec();
         // channel target: 0000ffff00000000000000000000000000000000000000000000000000000000
-        let target = [
+        let target = Target::from_le_bytes([
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0xff, 0xff, 0x00, 0x00,
-        ]
-        .into();
+        ]);
         let nominal_hashrate = 1.0;
         let version_rolling = true;
-        let rollable_extranonce_size = (MAX_EXTRANONCE_LEN - extranonce_prefix.len()) as u16;
+        let rollable_extranonce_size = 8u16;
 
         let mut channel = ExtendedChannel::new(
             channel_id,
@@ -991,22 +1020,22 @@ mod tests {
 
         channel.on_set_new_prev_hash(set_new_prev_hash).unwrap();
 
-        // this share has hash 0000d769e5ab58b7309b7507834cb0bc60749315c93015e8bba97b9752ced5b7
+        // this share has hash 00005e460def43b0153246e6300ce38d9da1c9abd8ef2157a88b2e9a12a8524a
         // which does meet the channel target
         // 0000ffff00000000000000000000000000000000000000000000000000000000
         let valid_share = SubmitSharesExtended {
             channel_id,
             sequence_number: 0,
             job_id: 1,
-            nonce: 2426,
+            nonce: 102103,
             ntime: 1745596971,
             version: 536870912,
-            extranonce: vec![1, 0, 0, 0, 0].try_into().unwrap(),
+            extranonce: vec![1, 0, 0, 0, 0, 0, 0, 0].try_into().unwrap(),
         };
 
         let res = channel.validate_share(valid_share);
 
-        assert!(matches!(res, Ok(ShareValidationResult::Valid)));
+        assert!(matches!(res, Ok(ShareValidationResult::Valid(_))));
 
         // try to cheat by re-submitting the same share
         // with a different sequence number
@@ -1014,10 +1043,10 @@ mod tests {
             channel_id,
             sequence_number: 1,
             job_id: 1,
-            nonce: 2426,
+            nonce: 102103,
             ntime: 1745596971,
             version: 536870912,
-            extranonce: vec![1, 0, 0, 0, 0].try_into().unwrap(),
+            extranonce: vec![1, 0, 0, 0, 0, 0, 0, 0].try_into().unwrap(),
         };
 
         let res = channel.validate_share(repeated_share);

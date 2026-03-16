@@ -25,6 +25,9 @@ members = [
     # "tests-integration",  # TODO: Deferred - requires jd-client and mining-proxy ports
 ]
 
+[patch.crates-io]
+channels_sv2 = { path = "../protocols/v2/channels-sv2" }
+
 [profile.dev]
 # Required by super_safe_lock
 opt-level = 1
