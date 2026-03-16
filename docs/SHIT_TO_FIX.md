@@ -254,6 +254,46 @@ Follow-up: After the hub owns pending state, the poller can just iterate `hub.pe
 
 ---
 
+## Dependency Cleanup
+
+### Replace Rust SV1 CPU Miner with sv2-apps minerd Wrapper
+
+**Status:** Working but carrying unnecessary custom code
+**Priority:** Medium - Reduces maintenance burden
+
+**Current State:**
+Hashpool maintains `roles/test-utils/mining-device-sv1`, a custom Rust SV1 CPU miner originally inherited from the old SRI `roles/` tree before SRI dropped it. The upstream `sv2-apps` repo instead uses a wrapper around pooler's C `minerd` binary (`integration-tests/lib/sv1_minerd`) for SV1 testing — the classic C miner from the early Bitcoin days.
+
+**What Needs To Happen:**
+1. Adopt the sv2-apps `sv1_minerd` wrapper pattern (downloads pooler/cpuminer binary at test time)
+2. Remove `roles/test-utils/mining-device-sv1` from the hashpool repo
+3. Update `devenv.nix` and any integration test harness that spawns the Rust SV1 miner
+4. Verify translator integration tests still pass with minerd
+
+**Benefit:** Eliminates custom Rust SV1 miner code we have to maintain; lets sv2-apps own the SV1 test tooling.
+
+---
+
+### Unvendor channels-sv2 After Upstreaming the Clamp Fix
+
+**Status:** Blocked on upstream PR merge
+**Priority:** Medium - Reduces vendored code surface area
+
+**Current State:**
+`protocols/v2/channels-sv2` is vendored (v1.0.2, modified) because of a bug fix applied in commit `b79b85da`: when vardiff computes a target easier than the client's declared `max_target`, the channel was returning `RequestedMaxTargetOutOfRange` instead of clamping to `max_target`. This caused a silent vardiff failure and the mass-disconnection loop. The fix clamps in four places: `ExtendedChannel::new()`, `ExtendedChannel::update_channel()`, `StandardChannel::new()`, `StandardChannel::update_channel()`.
+
+An upstream PR plan with the exact diff is documented in `docs/upstream-sri-clamp-fix-plan.md`.
+
+**What Needs To Happen:**
+1. Submit the PR to `stratum-mining/sv2-apps` per the plan in `docs/upstream-sri-clamp-fix-plan.md`
+2. Once merged and released, replace the vendored `channels-sv2` path dep with the crates.io version
+3. Remove `protocols/v2/channels-sv2` from the repo
+4. Update `roles/Cargo.toml` to use the published crate
+
+**Benefit:** Removes the largest vendored crate from the repo; upstream owns the fix going forward.
+
+---
+
 ## Low Priority
 
 ### Systemd Service Environment Configuration Scattered
