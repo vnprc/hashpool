@@ -6,14 +6,12 @@ This guide is the canonical deployment path for Hashpool. It assumes a Debian 12
 
 ## Overview
 
-Hashpool ships two deployment workflows for Debian 12:
+Hashpool ships two deployment scripts for Debian 12:
 
 **Note:** Each deployment now requires a local Prometheus or VictoriaMetrics instance scraping `/metrics` from the pool or translator. Web dashboards query that metrics store directly.
 
-1. **Build-in-place (recommended)** — build on the VPS and install from there.
-2. **Ship-only** — build locally, then rsync binaries/configs to the VPS.
-
-The primary entrypoint is `scripts/deploy.sh`, which can run either flow depending on flags.
+1. **`scripts/build.sh`** — ship source to the VPS and build there (recommended).
+2. **`scripts/ship.sh`** — build locally, then rsync prebuilt artifacts to the VPS.
 
 ---
 
@@ -24,65 +22,76 @@ The primary entrypoint is `scripts/deploy.sh`, which can run either flow dependi
 Build and install directly on the VPS:
 
 ```bash
-./scripts/deploy.sh --build-in-place
+./scripts/build.sh
 ```
 
 Why this is the canonical path:
 - It guarantees a Debian 12 ABI build.
 - Avoids shipping binaries compiled against a non-Debian ABI.
 
-### 2) Ship-only (local build + deploy)
+### 2) Ship prebuilt artifacts (local build + deploy)
 
 Build locally and deploy to the VPS:
 
 ```bash
-./scripts/deploy.sh
+./scripts/ship.sh all
 ```
 
-This uses local debug binaries from `roles/target/debug/*` and then stages/configures services on the VPS. It performs an ABI safety check to reject Nix-built binaries.
+This builds local debug binaries from `roles/target/debug/*` and stages/configures services on the VPS. It performs an ABI safety check to reject Nix-built binaries.
 
 ---
 
-## deploy.sh Reference (all flags)
+## ship.sh Reference
 
-`./scripts/deploy.sh` accepts the following flags:
+`./scripts/ship.sh <subcommand> [flags]`
 
-- `--build-in-place`
-  - Build and deploy on the VPS using `scripts/deploy-build-in-place.sh`.
-  - **Cannot be combined** with `--skip-build`, `--build-only`, or `--config-only`.
-- `--skip-build`
-  - Skip local build and deploy existing binaries.
-  - **Cannot be combined** with `--build-only` or `--clean`.
-- `--build-only`
-  - Build local binaries and exit without deploying.
-  - **Cannot be combined** with `--skip-build`, `--config-only`, or `--dry-run`.
-- `--config-only`
-  - Deploy configs/systemd/nginx only; skip builds/binaries.
-  - Still **restarts services** and can take ~15–30s.
-  - **Cannot be combined** with `--build-only`, `--clean`, or `--build-in-place`.
-- `--dry-run`
-  - Run preflight checks only; no deploy.
-  - **Cannot be combined** with `--build-only` or `--clean`.
-- `--clean`
-  - Clean build artifacts before building.
-  - **Cannot be combined** with `--skip-build`, `--config-only`, or `--dry-run`.
-- `-h | --help`
-  - Print usage.
+### Subcommands
+
+- `scripts` — Rsync `hashpool-ctl.sh` only, no restart.
+- `config` — Deploy configs + systemd + nginx, restart services.
+- `binaries` — Ship prebuilt binaries only, restart services.
+- `all` — Full deploy: build + ship everything.
+
+### Flags
+
+- `--no-restart` — Skip service stop/start cycle (`config`, `binaries`, `all`).
+- `--skip-build` — Use existing binaries in `roles/target/debug` (`binaries`, `all` only).
+- `--clean` — Cargo clean before building (`binaries`, `all` only).
+- `--dry-run` — Preflight checks only; no deploy.
+- `-h | --help` — Print usage.
 
 ---
 
-## What deploy.sh Does (high-level)
+## build.sh Reference
 
-- Stages binaries, configs, systemd services, and nginx configs.
-- Uploads a single deployment bundle to the VPS.
-- Stops services, installs files, reloads nginx/systemd, restarts services.
-- Ensures certbot SSL config files exist and symlinks nginx sites.
+`./scripts/build.sh [config] [flags]`
+
+### Subcommands
+
+- *(default)* — Sync source to VPS, build there, and install.
+- `config` — Deploy configs only (no source sync, no build).
+
+### Flags
+
+- `--no-restart` — Skip service stop/start cycle.
+- `--clean` — Cargo clean on VPS before building (default subcommand only).
+- `--dry-run` — VPS preflight checks only (default subcommand only).
+- `-h | --help` — Print usage.
+
+---
+
+## What the Scripts Do (high-level)
+
+- Stage binaries, configs, systemd services, and nginx configs.
+- Upload a deployment bundle to the VPS (or build there for `build.sh`).
+- Stop services, install files, reload nginx/systemd, restart services.
+- Ensure certbot SSL config files exist and symlink nginx sites.
 
 ---
 
 ## Cashu Wallet (cashu.me) on the VPS
 
-Hashpool’s nginx config expects the Cashu wallet SPA at:
+Hashpool's nginx config expects the Cashu wallet SPA at:
 
 ```
 /opt/cashu.me/dist/spa

@@ -11,7 +11,7 @@ This directory contains nginx site configuration files for the hashpool testnet 
 
 ## Deployment
 
-These files are automatically deployed by `scripts/deploy.sh` to `/etc/nginx/sites-available/` on the VPS.
+These files are automatically deployed by `scripts/ship.sh` or `scripts/build.sh` to `/etc/nginx/sites-available/` on the VPS.
 
 The deployment script creates symlinks in `/etc/nginx/sites-enabled/` and reloads nginx.
 
