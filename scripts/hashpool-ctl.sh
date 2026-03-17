@@ -113,6 +113,7 @@ clean_data() {
     echo "  testnet4 - Delete testnet4 blockchain data"
     echo "  stats    - Delete stats databases"
     echo "  logs     - Delete all service logs"
+    echo "  build    - Delete cargo build artifacts from /tmp"
     exit 1
   fi
 
@@ -144,9 +145,14 @@ clean_data() {
       rm -f /var/log/hashpool/*.log
       echo "✅ Service logs cleared"
       ;;
+    build)
+      echo "🗑️  Deleting cargo build artifacts..."
+      rm -rf /tmp/hashpool-src/roles/target
+      echo "✅ Build artifacts cleared"
+      ;;
     *)
       echo "Error: Unknown clean type '$2'"
-      echo "Valid types: cashu, regtest, testnet4, logs"
+      echo "Valid types: cashu, regtest, testnet4, logs, build"
       exit 1
       ;;
   esac
@@ -177,7 +183,7 @@ case "${1:-}" in
   *)
     echo "Usage: $0 {start|stop|restart|status|logs <service>|watch|clean <type>}"
     echo ""
-    echo "Clean types: cashu, regtest, testnet4, logs"
+    echo "Clean types: cashu, regtest, testnet4, logs, build"
     exit 1
     ;;
 esac

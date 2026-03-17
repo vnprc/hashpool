@@ -285,9 +285,7 @@ cp "$LOCAL_DIR/config/prometheus-proxy.yml" "$STAGING_DIR/config/"
 
 # Stage systemd services and control script
 cp "$LOCAL_DIR/scripts/systemd/"*.service "$STAGING_DIR/systemd/"
-if [ "$CONFIG_ONLY" -eq 0 ]; then
-  cp "$LOCAL_DIR/scripts/hashpool-ctl.sh" "$STAGING_DIR/bin/"
-fi
+cp "$LOCAL_DIR/scripts/hashpool-ctl.sh" "$STAGING_DIR/bin/"
 
 # Stage nginx configs
 cp -r "$LOCAL_DIR/scripts/nginx/sites-available" "$STAGING_DIR/nginx/"
@@ -359,6 +357,7 @@ ssh "$VPS_USER@$VPS_HOST" "CONFIG_ONLY=$CONFIG_ONLY bash -s" << 'EOF'
   fi
 
   # Move files from staging to final location
+  cp /tmp/hashpool-deploy/bin/hashpool-ctl.sh /opt/hashpool/bin/
   if [ "${CONFIG_ONLY:-0}" -eq 0 ]; then
     cp -r /tmp/hashpool-deploy/bin/* /opt/hashpool/bin/
     cp -r /tmp/hashpool-deploy/libexec/* /opt/hashpool/libexec/
@@ -401,10 +400,10 @@ ssh "$VPS_USER@$VPS_HOST" "CONFIG_ONLY=$CONFIG_ONLY bash -s" << 'EOF'
 
   # Fix permissions
   chown -R hashpool:hashpool /opt/hashpool
+  chmod +x /opt/hashpool/bin/hashpool-ctl.sh
+  ln -sf /opt/hashpool/bin/hashpool-ctl.sh /usr/local/bin/hashpool-ctl
   if [ "${CONFIG_ONLY:-0}" -eq 0 ]; then
     chmod +x /opt/hashpool/bin/*
-    # Create symlink for easy access
-    ln -sf /opt/hashpool/bin/hashpool-ctl.sh /usr/local/bin/hashpool-ctl
   fi
 
   # Start services back up
