@@ -188,12 +188,14 @@ stage_configs() {
   mkdir -p "$STAGING_DIR/config"
   mkdir -p "$STAGING_DIR/systemd"
   mkdir -p "$STAGING_DIR/nginx"
+  mkdir -p "$STAGING_DIR/logrotate"
   cp -r "$LOCAL_DIR/config/prod"/* "$STAGING_DIR/config/"
   cp "$LOCAL_DIR/config/sv2-tp.conf" "$STAGING_DIR/config/"
   cp "$LOCAL_DIR/config/prometheus-pool.yml" "$STAGING_DIR/config/"
   cp "$LOCAL_DIR/config/prometheus-proxy.yml" "$STAGING_DIR/config/"
   cp "$LOCAL_DIR/scripts/systemd/"*.service "$STAGING_DIR/systemd/"
   cp -r "$LOCAL_DIR/scripts/nginx/sites-available" "$STAGING_DIR/nginx/"
+  cp "$LOCAL_DIR/scripts/logrotate/hashpool" "$STAGING_DIR/logrotate/"
 }
 
 stage_binaries() {
@@ -341,6 +343,7 @@ REMOTE
 
       cp -r /tmp/hashpool-deploy/config/* /opt/hashpool/config/
       cp /tmp/hashpool-deploy/systemd/*.service /etc/systemd/system/
+      cp /tmp/hashpool-deploy/logrotate/hashpool /etc/logrotate.d/hashpool
 
       echo "Deploying nginx configs..."
       cp -r /tmp/hashpool-deploy/nginx/sites-available/* /etc/nginx/sites-available/
@@ -506,6 +509,7 @@ REMOTE
       cp -r /tmp/hashpool-deploy/libexec/* /opt/hashpool/libexec/
       cp -r /tmp/hashpool-deploy/config/* /opt/hashpool/config/
       cp /tmp/hashpool-deploy/systemd/*.service /etc/systemd/system/
+      cp /tmp/hashpool-deploy/logrotate/hashpool /etc/logrotate.d/hashpool
 
       echo "Deploying nginx configs..."
       cp -r /tmp/hashpool-deploy/nginx/sites-available/* /etc/nginx/sites-available/

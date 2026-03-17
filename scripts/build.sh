@@ -90,6 +90,8 @@ case "${SUBCOMMAND:-}" in
     cp "$LOCAL_DIR/config/prometheus-proxy.yml" "$STAGING_DIR/config/"
     cp "$LOCAL_DIR/scripts/systemd/"*.service "$STAGING_DIR/systemd/"
     cp -r "$LOCAL_DIR/scripts/nginx/sites-available" "$STAGING_DIR/nginx/"
+    mkdir -p "$STAGING_DIR/logrotate"
+    cp "$LOCAL_DIR/scripts/logrotate/hashpool" "$STAGING_DIR/logrotate/"
 
     echo "Syncing configs to VPS..."
     rsync -avz --progress --partial --bwlimit=5000 --compress-level=9 --timeout=300 \
@@ -128,6 +130,7 @@ case "${SUBCOMMAND:-}" in
 
       cp -r /tmp/hashpool-deploy/config/* /opt/hashpool/config/
       cp /tmp/hashpool-deploy/systemd/*.service /etc/systemd/system/
+      cp /tmp/hashpool-deploy/logrotate/hashpool /etc/logrotate.d/hashpool
 
       echo "Deploying nginx configs..."
       cp -r /tmp/hashpool-deploy/nginx/sites-available/* /etc/nginx/sites-available/
@@ -309,6 +312,8 @@ REMOTE
       cp /tmp/hashpool-src/scripts/systemd/*.service /tmp/hashpool-deploy/systemd/
       cp /tmp/hashpool-src/scripts/hashpool-ctl.sh /tmp/hashpool-deploy/bin/
       cp -r /tmp/hashpool-src/scripts/nginx/sites-available /tmp/hashpool-deploy/nginx/
+      mkdir -p /tmp/hashpool-deploy/logrotate
+      cp /tmp/hashpool-src/scripts/logrotate/hashpool /tmp/hashpool-deploy/logrotate/
 
       check_nix_abi() {
         local bin_path="$1"
@@ -365,6 +370,7 @@ REMOTE
       cp -r /tmp/hashpool-deploy/libexec/* /opt/hashpool/libexec/
       cp -r /tmp/hashpool-deploy/config/* /opt/hashpool/config/
       cp /tmp/hashpool-deploy/systemd/*.service /etc/systemd/system/
+      cp /tmp/hashpool-deploy/logrotate/hashpool /etc/logrotate.d/hashpool
 
       echo "Deploying nginx configs..."
       cp -r /tmp/hashpool-deploy/nginx/sites-available/* /etc/nginx/sites-available/
