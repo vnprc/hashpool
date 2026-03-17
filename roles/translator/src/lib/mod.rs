@@ -519,7 +519,7 @@ impl TranslatorSv2 {
             }
 
             match wallet
-                .mint(&quote.id, SplitTarget::default(), Some(spending_conditions.clone()))
+                .mint_with_signing_key(&quote.id, SplitTarget::default(), Some(spending_conditions.clone()), secret_key.clone())
                 .await
             {
                 Ok(proofs) => {

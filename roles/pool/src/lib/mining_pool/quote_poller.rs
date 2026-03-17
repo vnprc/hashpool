@@ -173,7 +173,7 @@ impl QuotePoller {
 
             for (quote_id, quote_meta) in pending_snapshot {
                 let endpoint =
-                    match base_url.join(&format!("v1/mint/quote/mining_share/{}", quote_id)) {
+                    match base_url.join(&format!("v1/mint/quote/ehash/{}", quote_id)) {
                         Ok(url) => url,
                         Err(e) => {
                             error!(

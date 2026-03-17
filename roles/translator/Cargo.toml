@@ -36,8 +36,8 @@ clap = { version = "4.5.39", features = ["derive"] }
 config_helpers_sv2 = { path = "../roles-utils/config-helpers" }
 shared_config = { path = "../roles-utils/config" }
 stats-sv2 = { path = "../roles-utils/stats-sv2" }
-cdk = { git = "https://github.com/vnprc/cdk.git", rev = "acf94ebb" }
-cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", rev = "acf94ebb" }
+cdk = { git = "https://github.com/vnprc/cdk.git", rev = "9a634ec0" }
+cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", rev = "9a634ec0" }
 bip39 = "2.0"
 anyhow = "1.0"
 binary_sv2 = "5.0.1"
