@@ -496,49 +496,55 @@ impl TranslatorSv2 {
         let pubkey = secret_key.public_key();
         let spending_conditions = SpendingConditions::new_p2pk(pubkey, None);
 
-        let mut total_minted = 0u64;
-        let mut minted_quote_count = 0usize;
-
-        for quote in pending_quotes.iter() {
-            debug!("🔍 Checking quote {} state from mint", quote.id);
-            let quote = match wallet.check_mint_quote_status(&quote.id).await {
-                Ok(q) => q,
-                Err(e) => {
-                    warn!("Failed to fetch quote {} details: {}", quote.id, e);
-                    continue;
-                }
-            };
-
-            debug!(
-                "💾 Quote {} state: {:?}, mintable: {}",
-                quote.id, quote.state, quote.amount_mintable()
-            );
-
-            if quote.amount_mintable() == Amount::ZERO {
-                continue;
-            }
-
-            match wallet
-                .mint_with_signing_key(&quote.id, SplitTarget::default(), Some(spending_conditions.clone()), secret_key.clone())
-                .await
-            {
-                Ok(proofs) => {
-                    let minted_amount: u64 = proofs.iter().map(|p| u64::from(p.amount)).sum();
-                    total_minted += minted_amount;
-                    minted_quote_count += 1;
-                    info!(quote_id = %quote.id, minted_amount, "Minted tokens for quote");
-                }
-                Err(e) => {
-                    warn!(quote_id = %quote.id, "Failed to mint quote: {}", e);
-                }
+        // Store signing key in each quote's local DB record so batch_mint includes
+        // NUT-20 signatures (the mint requires them because quotes are created with pubkey set).
+        for mut quote in pending_quotes.iter().cloned() {
+            quote.secret_key = Some(secret_key.clone());
+            if let Err(e) = wallet.localstore.add_mint_quote(quote).await {
+                error!("Failed to store signing key for quote: {}", e);
+                return Ok(0);
             }
         }
 
-        if total_minted > 0 {
-            info!("Minted {} ehash from {} quotes", total_minted, minted_quote_count);
-        } else {
-            warn!("😞 No tokens were minted from any quotes");
+        // Batch check quote status (1 HTTP call instead of N)
+        let quote_id_strings: Vec<String> = pending_quotes.iter().map(|q| q.id.clone()).collect();
+        let quote_ids: Vec<&str> = quote_id_strings.iter().map(|s| s.as_str()).collect();
+
+        let updated_quotes = match wallet.batch_check_mint_quote_status(&quote_ids).await {
+            Ok(quotes) => quotes,
+            Err(e) => {
+                error!("Failed to batch check quote status: {}", e);
+                return Ok(0);
+            }
+        };
+
+        let mintable_id_strings: Vec<String> = updated_quotes
+            .iter()
+            .filter(|q| q.amount_mintable() != Amount::ZERO)
+            .map(|q| q.id.clone())
+            .collect();
+
+        if mintable_id_strings.is_empty() {
+            warn!("😞 No mintable quotes after batch status check");
+            return Ok(0);
         }
+
+        let mintable_ids: Vec<&str> = mintable_id_strings.iter().map(|s| s.as_str()).collect();
+
+        // Batch mint (1 HTTP call instead of N)
+        let proofs = match wallet
+            .batch_mint(&mintable_ids, SplitTarget::default(), Some(spending_conditions), None)
+            .await
+        {
+            Ok(p) => p,
+            Err(e) => {
+                error!("Batch mint failed: {}", e);
+                return Ok(0);
+            }
+        };
+
+        let total_minted: u64 = proofs.iter().map(|p| u64::from(p.amount)).sum();
+        info!("Minted {} ehash from {} quotes", total_minted, mintable_ids.len());
 
         Ok(total_minted)
     }

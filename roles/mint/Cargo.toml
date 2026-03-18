@@ -25,7 +25,6 @@ cdk-axum = { git = "https://github.com/vnprc/cdk.git", package = "cdk-axum", rev
 cdk-ehash = { git = "https://github.com/vnprc/cdk.git", package = "cdk-ehash", rev = "9a634ec0" }
 cdk-mintd = { git = "https://github.com/vnprc/cdk.git", package = "cdk-mintd", rev = "9a634ec0" }
 cdk-sqlite = { git = "https://github.com/vnprc/cdk.git", package = "cdk-sqlite", rev = "9a634ec0" }
-cdk-signatory = { git = "https://github.com/vnprc/cdk.git", package = "cdk-signatory", rev = "9a634ec0" }
 toml = "0.8.22"
 
 shared_config = { path = "../roles-utils/config" }
