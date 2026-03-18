@@ -199,7 +199,8 @@ impl TranslatorSv2 {
             // Start faucet API for ehash minting
             let faucet_port = self.config.faucet_port;
             let faucet_timeout = self.config.faucet_timeout;
-            task_manager.spawn(faucet_api::run_faucet_api(faucet_port, wallet, faucet_timeout));
+            let faucet_locking_privkey = self.config.wallet.locking_privkey.clone();
+            task_manager.spawn(faucet_api::run_faucet_api(faucet_port, wallet, faucet_timeout, faucet_locking_privkey));
         } else {
             debug!("Quote sweeper and faucet disabled: wallet not configured");
         }

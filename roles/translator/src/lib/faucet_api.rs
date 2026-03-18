@@ -13,6 +13,7 @@ use tracing::{info, error, warn};
 use serde_json::json;
 
 use cdk::amount::SplitTarget;
+use cdk::nuts::SecretKey;
 use cdk::wallet::Wallet;
 use cdk::Amount;
 
@@ -47,7 +48,7 @@ impl RateLimiter {
     }
 }
 
-async fn create_mint_token(wallet: Arc<Wallet>) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+async fn create_mint_token(wallet: Arc<Wallet>, locking_privkey: Option<SecretKey>) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     // Create a 32 diff token (32 sat amount)
     let amount = Amount::from(32u64);
 
@@ -63,6 +64,21 @@ async fn create_mint_token(wallet: Arc<Wallet>) -> Result<String, Box<dyn std::e
     // Swap to get exactly the amount needed
     let unspent_proofs = wallet.get_unspent_proofs().await
         .map_err(|e| format!("Failed to get unspent proofs: {}", e))?;
+
+    // Sign any P2PK-locked proofs before swapping. Proofs minted with
+    // SpendingConditions::new_p2pk require a witness signature or the mint
+    // will reject them with "missing signature".
+    let unspent_proofs = if let Some(ref key) = locking_privkey {
+        unspent_proofs.into_iter().map(|mut proof| {
+            if let Err(e) = proof.sign_p2pk(key.clone()) {
+                warn!("Failed to sign proof for swap: {}", e);
+            }
+            proof
+        }).collect()
+    } else {
+        unspent_proofs
+    };
+
     let single_proof = match wallet.swap(Some(amount), SplitTarget::default(), unspent_proofs, None, false, false).await {
         Ok(Some(proofs)) => {
             let total_amount: Amount = proofs.iter().fold(Amount::ZERO, |acc, p| acc + p.amount);
@@ -96,6 +112,7 @@ async fn handle_request(
     req: Request<hyper::body::Incoming>,
     wallet: Arc<Wallet>,
     rate_limiter: Arc<RateLimiter>,
+    locking_privkey: Option<SecretKey>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     let response = match (req.method(), req.uri().path()) {
         (&Method::POST, "/mint/tokens") => {
@@ -103,7 +120,7 @@ async fn handle_request(
             match rate_limiter.check_rate_limit().await {
                 Ok(()) => {
                     info!("🪙 Mint request accepted");
-                    match create_mint_token(wallet).await {
+                    match create_mint_token(wallet, locking_privkey).await {
                         Ok(token) => {
                             let json_response = json!({
                                 "success": true,
@@ -154,6 +171,7 @@ pub async fn run_faucet_api(
     port: u16,
     wallet: Arc<Wallet>,
     timeout_secs: u64,
+    locking_privkey: Option<String>,
 ) {
     let addr = format!("127.0.0.1:{}", port);
     let listener = match TcpListener::bind(&addr).await {
@@ -163,6 +181,15 @@ pub async fn run_faucet_api(
             return;
         }
     };
+
+    if locking_privkey.is_none() {
+        warn!("🚰 Faucet started without locking_privkey; swapping P2PK-locked proofs will fail");
+    }
+
+    // Parse the locking key once at startup
+    let parsed_key: Option<SecretKey> = locking_privkey.as_deref().and_then(|hex_str| {
+        hex::decode(hex_str).ok().and_then(|bytes| SecretKey::from_slice(&bytes).ok())
+    });
 
     info!("🚰 Faucet API listening on http://{} (timeout: {}s)", addr, timeout_secs);
 
@@ -180,11 +207,12 @@ pub async fn run_faucet_api(
         let io = TokioIo::new(stream);
         let wallet_clone = wallet.clone();
         let rate_limiter_clone = rate_limiter.clone();
+        let key_clone = parsed_key.clone();
 
         tokio::task::spawn(async move {
             if let Err(err) = http1::Builder::new()
                 .serve_connection(io, service_fn(move |req| {
-                    handle_request(req, wallet_clone.clone(), rate_limiter_clone.clone())
+                    handle_request(req, wallet_clone.clone(), rate_limiter_clone.clone(), key_clone.clone())
                 }))
                 .await
             {
