@@ -24,7 +24,7 @@ min_melt = 1
 max_melt = 500000
 
 [fake_wallet]
-supported_units = ["sat", "HASH"]
+supported_units = ["sat", "hash"]
 fee_percent = 0.02
 reserve_fee_min = 2
 # These two have defaults, but we'll include them explicitly for clarity
