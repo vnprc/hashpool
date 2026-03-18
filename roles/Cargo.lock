@@ -696,6 +696,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2dee39a0ee5b4095224a0cfc6bf4cc1baf0f9624b96b367e53b66d974e51d953"
 
 [[package]]
+name = "bitcoin-payment-instructions"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c300c948b2ff78c965ea3a613372352125448a22f1acf49e95e3878149824091"
+dependencies = [
+ "bitcoin 0.32.8",
+ "lightning",
+ "lightning-invoice",
+]
+
+[[package]]
 name = "bitcoin-units"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -886,7 +897,7 @@ checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 [[package]]
 name = "cashu"
 version = "0.15.1"
-source = "git+https://github.com/vnprc/cdk?rev=9a634ec0#9a634ec0331933eab37558f8200ccf524d0b4e12"
+source = "git+https://github.com/cashubtc/cdk?rev=8517fcda#8517fcdad8aadf719fd0edfd3c01b59f70c7dd53"
 dependencies = [
  "bitcoin 0.32.8",
  "cbor-diag",
@@ -958,12 +969,13 @@ dependencies = [
 [[package]]
 name = "cdk"
 version = "0.15.1"
-source = "git+https://github.com/vnprc/cdk?rev=9a634ec0#9a634ec0331933eab37558f8200ccf524d0b4e12"
+source = "git+https://github.com/cashubtc/cdk?rev=8517fcda#8517fcdad8aadf719fd0edfd3c01b59f70c7dd53"
 dependencies = [
  "anyhow",
  "arc-swap",
  "async-trait",
  "bitcoin 0.32.8",
+ "bitcoin-payment-instructions",
  "cbor-diag",
  "cdk-common",
  "cdk-signatory",
@@ -995,7 +1007,7 @@ dependencies = [
 [[package]]
 name = "cdk-axum"
 version = "0.15.1"
-source = "git+https://github.com/vnprc/cdk?rev=9a634ec0#9a634ec0331933eab37558f8200ccf524d0b4e12"
+source = "git+https://github.com/cashubtc/cdk?rev=8517fcda#8517fcdad8aadf719fd0edfd3c01b59f70c7dd53"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1015,7 +1027,7 @@ dependencies = [
 [[package]]
 name = "cdk-cln"
 version = "0.15.1"
-source = "git+https://github.com/vnprc/cdk?rev=9a634ec0#9a634ec0331933eab37558f8200ccf524d0b4e12"
+source = "git+https://github.com/cashubtc/cdk?rev=8517fcda#8517fcdad8aadf719fd0edfd3c01b59f70c7dd53"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.8",
@@ -1033,7 +1045,7 @@ dependencies = [
 [[package]]
 name = "cdk-common"
 version = "0.15.1"
-source = "git+https://github.com/vnprc/cdk?rev=9a634ec0#9a634ec0331933eab37558f8200ccf524d0b4e12"
+source = "git+https://github.com/cashubtc/cdk?rev=8517fcda#8517fcdad8aadf719fd0edfd3c01b59f70c7dd53"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1065,8 +1077,8 @@ dependencies = [
 
 [[package]]
 name = "cdk-ehash"
-version = "0.15.1"
-source = "git+https://github.com/vnprc/cdk?rev=9a634ec0#9a634ec0331933eab37558f8200ccf524d0b4e12"
+version = "0.1.0"
+source = "git+https://github.com/vnprc/cdk-ehash?rev=d5d16cf8#d5d16cf8ccaedcc150c74dc60b25c26a4ab12818"
 dependencies = [
  "async-trait",
  "cdk-common",
@@ -1083,7 +1095,7 @@ dependencies = [
 [[package]]
 name = "cdk-fake-wallet"
 version = "0.15.1"
-source = "git+https://github.com/vnprc/cdk?rev=9a634ec0#9a634ec0331933eab37558f8200ccf524d0b4e12"
+source = "git+https://github.com/cashubtc/cdk?rev=8517fcda#8517fcdad8aadf719fd0edfd3c01b59f70c7dd53"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.8",
@@ -1105,7 +1117,7 @@ dependencies = [
 [[package]]
 name = "cdk-http-client"
 version = "0.15.1"
-source = "git+https://github.com/vnprc/cdk?rev=9a634ec0#9a634ec0331933eab37558f8200ccf524d0b4e12"
+source = "git+https://github.com/cashubtc/cdk?rev=8517fcda#8517fcdad8aadf719fd0edfd3c01b59f70c7dd53"
 dependencies = [
  "futures",
  "futures-channel",
@@ -1126,7 +1138,7 @@ dependencies = [
 [[package]]
 name = "cdk-lnbits"
 version = "0.15.1"
-source = "git+https://github.com/vnprc/cdk?rev=9a634ec0#9a634ec0331933eab37558f8200ccf524d0b4e12"
+source = "git+https://github.com/cashubtc/cdk?rev=8517fcda#8517fcdad8aadf719fd0edfd3c01b59f70c7dd53"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1145,7 +1157,7 @@ dependencies = [
 [[package]]
 name = "cdk-lnd"
 version = "0.15.1"
-source = "git+https://github.com/vnprc/cdk?rev=9a634ec0#9a634ec0331933eab37558f8200ccf524d0b4e12"
+source = "git+https://github.com/cashubtc/cdk?rev=8517fcda#8517fcdad8aadf719fd0edfd3c01b59f70c7dd53"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1171,7 +1183,7 @@ dependencies = [
 [[package]]
 name = "cdk-mint-rpc"
 version = "0.15.1"
-source = "git+https://github.com/vnprc/cdk?rev=9a634ec0#9a634ec0331933eab37558f8200ccf524d0b4e12"
+source = "git+https://github.com/cashubtc/cdk?rev=8517fcda#8517fcdad8aadf719fd0edfd3c01b59f70c7dd53"
 dependencies = [
  "anyhow",
  "cdk",
@@ -1194,7 +1206,7 @@ dependencies = [
 [[package]]
 name = "cdk-mintd"
 version = "0.15.1"
-source = "git+https://github.com/vnprc/cdk?rev=9a634ec0#9a634ec0331933eab37558f8200ccf524d0b4e12"
+source = "git+https://github.com/cashubtc/cdk?rev=8517fcda#8517fcdad8aadf719fd0edfd3c01b59f70c7dd53"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1218,6 +1230,7 @@ dependencies = [
  "home",
  "lightning-invoice",
  "serde",
+ "serde_json",
  "tokio",
  "tower 0.5.3",
  "tower-http",
@@ -1229,7 +1242,7 @@ dependencies = [
 [[package]]
 name = "cdk-payment-processor"
 version = "0.15.1"
-source = "git+https://github.com/vnprc/cdk?rev=9a634ec0#9a634ec0331933eab37558f8200ccf524d0b4e12"
+source = "git+https://github.com/cashubtc/cdk?rev=8517fcda#8517fcdad8aadf719fd0edfd3c01b59f70c7dd53"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1264,7 +1277,7 @@ dependencies = [
 [[package]]
 name = "cdk-prometheus"
 version = "0.15.1"
-source = "git+https://github.com/vnprc/cdk?rev=9a634ec0#9a634ec0331933eab37558f8200ccf524d0b4e12"
+source = "git+https://github.com/cashubtc/cdk?rev=8517fcda#8517fcdad8aadf719fd0edfd3c01b59f70c7dd53"
 dependencies = [
  "anyhow",
  "futures",
@@ -1281,7 +1294,7 @@ dependencies = [
 [[package]]
 name = "cdk-signatory"
 version = "0.15.1"
-source = "git+https://github.com/vnprc/cdk?rev=9a634ec0#9a634ec0331933eab37558f8200ccf524d0b4e12"
+source = "git+https://github.com/cashubtc/cdk?rev=8517fcda#8517fcdad8aadf719fd0edfd3c01b59f70c7dd53"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1306,7 +1319,7 @@ dependencies = [
 [[package]]
 name = "cdk-sql-common"
 version = "0.15.1"
-source = "git+https://github.com/vnprc/cdk?rev=9a634ec0#9a634ec0331933eab37558f8200ccf524d0b4e12"
+source = "git+https://github.com/cashubtc/cdk?rev=8517fcda#8517fcdad8aadf719fd0edfd3c01b59f70c7dd53"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.8",
@@ -1324,7 +1337,7 @@ dependencies = [
 [[package]]
 name = "cdk-sqlite"
 version = "0.15.1"
-source = "git+https://github.com/vnprc/cdk?rev=9a634ec0#9a634ec0331933eab37558f8200ccf524d0b4e12"
+source = "git+https://github.com/cashubtc/cdk?rev=8517fcda#8517fcdad8aadf719fd0edfd3c01b59f70c7dd53"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.8",
@@ -2024,6 +2037,9 @@ name = "dnssec-prover"
 version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec4f825369fc7134da70ca4040fddc8e03b80a46d249ae38d9c1c39b7b4476bf"
+dependencies = [
+ "bitcoin_hashes 0.14.1",
+]
 
 [[package]]
 name = "dotenvy"

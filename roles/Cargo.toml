@@ -26,7 +26,16 @@ members = [
 ]
 
 [patch.crates-io]
-channels_sv2 = { path = "../protocols/v2/channels-sv2" }
+channels_sv2    = { path = "../protocols/v2/channels-sv2" }
+cashu           = { git = "https://github.com/cashubtc/cdk", rev = "8517fcda" }
+cdk             = { git = "https://github.com/cashubtc/cdk", rev = "8517fcda" }
+cdk-common      = { git = "https://github.com/cashubtc/cdk", rev = "8517fcda" }
+cdk-axum        = { git = "https://github.com/cashubtc/cdk", rev = "8517fcda" }
+cdk-mintd       = { git = "https://github.com/cashubtc/cdk", rev = "8517fcda" }
+cdk-http-client = { git = "https://github.com/cashubtc/cdk", rev = "8517fcda" }
+cdk-signatory   = { git = "https://github.com/cashubtc/cdk", rev = "8517fcda" }
+cdk-sql-common  = { git = "https://github.com/cashubtc/cdk", rev = "8517fcda" }
+cdk-sqlite      = { git = "https://github.com/cashubtc/cdk", rev = "8517fcda" }
 
 [profile.dev]
 # Required by super_safe_lock
