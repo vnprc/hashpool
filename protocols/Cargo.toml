@@ -15,13 +15,13 @@ members = [
 
 
 [patch.crates-io]
-cashu           = { git = "https://github.com/cashubtc/cdk", rev = "8517fcda" }
-cdk             = { git = "https://github.com/cashubtc/cdk", rev = "8517fcda" }
-cdk-common      = { git = "https://github.com/cashubtc/cdk", rev = "8517fcda" }
-cdk-http-client = { git = "https://github.com/cashubtc/cdk", rev = "8517fcda" }
-cdk-signatory   = { git = "https://github.com/cashubtc/cdk", rev = "8517fcda" }
-cdk-sql-common  = { git = "https://github.com/cashubtc/cdk", rev = "8517fcda" }
-cdk-sqlite      = { git = "https://github.com/cashubtc/cdk", rev = "8517fcda" }
+cashu           = { git = "https://github.com/cashubtc/cdk", rev = "742285cd" }
+cdk             = { git = "https://github.com/cashubtc/cdk", rev = "742285cd" }
+cdk-common      = { git = "https://github.com/cashubtc/cdk", rev = "742285cd" }
+cdk-http-client = { git = "https://github.com/cashubtc/cdk", rev = "742285cd" }
+cdk-signatory   = { git = "https://github.com/cashubtc/cdk", rev = "742285cd" }
+cdk-sql-common  = { git = "https://github.com/cashubtc/cdk", rev = "742285cd" }
+cdk-sqlite      = { git = "https://github.com/cashubtc/cdk", rev = "742285cd" }
 
 [profile.dev]
 # Required by super_safe_lock
