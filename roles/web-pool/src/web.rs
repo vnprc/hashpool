@@ -191,9 +191,11 @@ async fn api_aggregate_hashrate_handler(
         "sum(avg_over_time(hashpool_pool_downstream_hashrate_hs[{}]))",
         window
     );
+    let range_secs = params.to.saturating_sub(params.from);
+    let step = (range_secs / 500).max(state.metrics_query_step_secs);
     let result = state
         .prometheus
-        .query_range(&query, params.from, params.to, state.metrics_query_step_secs)
+        .query_range(&query, params.from, params.to, step)
         .await;
 
     let data = match result {
@@ -221,9 +223,11 @@ async fn api_downstream_hashrate_handler(
         downstream_id, window
     );
 
+    let range_secs = params.to.saturating_sub(params.from);
+    let step = (range_secs / 500).max(state.metrics_query_step_secs);
     let result = state
         .prometheus
-        .query_range(&query, params.from, params.to, state.metrics_query_step_secs)
+        .query_range(&query, params.from, params.to, step)
         .await;
 
     let data = match result {

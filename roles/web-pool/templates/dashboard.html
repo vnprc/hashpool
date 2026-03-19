@@ -346,10 +346,10 @@
                     y: p.hashrate_hs
                 }));
 
-                // Find date boundaries for vertical lines (only for 7d+ ranges)
+                // Find date boundaries for vertical lines (for 24h+ ranges)
                 const dateBoundaryIndices = [];
                 const dateBoundaryLabels = [];
-                if (timeRangeHours >= 168) {
+                if (timeRangeHours >= 24) {
                     let lastDate = null;
                     data.forEach((point, index) => {
                         const date = new Date(point.timestamp * 1000);
@@ -552,6 +552,7 @@
         // ===== Main Update Function =====
         const charts = new HashrateCharts();
         let timeRangeHours = 1;
+        let chartRequestId = 0;
 
         async function updateStats() {
             try {
@@ -649,20 +650,24 @@
         }
 
         async function updateHashrateChart() {
+            const requestId = ++chartRequestId;
+            const capturedRange = timeRangeHours;
             try {
                 const now = Math.floor(Date.now() / 1000);
-                const windowSeconds = timeRangeHours * 3600;
+                const windowSeconds = capturedRange * 3600;
                 const from = now - windowSeconds;
                 const to = now;
 
                 const url = `/api/hashrate?from=${from}&to=${to}`;
                 const response = await fetch(url);
 
+                if (requestId !== chartRequestId) return;
+
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
 
                 if (data.data && data.data.length > 0) {
-                    charts.createAggregateChart('aggregate-chart', data.data, false, timeRangeHours);
+                    charts.createAggregateChart('aggregate-chart', data.data, false, capturedRange);
                     const stats = charts.calculateStats(data.data);
                     document.getElementById('current-hashrate').textContent = charts._formatHashrate(stats.current);
                     document.getElementById('avg-hashrate').textContent = charts._formatHashrate(stats.avg);
