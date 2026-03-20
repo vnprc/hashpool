@@ -896,7 +896,7 @@ checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 [[package]]
 name = "cashu"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
+source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
 dependencies = [
  "bitcoin 0.32.8",
  "cbor-diag",
@@ -968,7 +968,7 @@ dependencies = [
 [[package]]
 name = "cdk"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
+source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1006,7 +1006,7 @@ dependencies = [
 [[package]]
 name = "cdk-axum"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
+source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1026,7 +1026,7 @@ dependencies = [
 [[package]]
 name = "cdk-cln"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
+source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.8",
@@ -1044,7 +1044,7 @@ dependencies = [
 [[package]]
 name = "cdk-common"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
+source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1094,7 +1094,7 @@ dependencies = [
 [[package]]
 name = "cdk-fake-wallet"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
+source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.8",
@@ -1116,7 +1116,7 @@ dependencies = [
 [[package]]
 name = "cdk-http-client"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
+source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
 dependencies = [
  "futures",
  "futures-channel",
@@ -1137,7 +1137,7 @@ dependencies = [
 [[package]]
 name = "cdk-lnbits"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
+source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1156,7 +1156,7 @@ dependencies = [
 [[package]]
 name = "cdk-lnd"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
+source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1182,7 +1182,7 @@ dependencies = [
 [[package]]
 name = "cdk-mint-rpc"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
+source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
 dependencies = [
  "anyhow",
  "cdk",
@@ -1205,7 +1205,7 @@ dependencies = [
 [[package]]
 name = "cdk-mintd"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
+source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1241,7 +1241,7 @@ dependencies = [
 [[package]]
 name = "cdk-payment-processor"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
+source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1276,7 +1276,7 @@ dependencies = [
 [[package]]
 name = "cdk-prometheus"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
+source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
 dependencies = [
  "anyhow",
  "futures",
@@ -1293,7 +1293,7 @@ dependencies = [
 [[package]]
 name = "cdk-signatory"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
+source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1318,7 +1318,7 @@ dependencies = [
 [[package]]
 name = "cdk-sql-common"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
+source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.8",
@@ -1336,7 +1336,7 @@ dependencies = [
 [[package]]
 name = "cdk-sqlite"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
+source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.8",
