@@ -12,9 +12,8 @@ use tokio::sync::Mutex;
 use tracing::{info, error, warn};
 use serde_json::json;
 
-use cdk::amount::SplitTarget;
 use cdk::nuts::SecretKey;
-use cdk::wallet::Wallet;
+use cdk::wallet::{SendOptions, Wallet};
 use cdk::Amount;
 
 #[derive(Debug)]
@@ -49,63 +48,23 @@ impl RateLimiter {
 }
 
 async fn create_mint_token(wallet: Arc<Wallet>, locking_privkey: Option<SecretKey>) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    // Create a 32 diff token (32 sat amount)
     let amount = Amount::from(32u64);
-
     info!("🪙 Creating mint token for {} ehash", amount);
 
-    // Check wallet balance first
-    let balance = wallet.total_balance().await?;
-    if balance < amount {
-        error!("❌ Insufficient balance in wallet: {} diff available, need {} ehash", balance, amount);
-        return Err("Insufficient balance in wallet".into());
-    }
+    let token = wallet
+        .prepare_send(
+            amount,
+            SendOptions {
+                p2pk_signing_keys: locking_privkey.into_iter().collect(),
+                ..Default::default()
+            },
+        )
+        .await?
+        .confirm(None)
+        .await?;
 
-    // Swap to get exactly the amount needed
-    let unspent_proofs = wallet.get_unspent_proofs().await
-        .map_err(|e| format!("Failed to get unspent proofs: {}", e))?;
-
-    // Sign any P2PK-locked proofs before swapping. Proofs minted with
-    // SpendingConditions::new_p2pk require a witness signature or the mint
-    // will reject them with "missing signature".
-    let unspent_proofs = if let Some(ref key) = locking_privkey {
-        unspent_proofs.into_iter().map(|mut proof| {
-            if let Err(e) = proof.sign_p2pk(key.clone()) {
-                warn!("Failed to sign proof for swap: {}", e);
-            }
-            proof
-        }).collect()
-    } else {
-        unspent_proofs
-    };
-
-    let single_proof = match wallet.swap(Some(amount), SplitTarget::default(), unspent_proofs, None, false, false).await {
-        Ok(Some(proofs)) => {
-            let total_amount: Amount = proofs.iter().fold(Amount::ZERO, |acc, p| acc + p.amount);
-            info!("💱 Swapped for {} proofs totaling {} ehash", proofs.len(), total_amount);
-            proofs
-        }
-        Ok(None) => {
-            error!("❌ Swap returned no proofs");
-            return Err("Failed to prepare token: swap returned no proofs".into());
-        }
-        Err(e) => {
-            error!("❌ Failed to swap for exact amount: {:?}", e);
-            return Err(format!("Failed to prepare token: {}", e).into());
-        }
-    };
-
-    // Now create the token from our exact proofs
-    let token = cdk::nuts::nut00::token::Token::new(
-        wallet.mint_url.clone(),
-        single_proof.clone(),
-        None, // No memo
-        wallet.unit.clone()
-    );
-
-    let token_string = token.to_string();
-    info!("✅ Mint token created successfully with {} proofs", single_proof.len());
-    Ok(token_string)
+    info!("✅ Mint token created successfully");
+    Ok(token.to_string())
 }
 
 async fn handle_request(

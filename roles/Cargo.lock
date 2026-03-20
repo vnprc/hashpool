@@ -147,7 +147,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -158,7 +158,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -896,7 +896,7 @@ checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 [[package]]
 name = "cashu"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=742285cd#742285cd4e646ebbc43fcc9dce770ff2a45aaf2c"
+source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
 dependencies = [
  "bitcoin 0.32.8",
  "cbor-diag",
@@ -968,7 +968,7 @@ dependencies = [
 [[package]]
 name = "cdk"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=742285cd#742285cd4e646ebbc43fcc9dce770ff2a45aaf2c"
+source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1006,7 +1006,7 @@ dependencies = [
 [[package]]
 name = "cdk-axum"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=742285cd#742285cd4e646ebbc43fcc9dce770ff2a45aaf2c"
+source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1026,7 +1026,7 @@ dependencies = [
 [[package]]
 name = "cdk-cln"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=742285cd#742285cd4e646ebbc43fcc9dce770ff2a45aaf2c"
+source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.8",
@@ -1044,7 +1044,7 @@ dependencies = [
 [[package]]
 name = "cdk-common"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=742285cd#742285cd4e646ebbc43fcc9dce770ff2a45aaf2c"
+source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1094,7 +1094,7 @@ dependencies = [
 [[package]]
 name = "cdk-fake-wallet"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=742285cd#742285cd4e646ebbc43fcc9dce770ff2a45aaf2c"
+source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.8",
@@ -1116,7 +1116,7 @@ dependencies = [
 [[package]]
 name = "cdk-http-client"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=742285cd#742285cd4e646ebbc43fcc9dce770ff2a45aaf2c"
+source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
 dependencies = [
  "futures",
  "futures-channel",
@@ -1137,7 +1137,7 @@ dependencies = [
 [[package]]
 name = "cdk-lnbits"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=742285cd#742285cd4e646ebbc43fcc9dce770ff2a45aaf2c"
+source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1156,7 +1156,7 @@ dependencies = [
 [[package]]
 name = "cdk-lnd"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=742285cd#742285cd4e646ebbc43fcc9dce770ff2a45aaf2c"
+source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1182,7 +1182,7 @@ dependencies = [
 [[package]]
 name = "cdk-mint-rpc"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=742285cd#742285cd4e646ebbc43fcc9dce770ff2a45aaf2c"
+source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
 dependencies = [
  "anyhow",
  "cdk",
@@ -1205,7 +1205,7 @@ dependencies = [
 [[package]]
 name = "cdk-mintd"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=742285cd#742285cd4e646ebbc43fcc9dce770ff2a45aaf2c"
+source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1241,7 +1241,7 @@ dependencies = [
 [[package]]
 name = "cdk-payment-processor"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=742285cd#742285cd4e646ebbc43fcc9dce770ff2a45aaf2c"
+source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1276,7 +1276,7 @@ dependencies = [
 [[package]]
 name = "cdk-prometheus"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=742285cd#742285cd4e646ebbc43fcc9dce770ff2a45aaf2c"
+source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
 dependencies = [
  "anyhow",
  "futures",
@@ -1293,7 +1293,7 @@ dependencies = [
 [[package]]
 name = "cdk-signatory"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=742285cd#742285cd4e646ebbc43fcc9dce770ff2a45aaf2c"
+source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1318,7 +1318,7 @@ dependencies = [
 [[package]]
 name = "cdk-sql-common"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=742285cd#742285cd4e646ebbc43fcc9dce770ff2a45aaf2c"
+source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.8",
@@ -1336,7 +1336,7 @@ dependencies = [
 [[package]]
 name = "cdk-sqlite"
 version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=742285cd#742285cd4e646ebbc43fcc9dce770ff2a45aaf2c"
+source = "git+https://github.com/cashubtc/cdk?rev=557f80ae#557f80ae603babcb74e78bcf9de884cc8359f48d"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.8",
@@ -2125,7 +2125,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3273,7 +3273,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi 0.5.2",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4012,7 +4012,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5237,7 +5237,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5803,7 +5803,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6267,7 +6267,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7351,7 +7351,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
