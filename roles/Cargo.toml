@@ -37,6 +37,11 @@ cdk-signatory   = { git = "https://github.com/cashubtc/cdk", rev = "5dd5b93a" }
 cdk-sql-common  = { git = "https://github.com/cashubtc/cdk", rev = "5dd5b93a" }
 cdk-sqlite      = { git = "https://github.com/cashubtc/cdk", rev = "5dd5b93a" }
 
+[patch."https://github.com/stratum-mining/stratum"]
+# Redirect stratum-core git dep to local checkout of stratum-mining/stratum
+# sv2-apps commit: 4014d48d7ea6523c1f8bf85a5529537c208ad776
+stratum-core    = { path = "../../stratum/stratum-core" }
+
 [profile.dev]
 # Required by super_safe_lock
 opt-level = 1

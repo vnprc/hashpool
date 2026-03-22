@@ -192,8 +192,7 @@ in {
         export CDK_WALLET_DB_PATH=${config.env.TRANSLATOR_WALLET_DB}
         ${waitForPort minerConfig.pool.port "Pool"}
         cd ${config.devenv.root} && cargo -C roles/translator -Z unstable-options run -- \
-          -c ${config.devenv.root}/config/tproxy.config.toml \
-          -g ${config.devenv.root}/config/shared/miner.toml
+          -c ${config.devenv.root}/config/tproxy.config.toml
       '' "proxy.log";
     };
 

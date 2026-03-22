@@ -1,34 +1,32 @@
 use async_channel::{Receiver, Sender};
-use stratum_common::roles_logic_sv2::{codec_sv2::StandardEitherFrame, parsers_sv2::AnyMessage};
+use stratum_apps::utils::types::Sv2Frame;
 use tracing::debug;
-
-pub type Message = AnyMessage<'static>;
-pub type EitherFrame = StandardEitherFrame<Message>;
 
 #[derive(Debug, Clone)]
 pub struct UpstreamChannelState {
     /// Receiver for the SV2 Upstream role
-    pub upstream_receiver: Receiver<EitherFrame>,
+    pub upstream_receiver: Receiver<Sv2Frame>,
     /// Sender for the SV2 Upstream role
-    pub upstream_sender: Sender<EitherFrame>,
-    /// Sender for the ChannelManager thread
-    pub channel_manager_sender: Sender<EitherFrame>,
-    /// Receiver for the ChannelManager thread
-    pub channel_manager_receiver: Receiver<EitherFrame>,
+    pub upstream_sender: Sender<Sv2Frame>,
+    /// Sender for the ChannelManager to send SV2 frames
+    pub channel_manager_sender: Sender<Sv2Frame>,
+    /// Receiver for the ChannelManager to receive SV2 frames
+    pub channel_manager_receiver: Receiver<Sv2Frame>,
 }
 
+#[cfg_attr(not(test), hotpath::measure_all)]
 impl UpstreamChannelState {
     pub fn new(
-        channel_manager_sender: Sender<EitherFrame>,
-        channel_manager_receiver: Receiver<EitherFrame>,
-        upstream_receiver: Receiver<EitherFrame>,
-        upstream_sender: Sender<EitherFrame>,
+        upstream_receiver: Receiver<Sv2Frame>,
+        upstream_sender: Sender<Sv2Frame>,
+        channel_manager_sender: Sender<Sv2Frame>,
+        channel_manager_receiver: Receiver<Sv2Frame>,
     ) -> Self {
         Self {
-            channel_manager_sender,
-            channel_manager_receiver,
             upstream_receiver,
             upstream_sender,
+            channel_manager_sender,
+            channel_manager_receiver,
         }
     }
 

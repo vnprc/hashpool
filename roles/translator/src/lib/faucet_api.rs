@@ -47,9 +47,12 @@ impl RateLimiter {
     }
 }
 
-async fn create_mint_token(wallet: Arc<Wallet>, locking_privkey: Option<SecretKey>) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+async fn create_mint_token(
+    wallet: Arc<Wallet>,
+    locking_privkey: Option<SecretKey>,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let amount = Amount::from(32u64);
-    info!("🪙 Creating mint token for {} ehash", amount);
+    info!("Creating mint token for {} ehash", amount);
 
     let token = wallet
         .prepare_send(
@@ -63,7 +66,7 @@ async fn create_mint_token(wallet: Arc<Wallet>, locking_privkey: Option<SecretKe
         .confirm(None)
         .await?;
 
-    info!("✅ Mint token created successfully");
+    info!("Mint token created successfully");
     Ok(token.to_string())
 }
 
@@ -75,10 +78,9 @@ async fn handle_request(
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     let response = match (req.method(), req.uri().path()) {
         (&Method::POST, "/mint/tokens") => {
-            // Check mint rate limiting
             match rate_limiter.check_rate_limit().await {
                 Ok(()) => {
-                    info!("🪙 Mint request accepted");
+                    info!("Mint request accepted");
                     match create_mint_token(wallet, locking_privkey).await {
                         Ok(token) => {
                             let json_response = json!({
@@ -104,7 +106,10 @@ async fn handle_request(
                     }
                 }
                 Err(remaining) => {
-                    warn!("⏳ Mint request rate limited - {} seconds remaining", remaining.as_secs());
+                    warn!(
+                        "Mint request rate limited - {} seconds remaining",
+                        remaining.as_secs()
+                    );
                     let json_response = json!({
                         "success": false,
                         "error": format!("Rate limited. Try again in {} seconds", remaining.as_secs())
@@ -116,11 +121,9 @@ async fn handle_request(
                 }
             }
         }
-        _ => {
-            Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .body(Full::new(Bytes::from("Not Found")))
-        }
+        _ => Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Full::new(Bytes::from("Not Found"))),
     };
 
     Ok(response.unwrap())
@@ -142,15 +145,19 @@ pub async fn run_faucet_api(
     };
 
     if locking_privkey.is_none() {
-        warn!("🚰 Faucet started without locking_privkey; swapping P2PK-locked proofs will fail");
+        warn!("Faucet started without locking_privkey; P2PK-locked proof swaps will fail");
     }
 
-    // Parse the locking key once at startup
     let parsed_key: Option<SecretKey> = locking_privkey.as_deref().and_then(|hex_str| {
-        hex::decode(hex_str).ok().and_then(|bytes| SecretKey::from_slice(&bytes).ok())
+        hex::decode(hex_str)
+            .ok()
+            .and_then(|bytes| SecretKey::from_slice(&bytes).ok())
     });
 
-    info!("🚰 Faucet API listening on http://{} (timeout: {}s)", addr, timeout_secs);
+    info!(
+        "Faucet API listening on http://{} (timeout: {}s)",
+        addr, timeout_secs
+    );
 
     let rate_limiter = Arc::new(RateLimiter::new(timeout_secs));
 
@@ -170,12 +177,20 @@ pub async fn run_faucet_api(
 
         tokio::task::spawn(async move {
             if let Err(err) = http1::Builder::new()
-                .serve_connection(io, service_fn(move |req| {
-                    handle_request(req, wallet_clone.clone(), rate_limiter_clone.clone(), key_clone.clone())
-                }))
+                .serve_connection(
+                    io,
+                    service_fn(move |req| {
+                        handle_request(
+                            req,
+                            wallet_clone.clone(),
+                            rate_limiter_clone.clone(),
+                            key_clone.clone(),
+                        )
+                    }),
+                )
                 .await
             {
-                error!("Error serving connection: {:?}", err);
+                error!("Error serving faucet connection: {:?}", err);
             }
         });
     }

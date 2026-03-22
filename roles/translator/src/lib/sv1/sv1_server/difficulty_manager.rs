@@ -1,116 +1,44 @@
-use crate::{
-    sv1::sv1_server::data::{PendingTargetUpdate, Sv1ServerData},
-    utils::ShutdownMessage,
-};
-use async_channel::Sender;
-use std::{collections::HashMap, sync::Arc, time::Duration};
-use bitcoin::Target;
-use stratum_common::roles_logic_sv2::{
-    mining_sv2::{SetTarget, UpdateChannel},
-    parsers_sv2::Mining,
-    utils::{hash_rate_to_target, Mutex},
-    Vardiff,
-};
-use stratum_translation::sv2_to_sv1::build_sv1_set_difficulty_from_sv2_target;
-use tokio::{sync::broadcast, time};
-use tracing::{debug, error, info, trace, warn};
-use v1::json_rpc;
+use std::sync::Arc;
 
-/// Handles all variable difficulty adjustment logic for the SV1 server.
-///
-/// This module contains the core vardiff implementation that:
-/// - Periodically adjusts difficulty targets based on share submission rates
-/// - Manages the relationship between upstream and downstream targets
-/// - Handles both aggregated and non-aggregated channel modes
-/// - Coordinates with the channel manager for target updates
-pub struct DifficultyManager {
-    shares_per_minute: f32,
-    is_aggregated: bool,
+use crate::{is_aggregated, is_non_aggregated, sv1::sv1_server::sv1_server::PendingTargetUpdate};
+
+use stratum_apps::{
+    stratum_core::{
+        bitcoin::Target,
+        channels_sv2::{target::hash_rate_to_target, Vardiff},
+        mining_sv2::{SetTarget, UpdateChannel},
+        parsers_sv2::Mining,
+        stratum_translation::sv2_to_sv1::build_sv1_set_difficulty_from_sv2_target,
+    },
+    utils::types::{ChannelId, DownstreamId, Hashrate},
+};
+use tracing::{debug, error, info, trace, warn};
+
+use crate::sv1::Sv1Server;
+
+enum AggregatedSnapshot {
+    Active {
+        total_hashrate: Hashrate,
+        min_target: Target,
+    },
+    NoDownstreams,
 }
 
-impl DifficultyManager {
-    /// Creates a new difficulty manager instance.
-    ///
-    /// # Arguments
-    /// * `shares_per_minute` - Target shares per minute for difficulty adjustment
-    /// * `is_aggregated` - Whether channels are operating in aggregated mode
-    pub fn new(shares_per_minute: f32, is_aggregated: bool) -> Self {
-        Self {
-            shares_per_minute,
-            is_aggregated,
-        }
-    }
-
+impl Sv1Server {
     /// Spawns the variable difficulty adjustment loop.
     ///
     /// This method implements the SV1 server's variable difficulty logic for all downstreams.
     /// Every 60 seconds, this method updates the difficulty state for each downstream.
-    pub async fn spawn_vardiff_loop(
-        sv1_server_data: Arc<Mutex<Sv1ServerData>>,
-        channel_manager_sender: Sender<Mining<'static>>,
-        sv1_server_to_downstream_sender: broadcast::Sender<(u32, Option<u32>, json_rpc::Message)>,
-        shares_per_minute: f32,
-        is_aggregated: bool,
-        mut notify_shutdown: broadcast::Receiver<ShutdownMessage>,
-        shutdown_complete_tx: tokio::sync::mpsc::Sender<()>,
-    ) {
-        let difficulty_manager = DifficultyManager::new(shares_per_minute, is_aggregated);
+    pub async fn spawn_vardiff_loop(self: Arc<Self>) {
+        info!("Variable difficulty adjustment enabled - starting vardiff loop");
 
-        'vardiff_loop: loop {
-            tokio::select! {
-                message = notify_shutdown.recv() => {
-                    match message {
-                        Ok(ShutdownMessage::ShutdownAll) => {
-                            debug!("SV1 Server: Vardiff loop received shutdown signal. Exiting.");
-                            break 'vardiff_loop;
-                        }
-                        Ok(ShutdownMessage::DownstreamShutdown(downstream_id)) => {
-                            sv1_server_data.super_safe_lock(|d| {
-                                d.vardiff.remove(&downstream_id);
-                            });
-                        }
-                        Ok(ShutdownMessage::DownstreamShutdownAll) => {
-                            sv1_server_data.super_safe_lock(|d|{
-                                d.vardiff = HashMap::new();
-                                d.downstreams = HashMap::new();
-                            });
-                            info!("🔌 All downstreams removed from sv1 server as upstream changed");
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            ticker.tick().await;
+            info!("Starting vardiff loop for downstreams");
 
-                            // In aggregated mode, send UpdateChannel to reflect the new state (no downstreams)
-                            Self::send_update_channel_on_downstream_state_change(
-                                &sv1_server_data,
-                                &channel_manager_sender,
-                                is_aggregated,
-                            ).await;
-                        }
-                        Ok(ShutdownMessage::UpstreamReconnectedResetAndShutdownDownstreams) => {
-                            sv1_server_data.super_safe_lock(|d|{
-                                d.vardiff = HashMap::new();
-                                d.downstreams = HashMap::new();
-                            });
-                            info!("🔌 All downstreams removed from sv1 server as upstream reconnected");
-
-                            // In aggregated mode, send UpdateChannel to reflect the new state (no downstreams)
-                            Self::send_update_channel_on_downstream_state_change(
-                                &sv1_server_data,
-                                &channel_manager_sender,
-                                is_aggregated,
-                            ).await;
-                        }
-                        _ => {}
-                    }
-                }
-                _ = time::sleep(Duration::from_secs(60)) => {
-                    difficulty_manager.handle_vardiff_updates(
-                        &sv1_server_data,
-                        &channel_manager_sender,
-                        &sv1_server_to_downstream_sender,
-                    ).await;
-                }
-            }
+            self.handle_vardiff_updates().await;
         }
-        drop(shutdown_complete_tx);
-        debug!("SV1 Server: Vardiff loop exited.");
     }
 
     /// Handles variable difficulty adjustments for all connected downstreams.
@@ -123,47 +51,37 @@ impl DifficultyManager {
     ///    - If new_target < upstream_target: wait for SetTarget response before sending
     ///      set_difficulty
     /// 4. Handle aggregated vs non-aggregated modes for UpdateChannel messages
-    async fn handle_vardiff_updates(
-        &self,
-        sv1_server_data: &Arc<Mutex<Sv1ServerData>>,
-        channel_manager_sender: &Sender<Mining<'static>>,
-        sv1_server_to_downstream_sender: &broadcast::Sender<(u32, Option<u32>, json_rpc::Message)>,
-    ) {
-        let vardiff_map = sv1_server_data.super_safe_lock(|v| v.vardiff.clone());
+    async fn handle_vardiff_updates(&self) {
         let mut immediate_updates = Vec::new();
         let mut all_updates = Vec::new(); // All updates will generate UpdateChannel messages
 
-        // Process each downstream and determine update strategy
-        for (downstream_id, vardiff_state) in vardiff_map.iter() {
+        for vardiff_key_pair in self.vardiff.iter() {
+            let downstream_id = vardiff_key_pair.key();
+            let vardiff = vardiff_key_pair.value();
             debug!("Updating vardiff for downstream_id: {}", downstream_id);
-            let mut vardiff = vardiff_state.write().unwrap();
-
-            // Get current state from downstream
-            let Some((channel_id, hashrate, target, upstream_target)) = sv1_server_data
-                .super_safe_lock(|data| {
-                    data.downstreams.get(downstream_id).and_then(|ds| {
-                        ds.downstream_data.super_safe_lock(|d| {
-                            Some((
-                                d.channel_id,
-                                d.hashrate.unwrap(), /* It's safe to unwrap because we know that
-                                                      * the downstream has a hashrate (we are
-                                                      * doing vardiff) */
-                                d.target.clone(),
-                                d.upstream_target.clone(),
-                            ))
-                        })
-                    })
-                })
-            else {
+            let Some(downstream) = self.downstreams.get(downstream_id) else {
                 continue;
             };
+            let (channel_id, hashrate, target, upstream_target) =
+                downstream.downstream_data.super_safe_lock(|data| {
+                    // It's safe to unwrap hashrate because we know that
+                    // the downstream has a hashrate (we are
+                    // doing vardiff)
+                    (
+                        data.channel_id,
+                        data.hashrate.unwrap(),
+                        data.target,
+                        data.upstream_target,
+                    )
+                });
 
             let Some(channel_id) = channel_id else {
                 error!("Channel id is none for downstream_id: {}", downstream_id);
                 continue;
             };
-
-            let new_hashrate_opt = vardiff.try_vardiff(hashrate, &target, self.shares_per_minute);
+            let new_hashrate_opt = vardiff.super_safe_lock(|state| {
+                state.try_vardiff(hashrate, &target, self.shares_per_minute)
+            });
 
             if let Ok(Some(new_hashrate)) = new_hashrate_opt {
                 // Calculate new target based on new hashrate
@@ -178,28 +96,15 @@ impl DifficultyManager {
                             continue;
                         }
                     };
-
                 // Always update the downstream's pending target and hashrate
-                _ = sv1_server_data.safe_lock(|dmap| {
-                    if let Some(d) = dmap.downstreams.get(downstream_id) {
-                        _ = d.downstream_data.safe_lock(|dd| {
-                            dd.set_pending_target(new_target.clone());
-                            dd.set_pending_hashrate(Some(new_hashrate));
-
-                            // Update miner tracker with new hashrate
-                            if let (Some(miner_id), Some(miner_tracker)) = (dd.miner_id, &dd.miner_tracker) {
-                                let miner_tracker = miner_tracker.clone();
-                                tokio::spawn(async move {
-                                    miner_tracker.update_hashrate(miner_id, new_hashrate as f64).await;
-                                });
-                            }
-                        });
-                    }
-                });
-
+                if let Some(d) = self.downstreams.get(downstream_id) {
+                    _ = d.downstream_data.safe_lock(|data| {
+                        data.set_pending_target(new_target, d.downstream_id);
+                        data.set_pending_hashrate(Some(new_hashrate), d.downstream_id);
+                    });
+                }
                 // All updates will be sent as UpdateChannel messages
-                all_updates.push((*downstream_id, channel_id, new_target.clone(), new_hashrate));
-
+                all_updates.push((*downstream_id, channel_id, new_target, new_hashrate));
                 // Determine if we should send set_difficulty immediately or wait
                 match upstream_target {
                     Some(upstream_target) => {
@@ -210,11 +115,7 @@ impl DifficultyManager {
                                 "✅ Target comparison: new_target ({:?}) >= upstream_target ({:?}) for downstream {}, will send set_difficulty immediately",
                                 new_target, upstream_target, downstream_id
                             );
-                            immediate_updates.push((
-                                channel_id,
-                                Some(*downstream_id),
-                                new_target.clone(),
-                            ));
+                            immediate_updates.push((channel_id, Some(*downstream_id), new_target));
                         } else {
                             // Case 2: new_target < upstream_target, delay set_difficulty until
                             // SetTarget
@@ -222,13 +123,12 @@ impl DifficultyManager {
                                 "⏳ Target comparison: new_target ({:?}) < upstream_target ({:?}) for downstream {}, will delay set_difficulty until SetTarget",
                                 new_target, upstream_target, downstream_id
                             );
-                            // Store as pending update for when SetTarget arrives
-                            sv1_server_data.super_safe_lock(|data| {
-                                data.pending_target_updates.push(PendingTargetUpdate {
+                            self.pending_target_updates.super_safe_lock(|data| {
+                                data.push(PendingTargetUpdate {
                                     downstream_id: *downstream_id,
-                                    new_target: new_target.clone(),
+                                    new_target,
                                     new_hashrate,
-                                });
+                                })
                             });
                         }
                     }
@@ -238,11 +138,7 @@ impl DifficultyManager {
                             "No upstream target set for downstream {}, will send set_difficulty immediately",
                             downstream_id
                         );
-                        immediate_updates.push((
-                            channel_id,
-                            Some(*downstream_id),
-                            new_target.clone(),
-                        ));
+                        immediate_updates.push((channel_id, Some(*downstream_id), new_target));
                     }
                 }
             }
@@ -250,19 +146,18 @@ impl DifficultyManager {
 
         // Send UpdateChannel messages for ALL updates (both immediate and delayed)
         if !all_updates.is_empty() {
-            self.send_update_channel_messages(all_updates, sv1_server_data, channel_manager_sender)
-                .await;
+            self.send_update_channel_messages(all_updates).await;
         }
 
         // Process immediate set_difficulty updates (for new_target >= upstream_target)
         for (channel_id, downstream_id, target) in immediate_updates {
             // Send set_difficulty message immediately
             if let Ok(set_difficulty_msg) = build_sv1_set_difficulty_from_sv2_target(target) {
-                if let Err(e) = sv1_server_to_downstream_sender.send((
-                    channel_id,
-                    downstream_id,
-                    set_difficulty_msg,
-                )) {
+                if let Err(e) = self
+                    .sv1_server_channel_state
+                    .sv1_server_to_downstream_sender
+                    .send((channel_id, downstream_id, set_difficulty_msg))
+                {
                     error!(
                         "Failed to send immediate SetDifficulty message to downstream {}: {:?}",
                         downstream_id.unwrap_or(0),
@@ -286,87 +181,108 @@ impl DifficultyManager {
     /// - Non-aggregated: Send individual UpdateChannel for each downstream
     async fn send_update_channel_messages(
         &self,
-        all_updates: Vec<(u32, u32, Target, f32)>, /* (downstream_id, channel_id, new_target,
-                                                    * new_hashrate) */
-        sv1_server_data: &Arc<Mutex<Sv1ServerData>>,
-        channel_manager_sender: &Sender<Mining<'static>>,
+        all_updates: Vec<(DownstreamId, ChannelId, Target, Hashrate)>, /* (downstream_id,
+                                                                        * channel_id,
+                                                                        * new_target,
+                                                                        * new_hashrate) */
     ) {
-        if self.is_aggregated {
+        if is_aggregated() {
             // Aggregated mode: Send single UpdateChannel with minimum target and total hashrate of
             // ALL downstreams
-            if let Some((_, channel_id, _, _)) = all_updates.first() {
-                // Get minimum target among ALL downstreams, not just the ones with updates
-                let min_target = sv1_server_data.super_safe_lock(|data| {
-                    data.downstreams
-                        .values()
-                        .map(|downstream| {
-                            downstream.downstream_data.super_safe_lock(|d| {
-                                // Use pending_target if available, otherwise current target
-                                d.pending_target.as_ref().unwrap_or(&d.target).clone()
-                            })
-                        })
-                        .min()
-                        .expect("At least one downstream should exist")
-                });
-
-                // Get total hashrate of ALL downstreams, not just the ones with updates
-                let total_hashrate: f32 = sv1_server_data.super_safe_lock(|data| {
-                    data.downstreams
-                        .values()
-                        .map(|downstream| {
-                            downstream.downstream_data.super_safe_lock(|d| {
-                                // Use pending_hashrate if available, otherwise current hashrate
-                                // It's safe to unwrap because we know that the downstream has a
-                                // hashrate (we are doing vardiff)
-                                d.pending_hashrate.unwrap_or(d.hashrate.unwrap())
-                            })
-                        })
-                        .sum()
-                });
-
-                let update_channel = UpdateChannel {
-                    channel_id: *channel_id,
-                    nominal_hash_rate: total_hashrate,
-                    maximum_target: min_target.to_le_bytes().into(),
-                };
-
-                debug!(
-                    "Sending UpdateChannel for aggregated mode: channel_id={}, total_hashrate={} (all {} downstreams), min_target={:?}, vardiff_updates={}",
-                    channel_id, total_hashrate,
-                    sv1_server_data.super_safe_lock(|data| data.downstreams.len()),
-                    &min_target, all_updates.len()
-                );
-
-                if let Err(e) = channel_manager_sender
-                    .send(Mining::UpdateChannel(update_channel))
-                    .await
-                {
-                    error!("Failed to send UpdateChannel message: {:?}", e);
-                }
-            }
+            self.send_aggregated_update_channel(all_updates).await;
         } else {
             // Non-aggregated mode: Send individual UpdateChannel for each downstream
-            for (downstream_id, channel_id, new_target, new_hashrate) in &all_updates {
-                let update_channel = UpdateChannel {
-                    channel_id: *channel_id,
-                    nominal_hash_rate: *new_hashrate,
-                    maximum_target: new_target.to_le_bytes().into(),
-                };
+            self.send_non_aggregated_update_channels(all_updates).await;
+        }
+    }
 
-                debug!(
-                    "Sending UpdateChannel for downstream {}: channel_id={}, hashrate={}, target={:?}",
-                    downstream_id, channel_id, new_hashrate, new_target
+    async fn send_aggregated_update_channel(
+        &self,
+        all_updates: Vec<(DownstreamId, ChannelId, Target, Hashrate)>,
+    ) {
+        // Nothing to do if we received no updates
+        let Some((_, channel_id, _, _)) = all_updates.first() else {
+            return;
+        };
+
+        if self.downstreams.is_empty() {
+            return;
+        }
+
+        let mut min_target: Option<Target> = None;
+        let mut total_hashrate: Hashrate = 0.0;
+
+        for downstream in self.downstreams.iter() {
+            let downstream = downstream.value();
+            downstream.downstream_data.super_safe_lock(|d| {
+                let target = *d.pending_target.as_ref().unwrap_or(&d.target);
+                let hashrate = d
+                    .pending_hashrate
+                    .unwrap_or_else(|| d.hashrate.expect("vardiff implies hashrate"));
+
+                min_target = Some(match min_target {
+                    Some(current) => current.min(target),
+                    None => target,
+                });
+
+                total_hashrate += hashrate;
+            });
+        }
+
+        let min_target = min_target.expect("at least one downstream must exist");
+        let downstream_count = self.downstreams.len();
+
+        let update_channel = UpdateChannel {
+            channel_id: *channel_id,
+            nominal_hash_rate: total_hashrate,
+            maximum_target: min_target.to_le_bytes().into(),
+        };
+
+        debug!(
+            "Sending aggregated UpdateChannel: channel_id={}, total_hashrate={}, min_target={:?}, downstreams={}, vardiff_updates={}",
+            channel_id,
+            total_hashrate,
+            min_target,
+            downstream_count,
+            all_updates.len()
+        );
+
+        if let Err(e) = self
+            .sv1_server_channel_state
+            .channel_manager_sender
+            .send((Mining::UpdateChannel(update_channel), None))
+            .await
+        {
+            error!("Failed to send aggregated UpdateChannel: {:?}", e);
+        }
+    }
+
+    async fn send_non_aggregated_update_channels(
+        &self,
+        all_updates: Vec<(DownstreamId, ChannelId, Target, Hashrate)>,
+    ) {
+        for (downstream_id, channel_id, new_target, new_hashrate) in all_updates {
+            let update_channel = UpdateChannel {
+                channel_id,
+                nominal_hash_rate: new_hashrate,
+                maximum_target: new_target.to_le_bytes().into(),
+            };
+
+            debug!(
+                "Sending UpdateChannel for downstream {}: channel_id={}, hashrate={}, target={:?}",
+                downstream_id, channel_id, new_hashrate, new_target
+            );
+
+            if let Err(e) = self
+                .sv1_server_channel_state
+                .channel_manager_sender
+                .send((Mining::UpdateChannel(update_channel), None))
+                .await
+            {
+                error!(
+                    "Failed to send UpdateChannel for downstream {}: {:?}",
+                    downstream_id, e
                 );
-
-                if let Err(e) = channel_manager_sender
-                    .send(Mining::UpdateChannel(update_channel))
-                    .await
-                {
-                    error!(
-                        "Failed to send UpdateChannel message for downstream {}: {:?}",
-                        downstream_id, e
-                    );
-                }
             }
         }
     }
@@ -376,173 +292,123 @@ impl DifficultyManager {
     /// Aggregated mode: Single SetTarget updates all downstreams and processes all pending updates
     /// Non-aggregated mode: Each SetTarget updates one specific downstream and processes its
     /// pending update
-    pub async fn handle_set_target_message(
-        set_target: SetTarget<'_>,
-        sv1_server_data: &Arc<Mutex<Sv1ServerData>>,
-        channel_manager_sender: &Sender<Mining<'static>>,
-        sv1_server_to_downstream_sender: &broadcast::Sender<(u32, Option<u32>, json_rpc::Message)>,
-        is_aggregated: bool,
-    ) {
-        let new_upstream_target: Target = bitcoin::Target::from_le_bytes(
-            set_target.maximum_target.inner_as_ref().try_into().unwrap(),
-        );
+    pub async fn handle_set_target_message(&self, set_target: SetTarget<'_>) {
+        let new_upstream_target =
+            Target::from_le_bytes(set_target.maximum_target.inner_as_ref().try_into().unwrap());
         debug!(
             "Received SetTarget for channel {}: new_upstream_target = {:?}",
             set_target.channel_id, new_upstream_target
         );
 
-        if is_aggregated {
-            Self::handle_aggregated_set_target(
-                new_upstream_target,
-                set_target.channel_id,
-                sv1_server_data,
-                channel_manager_sender,
-                sv1_server_to_downstream_sender,
-            )
-            .await;
-        } else {
-            Self::handle_non_aggregated_set_target(
-                set_target.channel_id,
-                new_upstream_target,
-                sv1_server_data,
-                channel_manager_sender,
-                sv1_server_to_downstream_sender,
-            )
-            .await;
+        if is_aggregated() {
+            return self
+                .handle_aggregated_set_target(new_upstream_target, set_target.channel_id)
+                .await;
         }
+
+        self.handle_non_aggregated_set_target(set_target.channel_id, new_upstream_target)
+            .await;
     }
 
     /// Handles SetTarget in aggregated mode.
     /// Updates all downstreams and processes all pending set_difficulty messages.
     async fn handle_aggregated_set_target(
+        &self,
         new_upstream_target: Target,
-        channel_id: u32,
-        sv1_server_data: &Arc<Mutex<Sv1ServerData>>,
-        _channel_manager_sender: &Sender<Mining<'static>>,
-        sv1_server_to_downstream_sender: &broadcast::Sender<(u32, Option<u32>, json_rpc::Message)>,
+        channel_id: ChannelId,
     ) {
         debug!("Aggregated mode: Updating upstream target for all downstreams");
 
-        // Update upstream target for ALL downstreams
-        let downstream_ids: Vec<u32> =
-            sv1_server_data.super_safe_lock(|data| data.downstreams.keys().cloned().collect());
-
-        for downstream_id in downstream_ids {
-            _ = sv1_server_data.safe_lock(|data| {
-                if let Some(downstream) = data.downstreams.get(&downstream_id) {
-                    _ = downstream.downstream_data.safe_lock(|d| {
-                        d.set_upstream_target(new_upstream_target.clone());
-                    });
-                }
+        for downstream in self.downstreams.iter() {
+            let downstream = downstream.value();
+            downstream.downstream_data.super_safe_lock(|d| {
+                d.set_upstream_target(new_upstream_target, downstream.downstream_id);
             });
         }
 
         // Process ALL pending difficulty updates that can now be sent downstream
-        let applicable_updates = Self::get_pending_difficulty_updates(
-            new_upstream_target,
-            None,
-            channel_id,
-            sv1_server_data,
-        );
-        Self::send_pending_set_difficulty_messages_to_downstream(
-            applicable_updates,
-            sv1_server_data,
-            sv1_server_to_downstream_sender,
-        )
-        .await;
+        let applicable_updates =
+            self.get_pending_difficulty_updates(new_upstream_target, None, channel_id);
+
+        self.send_pending_set_difficulty_messages_to_downstream(applicable_updates)
+            .await;
     }
 
     /// Handles SetTarget in non-aggregated mode.
     /// Updates the specific downstream and processes its pending set_difficulty message.
     async fn handle_non_aggregated_set_target(
-        channel_id: u32,
+        &self,
+        channel_id: ChannelId,
         new_upstream_target: Target,
-        sv1_server_data: &Arc<Mutex<Sv1ServerData>>,
-        _channel_manager_sender: &Sender<Mining<'static>>,
-        sv1_server_to_downstream_sender: &broadcast::Sender<(u32, Option<u32>, json_rpc::Message)>,
     ) {
         debug!(
             "Non-aggregated mode: Processing SetTarget for channel {}",
             channel_id
         );
 
-        let affected_downstream = sv1_server_data.super_safe_lock(|data| {
-            data.downstreams
-                .iter()
-                .find_map(|(downstream_id, downstream)| {
-                    downstream.downstream_data.super_safe_lock(|d| {
-                        if d.channel_id == Some(channel_id) {
-                            Some(*downstream_id)
-                        } else {
-                            None
-                        }
-                    })
-                })
+        let affected = self.downstreams.iter().find(|downstream| {
+            downstream
+                .downstream_data
+                .super_safe_lock(|d| d.channel_id == Some(channel_id))
         });
 
-        if let Some(downstream_id) = affected_downstream {
-            // Update upstream target for this specific downstream
-            _ = sv1_server_data.safe_lock(|data| {
-                if let Some(downstream) = data.downstreams.get(&downstream_id) {
-                    _ = downstream.downstream_data.safe_lock(|d| {
-                        d.set_upstream_target(new_upstream_target.clone());
-                    });
-                }
-            });
-            trace!("Updated upstream target for downstream {}", downstream_id);
-
-            // Process pending difficulty updates for this specific downstream only
-            let applicable_updates = Self::get_pending_difficulty_updates(
-                new_upstream_target,
-                Some(downstream_id),
-                channel_id,
-                sv1_server_data,
-            );
-            Self::send_pending_set_difficulty_messages_to_downstream(
-                applicable_updates,
-                sv1_server_data,
-                sv1_server_to_downstream_sender,
-            )
-            .await;
-        } else {
+        let Some(downstream) = affected else {
             warn!("No downstream found for channel {}", channel_id);
-        }
+            return;
+        };
+
+        let downstream_id = downstream.downstream_id;
+
+        downstream.downstream_data.super_safe_lock(|d| {
+            d.set_upstream_target(new_upstream_target, downstream_id);
+        });
+
+        trace!("Updated upstream target for downstream {}", downstream_id);
+
+        let applicable_updates = self.get_pending_difficulty_updates(
+            new_upstream_target,
+            Some(downstream_id),
+            channel_id,
+        );
+
+        self.send_pending_set_difficulty_messages_to_downstream(applicable_updates)
+            .await;
     }
 
     /// Gets pending updates that can now be applied based on the new upstream target.
     /// If downstream_id is provided, only returns updates for that specific downstream.
     /// Logs a warning if the upstream target is higher than any requested target.
     fn get_pending_difficulty_updates(
+        &self,
         new_upstream_target: Target,
-        downstream_id: Option<u32>,
-        channel_id: u32,
-        sv1_server_data: &Arc<Mutex<Sv1ServerData>>,
+        downstream_id: Option<DownstreamId>,
+        channel_id: ChannelId,
     ) -> Vec<PendingTargetUpdate> {
         let mut applicable_updates = Vec::new();
 
-        sv1_server_data.super_safe_lock(|data| {
-            data.pending_target_updates.retain(|pending_update| {
+        self.pending_target_updates.super_safe_lock(|data| {
+            data.retain(|pending_update| {
                 // Check if we should process this update
                 let should_process = match downstream_id {
                     Some(downstream_id) => pending_update.downstream_id == downstream_id,
                     None => true, // Process all in aggregated mode
                 };
 
-                if should_process {
-                    if pending_update.new_target >= new_upstream_target {
-                        // Target is acceptable, can apply immediately
-                        applicable_updates.push(pending_update.clone());
-                        false // remove from pending list
-                    } else {
-                        // WARNING: Upstream gave us a target higher than what we requested
-                        error!(
-                            "❌ Protocol issue: SetTarget response has target ({:?}) which is higher than requested target ({:?}) in UpdateChannel for channel {:?}. Ignoring this pending update for downstream {:?}.",
-                            new_upstream_target, pending_update.new_target, channel_id, pending_update.downstream_id
-                        );
-                        false // remove from pending list (don't keep invalid requests)
-                    }
+                if !should_process {
+                    return true; // keep in pending list (not relevant for this SetTarget)
+                }
+
+                if pending_update.new_target >= new_upstream_target {
+                    // Target is acceptable, can apply immediately
+                    applicable_updates.push(pending_update.clone());
+                    false // remove from pending list
                 } else {
-                    true // keep in pending list (not relevant for this SetTarget)
+                    // WARNING: Upstream gave us a target higher than what we requested
+                    error!(
+                        "❌ Protocol issue: SetTarget response has target ({:?}) which is higher than requested target ({:?}) in UpdateChannel for channel {:?}. Ignoring this pending update for downstream {:?}.",
+                        new_upstream_target, pending_update.new_target, channel_id, pending_update.downstream_id
+                    );
+                    false // remove from pending list (don't keep invalid requests)
                 }
             });
         });
@@ -551,39 +417,46 @@ impl DifficultyManager {
 
     /// Sends set_difficulty messages for all applicable pending updates.
     async fn send_pending_set_difficulty_messages_to_downstream(
+        &self,
         difficulty_updates: Vec<PendingTargetUpdate>,
-        sv1_server_data: &Arc<Mutex<Sv1ServerData>>,
-        sv1_server_to_downstream_sender: &broadcast::Sender<(u32, Option<u32>, json_rpc::Message)>,
     ) {
-        for pending_update in &difficulty_updates {
-            // Get channel_id for this downstream
-            let channel_id = sv1_server_data.super_safe_lock(|data| {
-                data.downstreams
-                    .get(&pending_update.downstream_id)
-                    .and_then(|ds| ds.downstream_data.super_safe_lock(|d| d.channel_id))
-            });
+        for update in difficulty_updates {
+            let channel_id = self
+                .downstreams
+                .get(&update.downstream_id)
+                .and_then(|ds| ds.downstream_data.super_safe_lock(|d| d.channel_id));
 
-            if let Some(channel_id) = channel_id {
-                // Send set_difficulty message
-                if let Ok(set_difficulty_msg) =
-                    build_sv1_set_difficulty_from_sv2_target(pending_update.new_target.clone())
-                {
-                    if let Err(e) = sv1_server_to_downstream_sender.send((
-                        channel_id,
-                        Some(pending_update.downstream_id),
-                        set_difficulty_msg,
-                    )) {
+            let Some(channel_id) = channel_id else {
+                trace!(
+                    "Skipping SetDifficulty for downstream {}: no channel_id yet",
+                    update.downstream_id
+                );
+                continue;
+            };
+
+            let set_difficulty_msg =
+                match build_sv1_set_difficulty_from_sv2_target(update.new_target) {
+                    Ok(msg) => msg,
+                    Err(e) => {
                         error!(
-                            "Failed to send SetDifficulty to downstream {}: {:?}",
-                            pending_update.downstream_id, e
+                            "Failed to build SetDifficulty for downstream {}: {:?}",
+                            update.downstream_id, e
                         );
-                    } else {
-                        trace!(
-                            "Sent SetDifficulty to downstream {}",
-                            pending_update.downstream_id
-                        );
+                        continue;
                     }
-                }
+                };
+
+            if let Err(e) = self
+                .sv1_server_channel_state
+                .sv1_server_to_downstream_sender
+                .send((channel_id, Some(update.downstream_id), set_difficulty_msg))
+            {
+                error!(
+                    "Failed to send SetDifficulty to downstream {}: {:?}",
+                    update.downstream_id, e
+                );
+            } else {
+                trace!("Sent SetDifficulty to downstream {}", update.downstream_id);
             }
         }
     }
@@ -591,176 +464,70 @@ impl DifficultyManager {
     /// Sends an UpdateChannel message for aggregated mode when downstream state changes
     /// (e.g., disconnect). Calculates total hashrate and minimum target among all remaining
     /// downstreams.
-    pub async fn send_update_channel_on_downstream_state_change(
-        sv1_server_data: &Arc<Mutex<Sv1ServerData>>,
-        channel_manager_sender: &Sender<Mining<'static>>,
-        is_aggregated: bool,
-    ) {
-        if !is_aggregated {
-            return; // Only applies to aggregated mode
+    pub async fn send_update_channel_on_downstream_state_change(&self) {
+        if is_non_aggregated() {
+            return;
         }
 
-        let (total_hashrate, min_target, channel_id, downstream_count) = sv1_server_data
-            .super_safe_lock(|data| {
-                // Hardcoded channel_id 0 (the ChannelManager will set this channel_id to the
-                // upstream extended channel id)
-                let channel_id = 0;
+        let is_empty = self.downstreams.is_empty();
 
-                let total_hashrate: f32 = data
-                    .downstreams
-                    .values()
-                    .map(|downstream| {
-                        downstream.downstream_data.super_safe_lock(|d| {
-                            // Use pending_hashrate if available, otherwise current hashrate
-                            // It's safe to unwrap because we know that the downstream has a
-                            // hashrate (we are doing vardiff)
-                            d.pending_hashrate.unwrap_or(d.hashrate.unwrap())
-                        })
-                    })
-                    .sum();
+        let snapshot = if is_empty {
+            AggregatedSnapshot::NoDownstreams
+        } else {
+            let mut total_hashrate: Hashrate = 0.0;
+            let mut min_target: Option<Target> = None;
 
-                let min_target = data
-                    .downstreams
-                    .values()
-                    .map(|downstream| {
-                        downstream.downstream_data.super_safe_lock(|d| {
-                            // Use pending_target if available, otherwise current target
-                            d.pending_target.as_ref().unwrap_or(&d.target).clone()
-                        })
-                    })
-                    .min();
+            for downstream in self.downstreams.iter() {
+                let downstream = downstream.value();
+                downstream.downstream_data.super_safe_lock(|d| {
+                    let hashrate = d.pending_hashrate.unwrap_or_else(|| {
+                        d.hashrate
+                            .expect("vardiff implies downstream must have a hashrate")
+                    });
 
-                (
-                    total_hashrate,
-                    min_target,
-                    Some(channel_id),
-                    data.downstreams.len(),
-                )
-            });
+                    let target = *d.pending_target.as_ref().unwrap_or(&d.target);
 
-        if let (Some(min_target), Some(channel_id)) = (min_target, channel_id) {
-            let update_channel = UpdateChannel {
-                channel_id,
+                    total_hashrate += hashrate;
+                    min_target = Some(match min_target {
+                        Some(current) => current.min(target),
+                        None => target,
+                    });
+                });
+            }
+
+            AggregatedSnapshot::Active {
+                total_hashrate,
+                min_target: min_target.expect("downstreams is non-empty"),
+            }
+        };
+
+        let update = match snapshot {
+            AggregatedSnapshot::Active {
+                total_hashrate,
+                min_target,
+            } => UpdateChannel {
+                channel_id: 0, // ChannelManager will rewrite to upstream extended channel id
                 nominal_hash_rate: total_hashrate,
                 maximum_target: min_target.to_le_bytes().into(),
-            };
+            },
 
-            if let Err(e) = channel_manager_sender
-                .send(Mining::UpdateChannel(update_channel))
-                .await
-            {
-                error!(
-                    "Failed to send UpdateChannel message after downstream state change: {:?}",
-                    e
-                );
-            }
-        } else if downstream_count == 0 {
-            // No downstreams remaining, send UpdateChannel with maximum possible target
-            let update_channel = UpdateChannel {
+            AggregatedSnapshot::NoDownstreams => UpdateChannel {
                 channel_id: 0,
-                nominal_hash_rate: 0.0, // No hashrate when no downstreams
+                nominal_hash_rate: 0.0,
                 maximum_target: [0xFF; 32].into(),
-            };
+            },
+        };
 
-            if let Err(e) = channel_manager_sender
-                .send(Mining::UpdateChannel(update_channel))
-                .await
-            {
-                error!(
-                    "Failed to send UpdateChannel message with maximum target: {:?}",
-                    e
-                );
-            }
-        } else {
-            warn!("Cannot send UpdateChannel after downstream state change: no downstreams remaining or no channel_id");
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::sv1::sv1_server::data::Sv1ServerData;
-    use async_channel::unbounded;
-    use std::sync::Arc;
-
-    fn create_test_difficulty_manager() -> DifficultyManager {
-        DifficultyManager::new(5.0, true) // 5 shares per minute, aggregated mode
-    }
-
-    fn create_test_sv1_server_data() -> Arc<Mutex<Sv1ServerData>> {
-        let data = Sv1ServerData::new(true); // aggregated mode
-        Arc::new(Mutex::new(data))
-    }
-
-    #[test]
-    fn test_difficulty_manager_creation() {
-        let manager = create_test_difficulty_manager();
-        assert_eq!(manager.shares_per_minute, 5.0);
-        assert!(manager.is_aggregated);
-
-        let non_agg_manager = DifficultyManager::new(10.0, false);
-        assert_eq!(non_agg_manager.shares_per_minute, 10.0);
-        assert!(!non_agg_manager.is_aggregated);
-    }
-
-    #[tokio::test]
-    async fn test_send_update_channel_on_downstream_state_change_aggregated() {
-        let sv1_server_data = create_test_sv1_server_data();
-        let (sender, receiver) = unbounded();
-
-        // Test with no downstreams
-        DifficultyManager::send_update_channel_on_downstream_state_change(
-            &sv1_server_data,
-            &sender,
-            true, // aggregated
-        )
-        .await;
-
-        // Should send UpdateChannel with maximum target when no downstreams
-        let received_message = receiver
-            .try_recv()
-            .expect("Should receive UpdateChannel message");
-        if let Mining::UpdateChannel(update_channel) = received_message {
-            assert_eq!(update_channel.channel_id, 0);
-            assert_eq!(update_channel.nominal_hash_rate, 0.0);
-            assert_eq!(update_channel.maximum_target, [0xFF; 32].into());
-        } else {
-            panic!(
-                "Expected UpdateChannel message, got: {:?}",
-                received_message
+        if let Err(e) = self
+            .sv1_server_channel_state
+            .channel_manager_sender
+            .send((Mining::UpdateChannel(update), None))
+            .await
+        {
+            error!(
+                "Failed to send UpdateChannel after downstream state change: {:?}",
+                e
             );
         }
-    }
-
-    #[tokio::test]
-    async fn test_send_update_channel_on_downstream_state_change_non_aggregated() {
-        let sv1_server_data = create_test_sv1_server_data();
-        let (sender, _receiver) = unbounded();
-
-        DifficultyManager::send_update_channel_on_downstream_state_change(
-            &sv1_server_data,
-            &sender,
-            false, // non-aggregated
-        )
-        .await;
-
-        // Non-aggregated mode should return early and not crash
-    }
-
-    #[test]
-    fn test_get_pending_difficulty_updates_basic() {
-        let sv1_server_data = create_test_sv1_server_data();
-        let upstream_target: Target = hash_rate_to_target(150.0, 5.0).unwrap();
-
-        // Test with empty pending updates
-        let applicable_updates = DifficultyManager::get_pending_difficulty_updates(
-            upstream_target,
-            None, // All downstreams
-            1,    // channel_id
-            &sv1_server_data,
-        );
-
-        assert_eq!(applicable_updates.len(), 0);
     }
 }

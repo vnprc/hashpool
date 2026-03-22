@@ -1,36 +1,32 @@
 use crate::{
-    error::TproxyError,
+    error::{self, TproxyError, TproxyErrorKind, TproxyResult},
+    io_task::spawn_io_tasks,
     status::{handle_error, Status, StatusSender},
     sv2::upstream::channel::UpstreamChannelState,
-    task_manager::TaskManager,
-    utils::{message_from_frame, ShutdownMessage},
+    utils::UpstreamEntry,
 };
-use async_channel::{Receiver, Sender};
-use mint_quote_sv2::{MESSAGE_TYPE_MINT_QUOTE_FAILURE, MESSAGE_TYPE_MINT_QUOTE_NOTIFICATION};
-use key_utils::Secp256k1PublicKey;
-use network_helpers_sv2::noise_connection::Connection;
+use async_channel::{unbounded, Receiver, Sender};
 use std::{net::SocketAddr, sync::Arc};
-use framing_sv2;
-use noise_sv2::Initiator;
-use stratum_common::roles_logic_sv2::{
-    codec_sv2::{HandshakeRole, StandardEitherFrame, StandardSv2Frame},
-    common_messages_sv2::{Protocol, SetupConnection},
-    handlers_sv2::HandleCommonMessagesFromServerAsync,
-    parsers_sv2::AnyMessage,
+use stratum_apps::{
+    fallback_coordinator::FallbackCoordinator,
+    network_helpers::{self, connect_with_noise, resolve_host},
+    stratum_core::{
+        binary_sv2::Seq064K,
+        common_messages_sv2::{Protocol, SetupConnection},
+        extensions_sv2::RequestExtensions,
+        handlers_sv2::HandleCommonMessagesFromServerAsync,
+        parsers_sv2::{AnyMessage, Mining},
+    },
+    task_manager::TaskManager,
+    utils::{
+        protocol_message_type::{protocol_message_type, MessageType},
+        types::{Message, Sv2Frame},
+    },
 };
-use tokio::{
-    net::TcpStream,
-    sync::{broadcast, mpsc},
-    time::{sleep, Duration},
-};
-use tracing::{debug, error, info, warn};
 
-/// Type alias for SV2 messages with static lifetime
-pub type Message = AnyMessage<'static>;
-/// Type alias for standard SV2 frames
-pub type StdFrame = StandardSv2Frame<Message>;
-/// Type alias for either handshake or SV2 frames
-pub type EitherFrame = StandardEitherFrame<Message>;
+use tokio::net::TcpStream;
+use tokio_util::sync::CancellationToken;
+use tracing::{debug, error, info, warn};
 
 /// Manages the upstream SV2 connection to a mining pool or proxy.
 ///
@@ -47,9 +43,13 @@ pub type EitherFrame = StandardEitherFrame<Message>;
 /// establishment.
 #[derive(Debug, Clone)]
 pub struct Upstream {
-    upstream_channel_state: UpstreamChannelState,
+    pub upstream_channel_state: UpstreamChannelState,
+    /// Extensions that the translator requires (must be supported by server)
+    pub required_extensions: Vec<u16>,
+    address: SocketAddr,
 }
 
+#[cfg_attr(not(test), hotpath::measure_all)]
 impl Upstream {
     /// Creates a new upstream connection by attempting to connect to configured servers.
     ///
@@ -58,76 +58,117 @@ impl Upstream {
     /// to connect to each server multiple times before giving up.
     ///
     /// # Arguments
-    /// * `upstreams` - List of (address, public_key) pairs for upstream servers
+    /// * `upstreams` - A single `UpstreamEntry` representing the upstream candidate currently being
+    ///   attempted. The `tried_or_flagged` is set once the upstream has either been connected to
+    ///   successfully or marked as malicious. Because `new` is only called from
+    ///   `try_initialize_upstream`, we can treat this flag as the definitive state for that
+    ///   upstream.
     /// * `channel_manager_sender` - Channel to send messages to the channel manager
     /// * `channel_manager_receiver` - Channel to receive messages from the channel manager
-    /// * `notify_shutdown` - Broadcast channel for shutdown coordination
-    /// * `shutdown_complete_tx` - Channel to signal shutdown completion
+    /// * `cancellation_token` - Global application cancellation token
+    /// * `fallback_coordinator` - Coordinator for upstream fallback
     ///
     /// # Returns
     /// * `Ok(Upstream)` - Successfully connected to an upstream server
     /// * `Err(TproxyError)` - Failed to connect to any upstream server
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
-        upstreams: &[(SocketAddr, Secp256k1PublicKey)],
-        channel_manager_sender: Sender<EitherFrame>,
-        channel_manager_receiver: Receiver<EitherFrame>,
-        notify_shutdown: broadcast::Sender<ShutdownMessage>,
-        shutdown_complete_tx: mpsc::Sender<()>,
-    ) -> Result<Self, TproxyError> {
-        let mut shutdown_rx = notify_shutdown.subscribe();
-        const RETRIES_PER_UPSTREAM: u8 = 3;
+        upstream: &UpstreamEntry,
+        channel_manager_sender: Sender<Sv2Frame>,
+        channel_manager_receiver: Receiver<Sv2Frame>,
+        cancellation_token: CancellationToken,
+        fallback_coordinator: FallbackCoordinator,
+        task_manager: Arc<TaskManager>,
+        required_extensions: Vec<u16>,
+    ) -> TproxyResult<Self, error::Upstream> {
+        info!(
+            "Trying to connect to upstream at {}:{}",
+            upstream.host, upstream.port
+        );
 
-        for (index, (addr, pubkey)) in upstreams.iter().enumerate() {
-            info!("Trying to connect to upstream {} at {}", index, addr);
+        if cancellation_token.is_cancelled() {
+            info!("Shutdown signal received during upstream connection attempt. Aborting.");
+            return Err(TproxyError::shutdown(
+                TproxyErrorKind::CouldNotInitiateSystem,
+            ));
+        }
 
-            for attempt in 1..=RETRIES_PER_UPSTREAM {
-                if shutdown_rx.try_recv().is_ok() {
-                    info!("Shutdown signal received during upstream connection attempt. Aborting.");
-                    drop(shutdown_complete_tx);
-                    return Err(TproxyError::Shutdown);
-                }
+        let resolved_addr = resolve_host(&upstream.host, upstream.port)
+            .await
+            .map_err(|e| {
+                error!(
+                    "Failed to resolve upstream address {}:{}: {e}",
+                    upstream.host, upstream.port
+                );
+                TproxyError::fallback(TproxyErrorKind::NetworkHelpersError(e.into()))
+            })?;
 
-                match TcpStream::connect(addr).await {
-                    Ok(socket) => {
-                        info!(
-                            "Connected to upstream at {addr} (attempt {attempt}/{RETRIES_PER_UPSTREAM})"
-                        );
-                        let initiator = Initiator::from_raw_k(pubkey.into_bytes())?;
-                        match Connection::new(socket, HandshakeRole::Initiator(initiator)).await {
-                            Ok((receiver, sender)) => {
+        match TcpStream::connect(resolved_addr).await {
+            Ok(socket) => {
+                info!("Connected to upstream at {}", resolved_addr);
+
+                tokio::select! {
+                    result = connect_with_noise(socket, Some(upstream.authority_pubkey)) => {
+                        match result {
+                            Ok(stream) => {
+                                let (reader, writer) = stream.into_split();
+
+                                let (outbound_tx, outbound_rx) = unbounded();
+                                let (inbound_tx, inbound_rx) = unbounded();
+
+                                spawn_io_tasks(
+                                    task_manager,
+                                    reader,
+                                    writer,
+                                    outbound_rx,
+                                    inbound_tx,
+                                    cancellation_token.clone(),
+                                    fallback_coordinator.clone(),
+                                );
+
                                 let upstream_channel_state = UpstreamChannelState::new(
+                                    inbound_rx,
+                                    outbound_tx,
                                     channel_manager_sender,
                                     channel_manager_receiver,
-                                    receiver,
-                                    sender,
                                 );
-                                debug!("Successfully initialized upstream channel with {addr}");
+                                debug!(
+                                    "Successfully initialized upstream channel with {}",
+                                    resolved_addr
+                                );
 
                                 return Ok(Self {
                                     upstream_channel_state,
+                                    required_extensions: required_extensions.clone(),
+                                    address: resolved_addr,
                                 });
                             }
+                            Err(network_helpers::Error::InvalidKey) => {
+                                return Err(TproxyError::fallback(TproxyErrorKind::InvalidKey));
+                            }
                             Err(e) => {
-                                error!("Failed Noise handshake with {addr}: {e:?}. Retrying...");
+                                error!(
+                                    "Failed Noise handshake with {}: {e}. Retrying...",
+                                    resolved_addr
+                                );
                             }
                         }
                     }
-                    Err(e) => {
-                        error!(
-                            "Failed to connect to {addr}: {e}. Retry {attempt}/{RETRIES_PER_UPSTREAM}..."
-                        );
+                    _ = cancellation_token.cancelled() => {
+                        info!("Shutdown received during handshake, dropping connection");
+                        return Err(TproxyError::shutdown(TproxyErrorKind::CouldNotInitiateSystem));
                     }
                 }
-
-                sleep(Duration::from_secs(5)).await;
             }
-
-            warn!("Exhausted retries for upstream {index} at {addr}");
+            Err(e) => {
+                error!("Failed to connect to {}: {e}.", resolved_addr);
+            }
         }
 
         error!("Failed to connect to any configured upstream.");
-        drop(shutdown_complete_tx);
-        Err(TproxyError::Shutdown)
+        Err(TproxyError::shutdown(
+            TproxyErrorKind::CouldNotInitiateSystem,
+        ))
     }
 
     /// Starts the upstream connection and begins message processing.
@@ -142,36 +183,28 @@ impl Upstream {
     /// message flow between the channel manager and upstream server.
     pub async fn start(
         mut self,
-        notify_shutdown: broadcast::Sender<ShutdownMessage>,
-        shutdown_complete_tx: mpsc::Sender<()>,
+        cancellation_token: CancellationToken,
+        fallback_coordinator: FallbackCoordinator,
         status_sender: Sender<Status>,
         task_manager: Arc<TaskManager>,
-    ) -> Result<(), TproxyError> {
-        let mut shutdown_rx = notify_shutdown.subscribe();
-        // Wait for connection setup or shutdown signal
+    ) -> TproxyResult<(), error::Upstream> {
+        let fallback_token: CancellationToken = fallback_coordinator.token();
+
+        // wait for connection setup or cancellation signal
         tokio::select! {
             result = self.setup_connection() => {
                 if let Err(e) = result {
                     error!("Upstream: failed to set up SV2 connection: {e:?}");
-                    drop(shutdown_complete_tx);
                     return Err(e);
                 }
             }
-            message = shutdown_rx.recv() => {
-                match message {
-                    Ok(ShutdownMessage::ShutdownAll) => {
-                        info!("Upstream: shutdown signal received during connection setup.");
-                        drop(shutdown_complete_tx);
-                        return Ok(());
-                    }
-                    Ok(_) => {}
-
-                    Err(e) => {
-                        error!("Upstream: failed to receive shutdown signal: {e}");
-                        drop(shutdown_complete_tx);
-                        return Ok(());
-                    }
-                }
+            _ = cancellation_token.cancelled() => {
+                info!("Upstream: shutdown signal received during connection setup.");
+                return Ok(());
+            }
+            _ = fallback_token.cancelled() => {
+                info!("Upstream: fallback signal received during connection setup.");
+                return Ok(());
             }
         }
 
@@ -179,8 +212,8 @@ impl Upstream {
         let wrapped_status_sender = StatusSender::Upstream(status_sender);
 
         self.run_upstream_task(
-            notify_shutdown,
-            shutdown_complete_tx,
+            cancellation_token,
+            fallback_coordinator,
             wrapped_status_sender,
             task_manager,
         )?;
@@ -197,55 +230,78 @@ impl Upstream {
     ///
     /// The handshake establishes the protocol version, capabilities, and
     /// other connection parameters needed for SV2 communication.
-    pub async fn setup_connection(&mut self) -> Result<(), TproxyError> {
+    pub async fn setup_connection(&mut self) -> TproxyResult<(), error::Upstream> {
         debug!("Upstream: initiating SV2 handshake...");
         // Build SetupConnection message
-        let setup_conn_msg = Self::get_setup_connection_message(2, 2, false)?;
-        let sv2_frame: StdFrame =
+        let setup_conn_msg = Self::get_setup_connection_message(2, 2, &self.address, false)
+            .map_err(TproxyError::shutdown)?;
+        let sv2_frame: Sv2Frame =
             Message::Common(setup_conn_msg.into())
                 .try_into()
-                .map_err(|e| {
-                    error!("Failed to serialize SetupConnection message: {:?}", e);
-                    TproxyError::ParserError(e)
+                .map_err(|error| {
+                    error!("Failed to serialize SetupConnection message: {error:?}");
+                    TproxyError::shutdown(error)
                 })?;
 
         // Send SetupConnection message to upstream
         self.upstream_channel_state
             .upstream_sender
-            .send(sv2_frame.into())
+            .send(sv2_frame)
             .await
             .map_err(|e| {
                 error!("Failed to send SetupConnection to upstream: {:?}", e);
-                TproxyError::ChannelErrorSender
+                TproxyError::fallback(TproxyErrorKind::ChannelErrorSender)
             })?;
 
-        let mut incoming: StdFrame =
+        let mut incoming: Sv2Frame =
             match self.upstream_channel_state.upstream_receiver.recv().await {
                 Ok(frame) => {
                     debug!("Received handshake response from upstream.");
-                    frame.try_into()?
+                    frame
                 }
                 Err(e) => {
                     error!("Failed to receive handshake response from upstream: {}", e);
-                    return Err(TproxyError::CodecNoise(
-                        noise_sv2::Error::ExpectedIncomingHandshakeMessage,
-                    ));
+                    return Err(TproxyError::fallback(e));
                 }
             };
 
-        let message_type = incoming
-            .get_header()
-            .ok_or_else(|| {
-                error!("Expected handshake frame but no header found.");
-                framing_sv2::Error::ExpectedHandshakeFrame
-            })?
-            .msg_type();
+        let header = incoming.get_header().ok_or_else(|| {
+            error!("Expected handshake frame but no header found.");
+            TproxyError::fallback(TproxyErrorKind::UnexpectedMessage(0, 0))
+        })?;
 
         let payload = incoming.payload();
 
-        self.handle_common_message_frame_from_server(message_type, payload)
+        self.handle_common_message_frame_from_server(None, header, payload)
             .await?;
         debug!("Upstream: handshake completed successfully.");
+
+        // Send RequestExtensions message if there are any required extensions
+        if !self.required_extensions.is_empty() {
+            let require_extensions = RequestExtensions {
+                request_id: 1,
+                requested_extensions: Seq064K::new(self.required_extensions.clone()).unwrap(),
+            };
+
+            let sv2_frame: Sv2Frame =
+                AnyMessage::Extensions(require_extensions.into_static().into())
+                    .try_into()
+                    .map_err(TproxyError::shutdown)?;
+
+            info!(
+                "Sending RequestExtensions message to upstream: {:?}",
+                sv2_frame
+            );
+
+            self.upstream_channel_state
+                .upstream_sender
+                .send(sv2_frame)
+                .await
+                .map_err(|e| {
+                    error!("Failed to send message to upstream: {:?}", e);
+                    TproxyError::fallback(TproxyErrorKind::ChannelErrorSender)
+                })?;
+        }
         Ok(())
     }
 
@@ -257,111 +313,89 @@ impl Upstream {
     ///
     /// Common messages are handled directly, while mining messages are forwarded
     /// to the channel manager for processing and distribution to downstream connections.
-    pub async fn on_upstream_message(&self, message: EitherFrame) -> Result<(), TproxyError> {
-        let mut upstream = self.get_upstream();
-        match message {
-            EitherFrame::Sv2(sv2_frame) => {
-                // Convert to standard frame
-                let std_frame: StdFrame = sv2_frame;
+    pub async fn on_upstream_message(
+        &mut self,
+        mut sv2_frame: Sv2Frame,
+    ) -> TproxyResult<(), error::Upstream> {
+        debug!("Received SV2 frame from upstream.");
+        let Some(header) = sv2_frame.get_header() else {
+            return Err(TproxyError::fallback(TproxyErrorKind::UnexpectedMessage(
+                0, 0,
+            )));
+        };
 
-                // Quickly inspect the header to short-circuit extension messages we handle
-                // ourselves.
-                let header = std_frame
-                    .get_header()
-                    .ok_or_else(|| TproxyError::UnexpectedMessage(0))?;
-                let message_type = header.msg_type();
-
-                if message_type == MESSAGE_TYPE_MINT_QUOTE_NOTIFICATION
-                    || message_type == MESSAGE_TYPE_MINT_QUOTE_FAILURE
-                {
-                    self.upstream_channel_state
-                        .channel_manager_sender
-                        .send(EitherFrame::Sv2(std_frame.clone()))
-                        .await
-                        .map_err(|e| {
-                            error!(
-                                "Failed to send mint quote extension message to channel manager: {:?}",
-                                e
-                            );
-                            TproxyError::ChannelErrorSender
-                        })?;
-                    return Ok(());
-                }
-
-                // Parse message from frame for all other message types
-                let mut frame: framing_sv2::framing::Frame<AnyMessage<'static>, buffer_sv2::Slice> =
-                    std_frame.clone().into();
-
-                let (message_type_parsed, mut payload, parsed_message) =
-                    message_from_frame(&mut frame)?;
-
-                match parsed_message {
-                    AnyMessage::Common(_) => {
-                        // Handle common upstream messages
-                        upstream
-                            .handle_common_message_frame_from_server(
-                                message_type_parsed,
-                                &mut payload,
-                            )
-                            .await?;
-                    }
-
-                    AnyMessage::Mining(_) => {
-                        // Forward mining message to channel manager
-                        let frame_to_forward = EitherFrame::Sv2(std_frame.clone());
-                        self.upstream_channel_state
-                            .channel_manager_sender
-                            .send(frame_to_forward)
-                            .await
-                            .map_err(|e| {
-                                error!("Failed to send mining message to channel manager: {:?}", e);
-                                TproxyError::ChannelErrorSender
-                            })?;
-                    }
-
-                    _ => {
-                        error!("Received unsupported message type from upstream.");
-                        return Err(TproxyError::UnexpectedMessage(0));
-                    }
-                }
+        match protocol_message_type(header.ext_type(), header.msg_type()) {
+            MessageType::Common => {
+                info!(
+                    extension_type = header.ext_type(),
+                    message_type = header.msg_type(),
+                    "Handling common message from Upstream."
+                );
+                self.handle_common_message_frame_from_server(None, header, sv2_frame.payload())
+                    .await?;
             }
-
-            EitherFrame::HandShake(handshake_frame) => {
-                debug!("Received handshake frame: {:?}", handshake_frame);
+            MessageType::Mining | MessageType::Extensions => {
+                self.upstream_channel_state
+                    .channel_manager_sender
+                    .send(sv2_frame)
+                    .await
+                    .map_err(|e| {
+                        error!("Failed to send mining message to channel manager: {:?}", e);
+                        TproxyError::shutdown(TproxyErrorKind::ChannelErrorSender)
+                    })?;
+            }
+            _ => {
+                // Forward unknown/custom message types to the channel manager.
+                // Custom protocol extensions (e.g., MintQuoteNotification 0xC0) are
+                // handled there via CustomMiningMessageHandler rather than triggering
+                // a fallback that tears down the connection.
+                debug!(
+                    extension_type = header.ext_type(),
+                    message_type = header.msg_type(),
+                    "Received unknown message type from upstream, forwarding to channel manager."
+                );
+                self.upstream_channel_state
+                    .channel_manager_sender
+                    .send(sv2_frame)
+                    .await
+                    .map_err(|e| {
+                        error!("Failed to forward custom message to channel manager: {:?}", e);
+                        TproxyError::shutdown(TproxyErrorKind::ChannelErrorSender)
+                    })?;
             }
         }
         Ok(())
     }
 
     /// Spawns a unified task to handle upstream message I/O and shutdown logic.
+    #[allow(clippy::result_large_err)]
     fn run_upstream_task(
-        self,
-        notify_shutdown: broadcast::Sender<ShutdownMessage>,
-        shutdown_complete_tx: mpsc::Sender<()>,
+        mut self,
+        cancellation_token: CancellationToken,
+        fallback_coordinator: FallbackCoordinator,
         status_sender: StatusSender,
         task_manager: Arc<TaskManager>,
-    ) -> Result<(), TproxyError> {
-        let mut shutdown_rx = notify_shutdown.subscribe();
-        let shutdown_complete_tx = shutdown_complete_tx.clone();
-
+    ) -> TproxyResult<(), error::Upstream> {
         task_manager.spawn(async move {
+            // we just spawned a new task that's relevant to fallback coordination
+            // so register it with the fallback coordinator
+            let fallback_handler = fallback_coordinator.register();
+
+            // get the cancellation token that signals fallback
+            let fallback_token = fallback_coordinator.token();
+
             loop {
                 tokio::select! {
-                    // Handle shutdown signals
-                    shutdown = shutdown_rx.recv() => {
-                        match shutdown {
-                            Ok(ShutdownMessage::ShutdownAll) => {
-                                info!("Upstream: received ShutdownAll signal. Exiting loop.");
-                                break;
-                            }
-                            Ok(_) => {
-                                // Ignore other shutdown variants for upstream
-                            }
-                            Err(e) => {
-                                error!("Upstream: failed to receive shutdown signal: {e}");
-                                break;
-                            }
-                        }
+                    // Handle app shutdown signal
+                    _ = cancellation_token.cancelled() => {
+                        info!("Upstream: received shutdown signal. Exiting loop.");
+                        break;
+                    }
+
+                    // Handle fallback trigger
+                    _ = fallback_token.cancelled() => {
+                        info!("Upstream: fallback triggered");
+                        break;
                     }
 
                     // Handle incoming SV2 messages from upstream
@@ -371,12 +405,12 @@ impl Upstream {
                                 debug!("Upstream: received frame.");
                                 if let Err(e) = self.on_upstream_message(frame).await {
                                     error!("Upstream: error while processing message: {e:?}");
-                                    handle_error(&status_sender, TproxyError::ChannelErrorSender).await;
+                                    handle_error(&status_sender, e).await;
                                 }
                             }
                             Err(e) => {
                                 error!("Upstream: receiver channel closed unexpectedly: {e}");
-                                handle_error(&status_sender, TproxyError::ChannelErrorReceiver(e)).await;
+                                handle_error(&status_sender, TproxyError::<error::Upstream>::fallback(e)).await;
                                 break;
                             }
                         }
@@ -385,16 +419,24 @@ impl Upstream {
                     // Handle messages from channel manager to send upstream
                     result = self.upstream_channel_state.channel_manager_receiver.recv() => {
                         match result {
-                            Ok(msg) => {
-                                debug!("Upstream: sending message from channel manager: {:?}", msg);
-                                if let Err(e) = self.send_upstream(msg).await {
-                                    error!("Upstream: failed to send message: {e:?}");
-                                    handle_error(&status_sender, TproxyError::ChannelErrorSender).await;
+                            Ok(sv2_frame) => {
+                                debug!("Upstream: sending sv2 frame from channel manager: {:?}", sv2_frame);
+                                if let Err(e) = self
+                                    .upstream_channel_state
+                                    .upstream_sender
+                                    .send(sv2_frame)
+                                    .await
+                                    .map_err(|e| {
+                                        error!("Upstream: failed to send sv2 frame: {e:?}");
+                                        TproxyError::<error::Upstream>::fallback(TproxyErrorKind::ChannelErrorSender)
+                                    })
+                                {
+                                    handle_error(&status_sender, e).await;
                                 }
                             }
                             Err(e) => {
                                 error!("Upstream: channel manager receiver closed: {e}");
-                                handle_error(&status_sender, TproxyError::ChannelErrorReceiver(e)).await;
+                                handle_error(&status_sender, TproxyError::<error::Upstream>::shutdown(e)).await;
                                 break;
                             }
                         }
@@ -404,7 +446,9 @@ impl Upstream {
 
             self.upstream_channel_state.drop();
             warn!("Upstream: task shutting down cleanly.");
-            drop(shutdown_complete_tx);
+
+            // signal fallback coordinator that this task has completed its cleanup
+            fallback_handler.done();
         });
 
         Ok(())
@@ -422,8 +466,13 @@ impl Upstream {
     /// # Returns
     /// * `Ok(())` - Message sent successfully
     /// * `Err(TproxyError)` - Error sending the message
-    pub async fn send_upstream(&self, sv2_frame: EitherFrame) -> Result<(), TproxyError> {
+    pub async fn send_upstream(
+        &self,
+        message: Mining<'static>,
+    ) -> TproxyResult<(), error::Upstream> {
         debug!("Sending message to upstream.");
+        let message = AnyMessage::Mining(message);
+        let sv2_frame: Sv2Frame = message.try_into().map_err(TproxyError::shutdown)?;
 
         self.upstream_channel_state
             .upstream_sender
@@ -431,7 +480,7 @@ impl Upstream {
             .await
             .map_err(|e| {
                 error!("Failed to send message to upstream: {:?}", e);
-                TproxyError::ChannelErrorSender
+                TproxyError::fallback(TproxyErrorKind::ChannelErrorSender)
             })?;
 
         Ok(())
@@ -442,9 +491,10 @@ impl Upstream {
     fn get_setup_connection_message(
         min_version: u16,
         max_version: u16,
+        address: &SocketAddr,
         is_work_selection_enabled: bool,
-    ) -> Result<SetupConnection<'static>, TproxyError> {
-        let endpoint_host = "0.0.0.0".to_string().into_bytes().try_into()?;
+    ) -> Result<SetupConnection<'static>, TproxyErrorKind> {
+        let endpoint_host = address.ip().to_string().into_bytes().try_into()?;
         let vendor = "SRI".to_string().try_into()?;
         let hardware_version = "Translator Proxy".to_string().try_into()?;
         let firmware = String::new().try_into()?;
@@ -461,17 +511,11 @@ impl Upstream {
             max_version,
             flags,
             endpoint_host,
-            endpoint_port: 50,
+            endpoint_port: address.port(),
             vendor,
             hardware_version,
             firmware,
             device_id,
         })
-    }
-
-    fn get_upstream(&self) -> Upstream {
-        Upstream {
-            upstream_channel_state: self.upstream_channel_state.clone(),
-        }
     }
 }

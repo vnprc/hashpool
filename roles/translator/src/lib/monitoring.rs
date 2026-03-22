@@ -1,146 +1,112 @@
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    routing::get,
-    Router,
+//! Monitoring integration for Translation Proxy (tProxy)
+//!
+//! This module implements the ServerMonitoring trait on `ChannelManager`.
+//! tProxy has server channels (upstream to pool) but no SV2 clients
+//! (SV1 clients are handled separately in sv1_monitoring.rs).
+
+use stratum_apps::monitoring::server::{ServerExtendedChannelInfo, ServerInfo, ServerMonitoring};
+
+use crate::{
+    sv2::channel_manager::ChannelManager, tproxy_mode, utils::AGGREGATED_CHANNEL_ID,
+    vardiff_enabled, TproxyMode,
 };
-use stats_sv2::metrics::derive_hashrate;
-use std::sync::Arc;
-use tracing::info;
 
-use crate::TranslatorSv2;
+impl ServerMonitoring for ChannelManager {
+    fn get_server(&self) -> ServerInfo {
+        let mut extended_channels = Vec::new();
+        let standard_channels = Vec::new(); // tProxy only uses extended channels
+        let report_hashrate = vardiff_enabled();
 
-pub async fn run_monitoring_server(
-    address: String,
-    translator: TranslatorSv2,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let app = Router::new()
-        .route("/metrics", get(metrics_handler))
-        .with_state(Arc::new(translator));
+        match tproxy_mode() {
+            TproxyMode::Aggregated => {
+                // In Aggregated mode: one shared channel to the server
+                // stored under AGGREGATED_CHANNEL_ID
+                if let Some(aggregated_extended_channel) =
+                    self.extended_channels.get(&AGGREGATED_CHANNEL_ID)
+                {
+                    let channel_id = aggregated_extended_channel.get_channel_id();
+                    let target = aggregated_extended_channel.get_target();
+                    let extranonce_prefix = aggregated_extended_channel.get_extranonce_prefix();
+                    let user_identity = aggregated_extended_channel.get_user_identity();
+                    let share_accounting = aggregated_extended_channel.get_share_accounting();
 
-    let listener = tokio::net::TcpListener::bind(&address).await?;
-    info!("📈 Translator monitoring listening on http://{}", address);
+                    // Get the actual upstream sequence counter (shares submitted upstream)
+                    // In aggregated mode, we use the upstream channel_id as the counter key
+                    let shares_submitted = self
+                        .share_sequence_counters
+                        .get(&channel_id)
+                        .map(|v| *v)
+                        .unwrap_or(0);
 
-    axum::serve(listener, app).await?;
+                    extended_channels.push(ServerExtendedChannelInfo {
+                        channel_id,
+                        user_identity: user_identity.clone(),
+                        nominal_hashrate: if report_hashrate {
+                            Some(aggregated_extended_channel.get_nominal_hashrate())
+                        } else {
+                            None
+                        },
+                        target_hex: hex::encode(target.to_be_bytes()),
+                        extranonce_prefix_hex: hex::encode(extranonce_prefix),
+                        full_extranonce_size: aggregated_extended_channel
+                            .get_full_extranonce_size(),
+                        rollable_extranonce_size: aggregated_extended_channel
+                            .get_rollable_extranonce_size(),
+                        version_rolling: aggregated_extended_channel.is_version_rolling(),
+                        shares_accepted: share_accounting.get_acknowledged_shares(),
+                        share_work_sum: share_accounting.get_share_work_sum(),
+                        shares_submitted,
+                        best_diff: share_accounting.get_best_diff(),
+                        blocks_found: share_accounting.get_blocks_found(),
+                    });
+                }
+            }
+            TproxyMode::NonAggregated => {
+                // In NonAggregated mode: each downstream Sv1 miner has its own upstream Sv2
+                // channel to the server
+                for channel in self.extended_channels.iter() {
+                    let extended_channel = channel.value();
 
-    Ok(())
-}
+                    let channel_id = extended_channel.get_channel_id();
+                    let target = extended_channel.get_target();
+                    let extranonce_prefix = extended_channel.get_extranonce_prefix();
+                    let user_identity = extended_channel.get_user_identity();
+                    let share_accounting = extended_channel.get_share_accounting();
 
-async fn metrics_handler(State(translator): State<Arc<TranslatorSv2>>) -> impl IntoResponse {
-    let metrics = build_metrics(&translator).await;
+                    // Get the actual upstream sequence counter (shares submitted upstream)
+                    // In non-aggregated mode, each channel has its own counter
+                    let shares_submitted = self
+                        .share_sequence_counters
+                        .get(&channel_id)
+                        .map(|v| *v)
+                        .unwrap_or(0);
 
-    (
-        StatusCode::OK,
-        [("content-type", "text/plain; version=0.0.4")],
-        metrics,
-    )
-}
+                    extended_channels.push(ServerExtendedChannelInfo {
+                        channel_id,
+                        user_identity: user_identity.clone(),
+                        nominal_hashrate: if report_hashrate {
+                            Some(extended_channel.get_nominal_hashrate())
+                        } else {
+                            None
+                        },
+                        target_hex: hex::encode(target.to_be_bytes()),
+                        extranonce_prefix_hex: hex::encode(extranonce_prefix),
+                        full_extranonce_size: extended_channel.get_full_extranonce_size(),
+                        rollable_extranonce_size: extended_channel.get_rollable_extranonce_size(),
+                        version_rolling: extended_channel.is_version_rolling(),
+                        shares_accepted: share_accounting.get_acknowledged_shares(),
+                        share_work_sum: share_accounting.get_share_work_sum(),
+                        shares_submitted,
+                        best_diff: share_accounting.get_best_diff(),
+                        blocks_found: share_accounting.get_blocks_found(),
+                    });
+                }
+            }
+        }
 
-async fn build_metrics(translator: &TranslatorSv2) -> String {
-    let mut output = String::with_capacity(2048);
-
-    let upstream_address = translator
-        .config
-        .upstreams
-        .first()
-        .map(|upstream| format!("{}:{}", upstream.address, upstream.port))
-        .unwrap_or_default();
-
-    let blockchain_network = std::env::var("BITCOIND_NETWORK")
-        .unwrap_or_else(|_| "unknown".to_string())
-        .to_lowercase();
-
-    output.push_str("# TYPE hashpool_translator_info gauge\n");
-    output.push_str(&format!(
-        "hashpool_translator_info{{{}}} 1\n",
-        format_labels(&[
-            ("blockchain_network", blockchain_network.as_str()),
-            ("upstream_address", upstream_address.as_str()),
-        ])
-    ));
-
-    output.push_str("# TYPE hashpool_translator_wallet_balance_ehash gauge\n");
-    let balance = if let Some(wallet) = translator.wallet.as_ref() {
-        wallet
-            .total_balance()
-            .await
-            .map(u64::from)
-            .unwrap_or(0)
-    } else {
-        0
-    };
-    output.push_str(&format!(
-        "hashpool_translator_wallet_balance_ehash {}\n",
-        balance
-    ));
-
-    output.push_str("# TYPE hashpool_translator_miner_info gauge\n");
-    output.push_str("# TYPE hashpool_translator_miner_shares_total counter\n");
-    output.push_str("# TYPE hashpool_translator_miner_hashrate_hs gauge\n");
-    output.push_str("# TYPE hashpool_translator_miner_connected_at_seconds gauge\n");
-
-    let miners = translator.miner_tracker.get_all_miners().await;
-    let now = unix_timestamp();
-
-    for miner in miners {
-        let connected_timestamp = now.saturating_sub(miner.connected_time.elapsed().as_secs());
-        let address = if translator.config.redact_ip {
-            "REDACTED".to_string()
-        } else {
-            miner.address.to_string()
-        };
-        let sum_difficulty = miner.metrics_collector.sum_difficulty_in_window();
-        let window_seconds = miner.metrics_collector.window_seconds();
-        let hashrate = derive_hashrate(sum_difficulty, window_seconds);
-        let id_str = miner.id.to_string();
-
-        output.push_str(&format!(
-            "hashpool_translator_miner_info{{{}}} 1\n",
-            format_labels(&[
-                ("miner_id", id_str.as_str()),
-                ("name", miner.name.as_str()),
-                ("address", address.as_str()),
-            ])
-        ));
-        output.push_str(&format!(
-            "hashpool_translator_miner_shares_total{{{}}} {}\n",
-            format_labels(&[("miner_id", id_str.as_str())]),
-            miner.shares_submitted
-        ));
-        output.push_str(&format!(
-            "hashpool_translator_miner_hashrate_hs{{{}}} {}\n",
-            format_labels(&[("miner_id", id_str.as_str())]),
-            hashrate
-        ));
-        output.push_str(&format!(
-            "hashpool_translator_miner_connected_at_seconds{{{}}} {}\n",
-            format_labels(&[("miner_id", id_str.as_str())]),
-            connected_timestamp
-        ));
+        ServerInfo {
+            extended_channels,
+            standard_channels,
+        }
     }
-
-    output
-}
-
-fn format_labels(labels: &[(&str, &str)]) -> String {
-    labels
-        .iter()
-        .map(|(key, value)| format!("{}=\"{}\"", key, escape_label_value(value)))
-        .collect::<Vec<_>>()
-        .join(",")
-}
-
-fn escape_label_value(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-}
-
-fn unix_timestamp() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
 }

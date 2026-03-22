@@ -6,9 +6,10 @@
 //! Each task wraps its report in a [`Status`] and sends it over an async channel,
 //! tagged with a [`Sender`] variant that identifies the source subsystem.
 
-use tracing::{debug, error, warn};
+use stratum_apps::utils::types::DownstreamId;
+use tracing::{debug, warn};
 
-use crate::error::TproxyError;
+use crate::error::{Action, TproxyError, TproxyErrorKind};
 
 /// Identifies the component that originated a [`Status`] update.
 ///
@@ -18,7 +19,7 @@ use crate::error::TproxyError;
 pub enum StatusSender {
     /// A specific downstream connection.
     Downstream {
-        downstream_id: u32,
+        downstream_id: DownstreamId,
         tx: async_channel::Sender<Status>,
     },
     /// The SV1 server listener.
@@ -31,6 +32,7 @@ pub enum StatusSender {
 
 impl StatusSender {
     /// Sends a [`Status`] update.
+    #[cfg_attr(not(test), hotpath::measure)]
     pub async fn send(&self, status: Status) -> Result<(), async_channel::SendError<Status>> {
         match self {
             Self::Downstream { downstream_id, tx } => {
@@ -61,15 +63,15 @@ impl StatusSender {
 pub enum State {
     /// Downstream task exited or encountered an unrecoverable error.
     DownstreamShutdown {
-        downstream_id: u32,
-        reason: TproxyError,
+        downstream_id: DownstreamId,
+        reason: TproxyErrorKind,
     },
     /// SV1 server listener exited unexpectedly.
-    Sv1ServerShutdown(TproxyError),
+    Sv1ServerShutdown(TproxyErrorKind),
     /// Channel manager shut down (SV2 bridge manager).
-    ChannelManagerShutdown(TproxyError),
+    ChannelManagerShutdown(TproxyErrorKind),
     /// Upstream SV2 connection closed or failed.
-    UpstreamShutdown(TproxyError),
+    UpstreamShutdown(TproxyErrorKind),
 }
 
 /// A message reporting the current [`State`] of a component.
@@ -78,40 +80,72 @@ pub struct Status {
     pub state: State,
 }
 
-/// Constructs and sends a [`Status`] update based on the [`Sender`] and error context.
-async fn send_status(sender: &StatusSender, error: TproxyError) {
-    let state = match sender {
-        StatusSender::Downstream { downstream_id, .. } => {
-            warn!("Downstream [{downstream_id}] shutting down due to error: {error:?}");
-            State::DownstreamShutdown {
-                downstream_id: *downstream_id,
-                reason: error,
-            }
-        }
-        StatusSender::Sv1Server(_) => {
-            warn!("Sv1Server shutting down due to error: {error:?}");
-            State::Sv1ServerShutdown(error)
-        }
-        StatusSender::ChannelManager(_) => {
-            warn!("ChannelManager shutting down due to error: {error:?}");
-            State::ChannelManagerShutdown(error)
-        }
-        StatusSender::Upstream(_) => {
-            warn!("Upstream shutting down due to error: {error:?}");
-            State::UpstreamShutdown(error)
-        }
-    };
+#[cfg_attr(not(test), hotpath::measure)]
+async fn send_status<O>(sender: &StatusSender, error: TproxyError<O>) -> bool {
+    use Action::*;
 
-    if let Err(e) = sender.send(Status { state }).await {
-        error!("Failed to send status update from {sender:?}: {e:?}");
+    match error.action {
+        Log => {
+            warn!("Log-only error from {:?}: {:?}", sender, error.kind);
+            false
+        }
+
+        Disconnect(downstream_id) => {
+            let state = State::DownstreamShutdown {
+                downstream_id,
+                reason: error.kind,
+            };
+
+            if let Err(e) = sender.send(Status { state }).await {
+                tracing::error!(
+                    "Failed to send downstream shutdown status from {:?}: {:?}",
+                    sender,
+                    e
+                );
+                std::process::abort();
+            }
+            matches!(sender, StatusSender::Downstream { .. })
+        }
+
+        Fallback => {
+            let state = State::UpstreamShutdown(error.kind);
+
+            if let Err(e) = sender.send(Status { state }).await {
+                tracing::error!("Failed to send fallback status from {:?}: {:?}", sender, e);
+                std::process::abort();
+            }
+            matches!(sender, StatusSender::Upstream { .. })
+        }
+
+        Shutdown => {
+            let state = match sender {
+                StatusSender::ChannelManager(_) => {
+                    warn!(
+                        "Channel Manager shutdown requested due to error: {:?}",
+                        error.kind
+                    );
+                    State::ChannelManagerShutdown(error.kind)
+                }
+                StatusSender::Sv1Server(_) => {
+                    warn!(
+                        "Sv1Server shutdown requested due to error: {:?}",
+                        error.kind
+                    );
+                    State::Sv1ServerShutdown(error.kind)
+                }
+                _ => State::ChannelManagerShutdown(error.kind),
+            };
+
+            if let Err(e) = sender.send(Status { state }).await {
+                tracing::error!("Failed to send shutdown status from {:?}: {:?}", sender, e);
+                std::process::abort();
+            }
+            true
+        }
     }
 }
 
-/// Centralized error dispatcher for the Translator.
-///
-/// Used by the `handle_result!` macro across the codebase.
-/// Decides whether the task should `Continue` or `Break` based on the error type and source.
-pub async fn handle_error(sender: &StatusSender, e: TproxyError) {
-    error!("Error in {:?}: {:?}", sender, e);
-    send_status(sender, e).await;
+#[cfg_attr(not(test), hotpath::measure)]
+pub async fn handle_error<O>(sender: &StatusSender, e: TproxyError<O>) -> bool {
+    send_status(sender, e).await
 }

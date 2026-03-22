@@ -63,6 +63,9 @@ shares_per_minute = 12000000.0
 # enable variable difficulty adjustment mechanism
 # if false, difficulty will be managed by upstream (useful with JDC and self-hosted wallet proxy)
 enable_vardiff = false
+# interval in seconds between keepalive mining.notify messages sent to prevent SV1 miner timeouts
+# set to 0 to disable
+job_keepalive_interval_secs = 60
 
 [upstream_difficulty_config]
 # interval in seconds to elapse before updating channel hashrate with the pool
@@ -75,5 +78,5 @@ url = "http://localhost:3338"
 
 [wallet]
 mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
-db_path = "/opt/hashpool/.devenv/state/translator/wallet.sqlite"
+db_path = ".devenv/state/translator/wallet.sqlite"
 locking_privkey = "e1c193b1a2681f01a10731f317c754a031ed9e61aaaf702b5083e55a2c0a8fff"

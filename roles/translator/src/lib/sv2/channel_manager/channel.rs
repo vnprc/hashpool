@@ -1,28 +1,36 @@
-use crate::sv2::upstream::upstream::EitherFrame;
 use async_channel::{Receiver, Sender};
-use stratum_common::roles_logic_sv2::parsers_sv2::Mining;
+use stratum_apps::{
+    stratum_core::parsers_sv2::{Mining, Tlv},
+    utils::types::Sv2Frame,
+};
 use tracing::debug;
+
+use crate::status::Status;
 
 #[derive(Clone, Debug)]
 pub struct ChannelState {
-    pub upstream_sender: Sender<EitherFrame>,
-    pub upstream_receiver: Receiver<EitherFrame>,
-    pub sv1_server_sender: Sender<Mining<'static>>,
-    pub sv1_server_receiver: Receiver<Mining<'static>>,
+    pub upstream_sender: Sender<Sv2Frame>,
+    pub upstream_receiver: Receiver<Sv2Frame>,
+    pub sv1_server_sender: Sender<(Mining<'static>, Option<Vec<Tlv>>)>,
+    pub sv1_server_receiver: Receiver<(Mining<'static>, Option<Vec<Tlv>>)>,
+    pub status_sender: Sender<Status>,
 }
 
+#[cfg_attr(not(test), hotpath::measure_all)]
 impl ChannelState {
     pub fn new(
-        upstream_sender: Sender<EitherFrame>,
-        upstream_receiver: Receiver<EitherFrame>,
-        sv1_server_sender: Sender<Mining<'static>>,
-        sv1_server_receiver: Receiver<Mining<'static>>,
+        upstream_sender: Sender<Sv2Frame>,
+        upstream_receiver: Receiver<Sv2Frame>,
+        sv1_server_sender: Sender<(Mining<'static>, Option<Vec<Tlv>>)>,
+        sv1_server_receiver: Receiver<(Mining<'static>, Option<Vec<Tlv>>)>,
+        status_sender: Sender<Status>,
     ) -> Self {
         Self {
             upstream_sender,
             upstream_receiver,
             sv1_server_sender,
             sv1_server_receiver,
+            status_sender,
         }
     }
 
