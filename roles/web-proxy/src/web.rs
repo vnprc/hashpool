@@ -380,10 +380,17 @@ async fn get_miner_stats_from_api(monitoring_url: &str) -> Result<serde_json::Va
         .await
         .map_err(|e| format!("Failed to reach monitoring API: {}", e))?;
 
-    let clients: Vec<serde_json::Value> = resp
+    let body: serde_json::Value = resp
         .json()
         .await
         .map_err(|e| format!("Failed to parse monitoring API response: {}", e))?;
+
+    // The monitoring API returns a paginated response: { offset, limit, total, items: [...] }
+    let clients: Vec<serde_json::Value> = body
+        .get("items")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
 
     let now = unix_timestamp();
     let mut total_hashrate_raw: f64 = 0.0;

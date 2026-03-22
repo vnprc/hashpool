@@ -6480,10 +6480,10 @@ version = "0.3.0"
 dependencies = [
  "async-channel 1.9.0",
  "axum",
- "bs58 0.4.0",
  "config 0.14.1",
  "dirs",
  "futures",
+ "key-utils",
  "miniscript 13.0.0",
  "prometheus",
  "rand 0.8.5",
