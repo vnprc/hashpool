@@ -49,6 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         prometheus,
         config.faucet_enabled,
         config.faucet_url,
+        config.monitoring_api_url,
         config.downstream_address,
         config.downstream_port,
         config.upstream_address,

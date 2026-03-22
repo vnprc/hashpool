@@ -415,6 +415,18 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
         _tlv_fields: Option<&[Tlv]>,
     ) -> Result<(), Self::Error> {
         warn!("Received: {} ❌", m);
+
+        let key = if is_aggregated() {
+            AGGREGATED_CHANNEL_ID
+        } else {
+            m.channel_id
+        };
+
+        // if None, the channel may be closed/missing, so we ignore this accounting update
+        if let Some(mut ch) = self.extended_channels.get_mut(&key) {
+            ch.on_share_rejection();
+        }
+
         Ok(())
     }
 

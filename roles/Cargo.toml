@@ -36,10 +36,13 @@ cdk-http-client = { git = "https://github.com/cashubtc/cdk", rev = "5dd5b93a" }
 cdk-signatory   = { git = "https://github.com/cashubtc/cdk", rev = "5dd5b93a" }
 cdk-sql-common  = { git = "https://github.com/cashubtc/cdk", rev = "5dd5b93a" }
 cdk-sqlite      = { git = "https://github.com/cashubtc/cdk", rev = "5dd5b93a" }
+# stratum-apps v0.3.0 uses stratum-core = "0.2.1" from crates.io; redirect to local checkout
+# so all workspace crates compile against the same modified stratum-core binary.
+stratum-core    = { path = "../../stratum/stratum-core" }
 
 [patch."https://github.com/stratum-mining/stratum"]
-# Redirect stratum-core git dep to local checkout of stratum-mining/stratum
-# sv2-apps commit: 4014d48d7ea6523c1f8bf85a5529537c208ad776
+# Keep git-dep redirect for any crates still referencing stratum via git URL
+# sv2-apps upgraded to v0.3.0 (2026-03-19) — stratum-core now from crates.io above
 stratum-core    = { path = "../../stratum/stratum-core" }
 
 [profile.dev]

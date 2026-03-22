@@ -187,3 +187,87 @@ impl PrometheusMetrics {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use prometheus::Encoder;
+
+    #[test]
+    fn uptime_metric_always_registered() {
+        let m = PrometheusMetrics::new(false, false, false).unwrap();
+        m.sv2_uptime_seconds.set(42.0);
+
+        let families = m.registry.gather();
+        let names: Vec<&str> = families.iter().map(|f| f.get_name()).collect();
+        assert!(names.contains(&"sv2_uptime_seconds"));
+    }
+
+    #[test]
+    fn server_metrics_enabled() {
+        let m = PrometheusMetrics::new(true, false, false).unwrap();
+        assert!(m.sv2_server_channels.is_some());
+        assert!(m.sv2_server_hashrate_total.is_some());
+        assert!(m.sv2_server_channel_hashrate.is_some());
+        assert!(m.sv2_server_shares_accepted_total.is_some());
+        // clients and sv1 should be None
+        assert!(m.sv2_clients_total.is_none());
+        assert!(m.sv1_clients_total.is_none());
+    }
+
+    #[test]
+    fn clients_metrics_enabled() {
+        let m = PrometheusMetrics::new(false, true, false).unwrap();
+        assert!(m.sv2_clients_total.is_some());
+        assert!(m.sv2_client_channels.is_some());
+        assert!(m.sv2_client_hashrate_total.is_some());
+        assert!(m.sv2_client_channel_hashrate.is_some());
+        assert!(m.sv2_client_shares_accepted_total.is_some());
+        // server and sv1 should be None
+        assert!(m.sv2_server_channels.is_none());
+        assert!(m.sv1_clients_total.is_none());
+    }
+
+    #[test]
+    fn sv1_metrics_enabled() {
+        let m = PrometheusMetrics::new(false, false, true).unwrap();
+        assert!(m.sv1_clients_total.is_some());
+        assert!(m.sv1_hashrate_total.is_some());
+        // server and clients should be None
+        assert!(m.sv2_server_channels.is_none());
+        assert!(m.sv2_clients_total.is_none());
+    }
+
+    #[test]
+    fn all_metrics_disabled_only_uptime() {
+        let m = PrometheusMetrics::new(false, false, false).unwrap();
+        assert!(m.sv2_server_channels.is_none());
+        assert!(m.sv2_clients_total.is_none());
+        assert!(m.sv1_clients_total.is_none());
+
+        let families = m.registry.gather();
+        // Only uptime should be registered (with default value 0)
+        assert_eq!(families.len(), 1);
+        assert_eq!(families[0].get_name(), "sv2_uptime_seconds");
+    }
+
+    #[test]
+    fn metrics_encode_to_prometheus_text_format() {
+        let m = PrometheusMetrics::new(true, true, true).unwrap();
+        m.sv2_uptime_seconds.set(123.0);
+        m.sv2_server_hashrate_total.as_ref().unwrap().set(1000.0);
+        m.sv2_clients_total.as_ref().unwrap().set(5.0);
+        m.sv1_clients_total.as_ref().unwrap().set(3.0);
+
+        let encoder = prometheus::TextEncoder::new();
+        let families = m.registry.gather();
+        let mut buf = Vec::new();
+        encoder.encode(&families, &mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+
+        assert!(output.contains("sv2_uptime_seconds 123"));
+        assert!(output.contains("sv2_server_hashrate_total 1000"));
+        assert!(output.contains("sv2_clients_total 5"));
+        assert!(output.contains("sv1_clients_total 3"));
+    }
+}

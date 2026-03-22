@@ -6,6 +6,7 @@ use crate::{
 };
 use async_channel::{Receiver, Sender};
 use std::{
+    net::SocketAddr,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -69,9 +70,10 @@ impl Downstream {
         )>,
         target: Target,
         hashrate: Option<Hashrate>,
+        peer_address: Option<SocketAddr>,
         connection_token: CancellationToken,
     ) -> Self {
-        let downstream_data = Arc::new(Mutex::new(DownstreamData::new(hashrate, target)));
+        let downstream_data = Arc::new(Mutex::new(DownstreamData::new(hashrate, target, peer_address)));
         let downstream_channel_state = DownstreamChannelState::new(
             downstream_sv1_sender,
             downstream_sv1_receiver,

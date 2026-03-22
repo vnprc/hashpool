@@ -70,6 +70,11 @@ async fn create_mint_token(
     Ok(token.to_string())
 }
 
+async fn get_wallet_balance(wallet: &Wallet) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+    let balance = wallet.total_balance().await?;
+    Ok(u64::from(balance))
+}
+
 async fn handle_request(
     req: Request<hyper::body::Incoming>,
     wallet: Arc<Wallet>,
@@ -77,6 +82,29 @@ async fn handle_request(
     locking_privkey: Option<SecretKey>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     let response = match (req.method(), req.uri().path()) {
+        (&Method::GET, "/balance") => {
+            match get_wallet_balance(&wallet).await {
+                Ok(balance) => {
+                    let json_response = json!({
+                        "balance": balance,
+                        "unit": "HASH"
+                    });
+                    Response::builder()
+                        .header("content-type", "application/json")
+                        .body(Full::new(Bytes::from(json_response.to_string())))
+                }
+                Err(e) => {
+                    error!("Failed to get wallet balance: {}", e);
+                    let json_response = json!({
+                        "error": format!("Failed to get balance: {}", e)
+                    });
+                    Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .header("content-type", "application/json")
+                        .body(Full::new(Bytes::from(json_response.to_string())))
+                }
+            }
+        }
         (&Method::POST, "/mint/tokens") => {
             match rate_limiter.check_rate_limit().await {
                 Ok(()) => {

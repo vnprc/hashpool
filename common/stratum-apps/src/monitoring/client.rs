@@ -135,3 +135,169 @@ pub trait Sv2ClientsMonitoring: Send + Sync {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── helpers ──────────────────────────────────────────────────────
+
+    fn create_extended_channel_info(channel_id: u32, hashrate: f32) -> ExtendedChannelInfo {
+        ExtendedChannelInfo {
+            channel_id,
+            user_identity: format!("user-ext-{}", channel_id),
+            nominal_hashrate: hashrate,
+            target_hex: "00ff".into(),
+            requested_max_target_hex: "00ff".into(),
+            extranonce_prefix_hex: "aa".into(),
+            full_extranonce_size: 16,
+            rollable_extranonce_size: 4,
+            expected_shares_per_minute: 1.0,
+            shares_accepted: 10,
+            share_work_sum: 100.0,
+            last_share_sequence_number: 5,
+            best_diff: 50.0,
+            last_batch_accepted: 3,
+            last_batch_work_sum: 30.0,
+            share_batch_size: 10,
+            blocks_found: 0,
+        }
+    }
+
+    fn create_standard_channel_info(channel_id: u32, hashrate: f32) -> StandardChannelInfo {
+        StandardChannelInfo {
+            channel_id,
+            user_identity: format!("user-std-{}", channel_id),
+            nominal_hashrate: hashrate,
+            target_hex: "00ff".into(),
+            requested_max_target_hex: "00ff".into(),
+            extranonce_prefix_hex: "bb".into(),
+            expected_shares_per_minute: 2.0,
+            shares_accepted: 20,
+            share_work_sum: 200.0,
+            last_share_sequence_number: 8,
+            best_diff: 80.0,
+            last_batch_accepted: 5,
+            last_batch_work_sum: 50.0,
+            share_batch_size: 20,
+            blocks_found: 0,
+        }
+    }
+
+    fn create_sv2_client_info(
+        id: usize,
+        ext: Vec<ExtendedChannelInfo>,
+        std: Vec<StandardChannelInfo>,
+    ) -> Sv2ClientInfo {
+        Sv2ClientInfo {
+            client_id: id,
+            extended_channels: ext,
+            standard_channels: std,
+        }
+    }
+
+    // ── ClientInfo unit tests ───────────────────────────────────────
+
+    #[test]
+    fn client_info_empty_channels() {
+        let client = create_sv2_client_info(1, vec![], vec![]);
+        assert_eq!(client.total_channels(), 0);
+        assert_eq!(client.total_hashrate(), 0.0);
+    }
+
+    #[test]
+    fn client_info_aggregates_both_channel_types() {
+        let client = create_sv2_client_info(
+            1,
+            vec![
+                create_extended_channel_info(1, 100.0),
+                create_extended_channel_info(2, 200.0),
+            ],
+            vec![create_standard_channel_info(3, 50.0)],
+        );
+        assert_eq!(client.total_channels(), 3);
+        assert_eq!(client.total_hashrate(), 350.0);
+    }
+
+    #[test]
+    fn client_info_to_metadata() {
+        let client = create_sv2_client_info(
+            42,
+            vec![create_extended_channel_info(1, 100.0)],
+            vec![
+                create_standard_channel_info(2, 50.0),
+                create_standard_channel_info(3, 75.0),
+            ],
+        );
+        let meta = client.to_metadata();
+
+        assert_eq!(meta.client_id, 42);
+        assert_eq!(meta.extended_channels_count, 1);
+        assert_eq!(meta.standard_channels_count, 2);
+        assert_eq!(meta.total_hashrate, 225.0);
+    }
+
+    // ── ClientsMonitoring trait default implementations ─────────────
+
+    struct MockClients(Vec<Sv2ClientInfo>);
+    impl Sv2ClientsMonitoring for MockClients {
+        fn get_sv2_clients(&self) -> Vec<Sv2ClientInfo> {
+            self.0.clone()
+        }
+    }
+
+    #[test]
+    fn clients_monitoring_get_client_by_id_found() {
+        let monitor = MockClients(vec![
+            create_sv2_client_info(1, vec![create_extended_channel_info(1, 10.0)], vec![]),
+            create_sv2_client_info(2, vec![], vec![create_standard_channel_info(1, 20.0)]),
+        ]);
+        let found = monitor.get_sv2_client_by_id(2);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().client_id, 2);
+    }
+
+    #[test]
+    fn clients_monitoring_get_client_by_id_not_found() {
+        let monitor = MockClients(vec![create_sv2_client_info(1, vec![], vec![])]);
+        assert!(monitor.get_sv2_client_by_id(999).is_none());
+    }
+
+    #[test]
+    fn clients_monitoring_summary_empty() {
+        let monitor = MockClients(vec![]);
+        let summary = monitor.get_sv2_clients_summary();
+
+        assert_eq!(summary.total_clients, 0);
+        assert_eq!(summary.total_channels, 0);
+        assert_eq!(summary.extended_channels, 0);
+        assert_eq!(summary.standard_channels, 0);
+        assert_eq!(summary.total_hashrate, 0.0);
+    }
+
+    #[test]
+    fn clients_monitoring_summary_aggregates_correctly() {
+        let monitor = MockClients(vec![
+            create_sv2_client_info(
+                1,
+                vec![create_extended_channel_info(1, 100.0)],
+                vec![create_standard_channel_info(2, 50.0)],
+            ),
+            create_sv2_client_info(
+                2,
+                vec![
+                    create_extended_channel_info(3, 200.0),
+                    create_extended_channel_info(4, 300.0),
+                ],
+                vec![],
+            ),
+        ]);
+        let summary = monitor.get_sv2_clients_summary();
+
+        assert_eq!(summary.total_clients, 2);
+        assert_eq!(summary.extended_channels, 3);
+        assert_eq!(summary.standard_channels, 1);
+        assert_eq!(summary.total_channels, 4);
+        assert_eq!(summary.total_hashrate, 650.0);
+    }
+}

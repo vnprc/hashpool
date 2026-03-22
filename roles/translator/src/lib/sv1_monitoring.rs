@@ -9,23 +9,37 @@ use crate::sv1::{downstream::downstream::Downstream, sv1_server::sv1_server::Sv1
 fn downstream_to_sv1_client_info(downstream: &Downstream) -> Option<Sv1ClientInfo> {
     downstream
         .downstream_data
-        .safe_lock(|dd| Sv1ClientInfo {
-            client_id: downstream.downstream_id,
-            channel_id: dd.channel_id,
-            authorized_worker_name: dd.authorized_worker_name.clone(),
-            user_identity: dd.user_identity.clone(),
-            target_hex: hex::encode(dd.target.to_be_bytes()),
-            hashrate: dd.hashrate,
-            extranonce1_hex: hex::encode(&dd.extranonce1),
-            extranonce2_len: dd.extranonce2_len,
-            version_rolling_mask: dd
-                .version_rolling_mask
-                .as_ref()
-                .map(|mask| format!("{:08x}", mask.0)),
-            version_rolling_min_bit: dd
-                .version_rolling_min_bit
-                .as_ref()
-                .map(|bit| format!("{:08x}", bit.0)),
+        .safe_lock(|dd| {
+            let connected_at_secs = dd
+                .connected_at
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let peer_address = dd.peer_address.map(|addr| addr.to_string());
+            let hashrate_5min = dd.windowed_hashrate_5min();
+
+            Sv1ClientInfo {
+                client_id: downstream.downstream_id,
+                channel_id: dd.channel_id,
+                authorized_worker_name: dd.authorized_worker_name.clone(),
+                user_identity: dd.user_identity.clone(),
+                target_hex: hex::encode(dd.target.to_be_bytes()),
+                hashrate: dd.hashrate,
+                extranonce1_hex: hex::encode(&dd.extranonce1),
+                extranonce2_len: dd.extranonce2_len,
+                version_rolling_mask: dd
+                    .version_rolling_mask
+                    .as_ref()
+                    .map(|mask| format!("{:08x}", mask.0)),
+                version_rolling_min_bit: dd
+                    .version_rolling_min_bit
+                    .as_ref()
+                    .map(|bit| format!("{:08x}", bit.0)),
+                shares_submitted: dd.shares_submitted,
+                connected_at_secs,
+                peer_address,
+                hashrate_5min,
+            }
         })
         .ok()
 }

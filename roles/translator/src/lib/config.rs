@@ -117,8 +117,8 @@ pub struct TranslatorConfig {
     /// Optional monitoring server bind address
     #[serde(default)]
     monitoring_address: Option<SocketAddr>,
-    #[serde(default = "default_monitoring_cache_refresh_secs")]
-    monitoring_cache_refresh_secs: u64,
+    #[serde(default)]
+    monitoring_cache_refresh_secs: Option<u64>,
     // --- Hashpool CDK payment fields ---
     /// CDK wallet configuration (mnemonic, db_path, locking keys).
     #[serde(default)]
@@ -131,10 +131,11 @@ pub struct TranslatorConfig {
     /// Faucet rate-limit timeout in seconds.
     #[serde(default = "default_faucet_timeout")]
     pub faucet_timeout: u64,
-}
-
-fn default_monitoring_cache_refresh_secs() -> u64 {
-    15
+    /// URL of the monitoring REST API (stratum-apps monitoring server).
+    /// Used by web-proxy to fetch per-miner stats.
+    /// Example: "http://127.0.0.1:9109"
+    #[serde(default)]
+    pub monitoring_api_url: Option<String>,
 }
 
 fn default_faucet_port() -> u16 {
@@ -182,6 +183,8 @@ impl TranslatorConfig {
         aggregate_channels: bool,
         supported_extensions: Vec<u16>,
         required_extensions: Vec<u16>,
+        monitoring_address: Option<SocketAddr>,
+        monitoring_cache_refresh_secs: Option<u64>,
     ) -> Self {
         Self {
             upstreams,
@@ -196,12 +199,13 @@ impl TranslatorConfig {
             supported_extensions,
             required_extensions,
             log_file: None,
-            monitoring_address: None,
-            monitoring_cache_refresh_secs: 15,
+            monitoring_address,
+            monitoring_cache_refresh_secs,
             wallet: WalletConfig::default(),
             mint: None,
             faucet_port: 8083,
             faucet_timeout: 3,
+            monitoring_api_url: None,
         }
     }
 
@@ -211,7 +215,7 @@ impl TranslatorConfig {
     }
 
     /// Returns the monitoring cache refresh interval in seconds.
-    pub fn monitoring_cache_refresh_secs(&self) -> u64 {
+    pub fn monitoring_cache_refresh_secs(&self) -> Option<u64> {
         self.monitoring_cache_refresh_secs
     }
 
@@ -308,6 +312,8 @@ mod tests {
             true,
             vec![],
             vec![],
+            None,
+            None,
         );
 
         assert_eq!(config.upstreams.len(), 1);
@@ -340,6 +346,8 @@ mod tests {
             false,
             vec![],
             vec![],
+            None,
+            None,
         );
 
         assert!(config.log_dir().is_none());
@@ -374,6 +382,8 @@ mod tests {
             true,
             vec![],
             vec![],
+            None,
+            None,
         );
 
         assert_eq!(config.upstreams.len(), 2);
@@ -401,6 +411,8 @@ mod tests {
             false,
             vec![],
             vec![],
+            None,
+            None,
         );
 
         assert!(!config.downstream_difficulty_config.enable_vardiff);

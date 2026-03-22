@@ -237,7 +237,7 @@ impl TranslatorSv2 {
                 Some(channel_manager.clone()), // SV2 channels opened with servers
                 None,                          /* no SV2 channels opened with clients (SV1
                                                 * handled separately) */
-                std::time::Duration::from_secs(self.config.monitoring_cache_refresh_secs()),
+                std::time::Duration::from_secs(self.config.monitoring_cache_refresh_secs().unwrap_or(15)),
             )
             .expect("Failed to initialize monitoring server")
             .with_sv1_monitoring(sv1_server.clone()) // SV1 client connections
@@ -382,7 +382,7 @@ impl TranslatorSv2 {
                                         monitoring_addr,
                                         Some(channel_manager.clone()),
                                         None,
-                                        std::time::Duration::from_secs(self.config.monitoring_cache_refresh_secs()),
+                                        std::time::Duration::from_secs(self.config.monitoring_cache_refresh_secs().unwrap_or(15)),
                                     )
                                     .expect("Failed to initialize monitoring server")
                                     .with_sv1_monitoring(sv1_server.clone())

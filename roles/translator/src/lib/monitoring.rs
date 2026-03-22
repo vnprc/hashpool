@@ -30,14 +30,6 @@ impl ServerMonitoring for ChannelManager {
                     let user_identity = aggregated_extended_channel.get_user_identity();
                     let share_accounting = aggregated_extended_channel.get_share_accounting();
 
-                    // Get the actual upstream sequence counter (shares submitted upstream)
-                    // In aggregated mode, we use the upstream channel_id as the counter key
-                    let shares_submitted = self
-                        .share_sequence_counters
-                        .get(&channel_id)
-                        .map(|v| *v)
-                        .unwrap_or(0);
-
                     extended_channels.push(ServerExtendedChannelInfo {
                         channel_id,
                         user_identity: user_identity.clone(),
@@ -53,9 +45,10 @@ impl ServerMonitoring for ChannelManager {
                         rollable_extranonce_size: aggregated_extended_channel
                             .get_rollable_extranonce_size(),
                         version_rolling: aggregated_extended_channel.is_version_rolling(),
-                        shares_accepted: share_accounting.get_acknowledged_shares(),
+                        shares_acknowledged: share_accounting.get_acknowledged_shares(),
+                        shares_submitted: share_accounting.get_validated_shares(),
+                        shares_rejected: share_accounting.get_rejected_shares(),
                         share_work_sum: share_accounting.get_share_work_sum(),
-                        shares_submitted,
                         best_diff: share_accounting.get_best_diff(),
                         blocks_found: share_accounting.get_blocks_found(),
                     });
@@ -73,14 +66,6 @@ impl ServerMonitoring for ChannelManager {
                     let user_identity = extended_channel.get_user_identity();
                     let share_accounting = extended_channel.get_share_accounting();
 
-                    // Get the actual upstream sequence counter (shares submitted upstream)
-                    // In non-aggregated mode, each channel has its own counter
-                    let shares_submitted = self
-                        .share_sequence_counters
-                        .get(&channel_id)
-                        .map(|v| *v)
-                        .unwrap_or(0);
-
                     extended_channels.push(ServerExtendedChannelInfo {
                         channel_id,
                         user_identity: user_identity.clone(),
@@ -94,9 +79,10 @@ impl ServerMonitoring for ChannelManager {
                         full_extranonce_size: extended_channel.get_full_extranonce_size(),
                         rollable_extranonce_size: extended_channel.get_rollable_extranonce_size(),
                         version_rolling: extended_channel.is_version_rolling(),
-                        shares_accepted: share_accounting.get_acknowledged_shares(),
+                        shares_acknowledged: share_accounting.get_acknowledged_shares(),
+                        shares_submitted: share_accounting.get_validated_shares(),
+                        shares_rejected: share_accounting.get_rejected_shares(),
                         share_work_sum: share_accounting.get_share_work_sum(),
-                        shares_submitted,
                         best_diff: share_accounting.get_best_diff(),
                         blocks_found: share_accounting.get_blocks_found(),
                     });

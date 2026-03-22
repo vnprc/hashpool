@@ -241,6 +241,7 @@ impl Sv1Server {
                                     self.sv1_server_channel_state.sv1_server_to_downstream_sender.clone(),
                                     first_target,
                                     Some(self.config.downstream_difficulty_config.min_individual_miner_hashrate),
+                                    Some(addr),
                                     connection_token,
                                 );
                                 // vardiff initialization (only if enabled)
@@ -411,6 +412,14 @@ impl Sv1Server {
             if let Some(vardiff_state) = self.vardiff.get(&message.downstream_id) {
                 vardiff_state.super_safe_lock(|state| state.increment_shares_since_last_update());
             }
+        }
+
+        // Track per-miner shares for monitoring
+        if let Some(downstream) = self.downstreams.get(&message.downstream_id) {
+            downstream
+                .downstream_data
+                .safe_lock(|dd| dd.record_share_submitted())
+                .ok();
         }
 
         let job_version = match message.job_version {
@@ -839,10 +848,13 @@ impl Sv1Server {
             set_target.channel_id, new_target
         );
 
-        // Derive hashrate from the upstream target so monitoring can report it
+        // Derive hashrate from the upstream target so monitoring can report it.
+        // Use 1.0 share/minute as the reference — this gives the base difficulty hashrate.
+        // The config's shares_per_minute may be very large (e.g., to effectively disable vardiff),
+        // which would cause integer underflow to 0 in hash_rate_from_target's denominator formula.
         let derived_hashrate = match hash_rate_from_target(
             set_target.maximum_target.clone().into_static(),
-            self.shares_per_minute as f64,
+            1.0_f64,
         ) {
             Ok(hr) => {
                 debug!(
@@ -1246,6 +1258,8 @@ mod tests {
             true,   // aggregate_channels
             vec![], // supported_extensions
             vec![], // required_extensions
+            None,   // monitoring_address
+            None,   // monitoring_cache_refresh_secs
         )
     }
 

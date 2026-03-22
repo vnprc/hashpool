@@ -12,11 +12,7 @@ homepage = "https://stratumprotocol.org"
 keywords = ["stratum", "mining", "bitcoin", "protocol", "sv2"]
 
 [dependencies]
-# Core protocol layer
-# fetching from github enables synchronizing development workflows across sv2-apps and stratum repos
-# it MUST be changed before stratum-apps is published to crates.io
-# with the proper version of stratum-core being fetched from crates.io as well
-stratum-core = { git = "https://github.com/stratum-mining/stratum", branch = "main", optional = true }
+stratum-core = { version = "0.2.1", optional = true }
 
 # External dependencies needed by the modules
 # Network helpers dependencies
@@ -25,7 +21,7 @@ tokio = { version = "1.44.1", features = ["full"] }
 futures = { version = "0.3.28" }
 tokio-util = { version = "0.7.10", default-features = false, features = ["codec"], optional = true }
 
-# Config helpers dependencies  
+# Config helpers dependencies
 serde = { version = "1.0.89", features = ["derive", "alloc"], default-features = false }
 miniscript = { version = "13.0.0", default-features = false }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -79,6 +75,11 @@ jd_server = ["config"]
 translator = ["network", "config", "sv1", "with_buffer_pool", "core"]
 # Note: mining_device intentionally excludes 'core', 'network', and 'rpc' - it uses crates.io crates directly
 mining_device = ["config"]
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+hyper = "1.1.0"
 
 [package.metadata.docs.rs]
 features = ["pool", "jd_client", "jd_server", "translator", "sv1", "rpc"]

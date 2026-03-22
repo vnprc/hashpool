@@ -1,5 +1,7 @@
-use std::net::{IpAddr, SocketAddr};
-use std::time::Duration;
+use std::{
+    net::{IpAddr, SocketAddr},
+    time::Duration,
+};
 
 use tracing::{debug, info};
 
