@@ -16,7 +16,11 @@ pub async fn create_wallet(mint_url: &str, mnemonic: &str, db_path: &str) -> Res
         .try_into()
         .map_err(|_| anyhow::anyhow!("Seed must be exactly 64 bytes"))?;
 
-    let db_path = resolve_db_path(db_path);
+    // Priority: CDK_WALLET_DB_PATH env var > config db_path (mirrors mint's CDK_MINT_DB_PATH logic)
+    let effective_path = std::env::var("CDK_WALLET_DB_PATH")
+        .ok()
+        .unwrap_or_else(|| db_path.to_string());
+    let db_path = resolve_db_path(&effective_path);
     debug!("Resolved db_path: {}", db_path.display());
 
     let localstore = WalletSqliteDatabase::new(db_path)
