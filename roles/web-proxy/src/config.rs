@@ -4,6 +4,7 @@ use std::{env, fs};
 #[derive(Debug, Clone)]
 pub struct Config {
     pub metrics_store_url: String,
+    pub monitoring_api_url: String,
     pub web_server_address: String,
     pub downstream_address: String,
     pub downstream_port: u16,
@@ -33,9 +34,24 @@ struct WebProxyConfig {
     #[serde(default)]
     metrics_store: MetricsStoreConfig,
     #[serde(default)]
+    monitoring_api: MonitoringApiConfig,
+    #[serde(default)]
     stats_proxy: StatsProxyConfig,
     #[serde(default)]
     http_client: HttpClientConfig,
+}
+
+#[derive(Debug, Deserialize)]
+struct MonitoringApiConfig {
+    url: Option<String>,
+}
+
+impl Default for MonitoringApiConfig {
+    fn default() -> Self {
+        Self {
+            url: Some("http://127.0.0.1:9109".to_string()),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -114,6 +130,7 @@ impl Config {
             WebProxyConfig {
                 server: ServerConfig::default(),
                 metrics_store: MetricsStoreConfig::default(),
+                monitoring_api: MonitoringApiConfig::default(),
                 stats_proxy: StatsProxyConfig::default(),
                 http_client: HttpClientConfig::default(),
             }
@@ -241,8 +258,14 @@ impl Config {
             .and_then(|i| i.as_integer())
             .unwrap_or(3) as u64;
 
+        let monitoring_api_url = web_proxy_config
+            .monitoring_api
+            .url
+            .unwrap_or_else(|| "http://127.0.0.1:9109".to_string());
+
         Ok(Config {
             metrics_store_url,
+            monitoring_api_url,
             web_server_address,
             downstream_address: tproxy.downstream_address,
             downstream_port: tproxy.downstream_port,

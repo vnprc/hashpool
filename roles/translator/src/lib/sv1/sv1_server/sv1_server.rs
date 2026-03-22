@@ -839,10 +839,13 @@ impl Sv1Server {
             set_target.channel_id, new_target
         );
 
-        // Derive hashrate from the upstream target so monitoring can report it
+        // Derive hashrate from the upstream target so monitoring can report it.
+        // Use 1.0 share/minute as reference — the config's shares_per_minute may be
+        // set very high for vardiff initialization (e.g., 12_000_000) which causes
+        // integer underflow to 0 in hash_rate_from_target's denominator formula.
         let derived_hashrate = match hash_rate_from_target(
             set_target.maximum_target.clone().into_static(),
-            self.shares_per_minute as f64,
+            1.0_f64,
         ) {
             Ok(hr) => {
                 debug!(

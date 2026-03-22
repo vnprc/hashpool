@@ -10,6 +10,11 @@ listen_address = "127.0.0.1:3030"
 # HTTP endpoint for Prometheus/VictoriaMetrics API
 url = "http://127.0.0.1:9091"
 
+[monitoring_api]
+# HTTP endpoint for the translator's stratum-apps monitoring REST API
+# Used to fetch per-miner data (sv1/clients)
+url = "http://127.0.0.1:9109"
+
 [http_client]
 # HTTP client settings for metrics queries
 pool_idle_timeout_secs = 300

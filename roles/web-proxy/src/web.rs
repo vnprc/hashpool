@@ -6,7 +6,6 @@ use axum::{
     Json, Router,
 };
 use serde_json::json;
-use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 use tracing::{error, info, warn};
 
@@ -22,6 +21,8 @@ const POOL_PAGE_TEMPLATE: &str = include_str!("../templates/pool.html");
 
 pub struct AppState {
     pub prometheus: PrometheusClient,
+    pub monitoring_api_url: String,
+    pub http_client: reqwest::Client,
     pub faucet_enabled: bool,
     pub faucet_url: Option<String>,
     pub downstream_address: String,
@@ -45,6 +46,7 @@ struct MinerMetrics {
 pub async fn run_http_server(
     address: String,
     prometheus: PrometheusClient,
+    monitoring_api_url: String,
     faucet_enabled: bool,
     faucet_url: Option<String>,
     downstream_address: String,
@@ -54,8 +56,14 @@ pub async fn run_http_server(
     client_poll_interval_secs: u64,
     metrics_query_step_secs: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let http_client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()?;
+
     let state = AppState {
         prometheus,
+        monitoring_api_url: monitoring_api_url.trim_end_matches('/').to_string(),
+        http_client,
         faucet_enabled,
         faucet_url,
         downstream_address,
@@ -141,7 +149,7 @@ async fn pool_page_handler(State(state): State<Arc<AppState>>) -> impl IntoRespo
 }
 
 async fn api_miners_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let stats = match get_miner_stats(&state.prometheus).await {
+    let stats = match get_miner_stats(&state.monitoring_api_url, &state.http_client).await {
         Ok(stats) => stats,
         Err(err) => {
             warn!("Failed to fetch miner stats: {}", err);
@@ -314,8 +322,24 @@ async fn get_pool_info(prometheus: &PrometheusClient) -> Result<serde_json::Valu
     }
 }
 
-async fn get_miner_stats(prometheus: &PrometheusClient) -> Result<serde_json::Value, String> {
-    let miners = fetch_miners(prometheus).await?;
+/// Deserialization types for the monitoring API /api/v1/sv1/clients response
+#[derive(serde::Deserialize)]
+struct Sv1ClientsResponse {
+    items: Vec<Sv1ClientInfo>,
+}
+
+#[derive(serde::Deserialize)]
+struct Sv1ClientInfo {
+    client_id: usize,
+    authorized_worker_name: String,
+    hashrate: Option<f32>,
+}
+
+async fn get_miner_stats(
+    monitoring_api_url: &str,
+    http_client: &reqwest::Client,
+) -> Result<serde_json::Value, String> {
+    let miners = fetch_miners(monitoring_api_url, http_client).await?;
     let total_miners = miners.len();
     let total_shares: u64 = miners.iter().map(|m| m.shares).sum();
     let total_hashrate_raw: f64 = miners.iter().map(|m| m.hashrate_hs).sum();
@@ -353,85 +377,43 @@ async fn get_miner_stats(prometheus: &PrometheusClient) -> Result<serde_json::Va
     }))
 }
 
-async fn fetch_miners(prometheus: &PrometheusClient) -> Result<Vec<MinerMetrics>, String> {
-    let mut miners: HashMap<u32, MinerMetrics> = HashMap::new();
+async fn fetch_miners(
+    monitoring_api_url: &str,
+    http_client: &reqwest::Client,
+) -> Result<Vec<MinerMetrics>, String> {
+    let url = format!("{}/api/v1/sv1/clients?limit=1000", monitoring_api_url);
+    let response = http_client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to reach monitoring API: {e}"))?;
 
-    let info_samples = prometheus
-        .query_instant("present_over_time(hashpool_translator_miner_info[30s])")
-        .await?;
-    for sample in info_samples {
-        if let Some(id) = metric_id(&sample.metric) {
-            let entry = miners.entry(id).or_insert_with(MinerMetrics::default);
-            entry.id = id;
-            entry.name = sample
-                .metric
-                .get("name")
-                .cloned()
-                .unwrap_or_else(|| format!("miner_{}", id));
-            entry.address = sample
-                .metric
-                .get("address")
-                .cloned()
-                .unwrap_or_else(|| "REDACTED".to_string());
-        }
+    if !response.status().is_success() {
+        return Err(format!(
+            "Monitoring API returned status {}",
+            response.status()
+        ));
     }
 
-    merge_miner_metric(
-        &mut miners,
-        "hashpool_translator_miner_hashrate_hs",
-        |entry, value| entry.hashrate_hs = value,
-        prometheus,
-    )
-    .await?;
+    let body: Sv1ClientsResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse monitoring API response: {e}"))?;
 
-    let shares_samples = prometheus
-        .query_instant("hashpool_translator_miner_shares_total")
-        .await?;
-    for sample in shares_samples {
-        if let Some(id) = metric_id(&sample.metric) {
-            if let Some(entry) = miners.get_mut(&id) {
-                entry.shares = parse_sample_value(&sample.value.1) as u64;
-            }
-        }
-    }
+    let miners = body
+        .items
+        .into_iter()
+        .map(|client| MinerMetrics {
+            id: client.client_id as u32,
+            name: client.authorized_worker_name,
+            address: String::new(),
+            hashrate_hs: client.hashrate.unwrap_or(0.0) as f64,
+            shares: 0,
+            connected_at: 0,
+        })
+        .collect();
 
-    let connected_samples = prometheus
-        .query_instant("hashpool_translator_miner_connected_at_seconds")
-        .await?;
-    for sample in connected_samples {
-        if let Some(id) = metric_id(&sample.metric) {
-            if let Some(entry) = miners.get_mut(&id) {
-                entry.connected_at = parse_sample_value(&sample.value.1) as u64;
-            }
-        }
-    }
-
-    Ok(miners.into_values().collect())
-}
-
-async fn merge_miner_metric<F>(
-    miners: &mut HashMap<u32, MinerMetrics>,
-    metric_name: &str,
-    apply: F,
-    prometheus: &PrometheusClient,
-) -> Result<(), String>
-where
-    F: Fn(&mut MinerMetrics, f64),
-{
-    let samples = prometheus.query_instant(metric_name).await?;
-    for sample in samples {
-        if let Some(id) = metric_id(&sample.metric) {
-            if let Some(entry) = miners.get_mut(&id) {
-                let value = parse_sample_value(&sample.value.1);
-                apply(entry, value);
-            }
-        }
-    }
-    Ok(())
-}
-
-fn metric_id(metric: &HashMap<String, String>) -> Option<u32> {
-    metric.get("miner_id")?.parse::<u32>().ok()
+    Ok(miners)
 }
 
 fn parse_sample_value(value: &str) -> f64 {
@@ -448,16 +430,6 @@ fn unix_timestamp() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_metric_id_parsing() {
-        let mut labels = HashMap::new();
-        labels.insert("miner_id".to_string(), "7".to_string());
-        assert_eq!(metric_id(&labels), Some(7));
-
-        labels.insert("miner_id".to_string(), "nope".to_string());
-        assert_eq!(metric_id(&labels), None);
-    }
 
     #[test]
     fn test_parse_sample_value() {

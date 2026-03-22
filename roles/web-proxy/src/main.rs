@@ -47,6 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     web_proxy::web::run_http_server(
         config.web_server_address,
         prometheus,
+        config.monitoring_api_url,
         config.faucet_enabled,
         config.faucet_url,
         config.downstream_address,
