@@ -9,6 +9,10 @@ User=hashpool
 Group=hashpool
 WorkingDirectory=/opt/hashpool
 ExecStartPre=+/bin/sh -c 'mkdir -p /var/log/hashpool /var/lib/hashpool && touch /var/log/hashpool/sv2-tp.log && chown -R hashpool:hashpool /var/log/hashpool /var/lib/hashpool && chmod 755 /var/log/hashpool /var/lib/hashpool && chmod 644 /var/log/hashpool/sv2-tp.log'
+# Wait for bitcoin-node chainman to be ready before connecting via IPC.
+# The IPC socket opens before chainman is initialized; connecting too early
+# triggers an assertion failure in node/interfaces.cpp:980.
+ExecStartPre=/bin/sh -c 'until /opt/hashpool/bin/bitcoin-cli -datadir=/var/lib/hashpool -chain=testnet4 getblockchaininfo >/dev/null 2>&1; do sleep 2; done'
 ExecStart=/opt/hashpool/bin/sv2-tp \
   -datadir=/var/lib/hashpool \
   -chain=testnet4 \
