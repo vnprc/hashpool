@@ -20,6 +20,12 @@ pub struct Args {
     )]
     pub config_path: PathBuf,
     #[arg(
+        short = 'g',
+        long = "global-config",
+        help = "Path to a shared global TOML configuration file. Values are loaded first and may be overridden by the main config."
+    )]
+    pub global_config_path: Option<PathBuf>,
+    #[arg(
         short = 'f',
         long = "log-file",
         help = "Path to the log file. If not set, logs will only be written to stdout."
@@ -33,13 +39,23 @@ pub fn process_cli_args() -> Result<TranslatorConfig, TproxyErrorKind> {
     // Parse CLI arguments
     let args = Args::parse();
 
-    // Build configuration from the provided file path
+    // Build configuration: global config provides base values, specific config overrides
+    let mut builder = Config::builder();
+
+    if let Some(global_path) = &args.global_config_path {
+        let global_str = global_path.to_str().ok_or_else(|| {
+            error!("Invalid global configuration path.");
+            TproxyErrorKind::BadCliArgs
+        })?;
+        builder = builder.add_source(File::new(global_str, FileFormat::Toml));
+    }
+
     let config_path = args.config_path.to_str().ok_or_else(|| {
         error!("Invalid configuration path.");
         TproxyErrorKind::BadCliArgs
     })?;
 
-    let settings = Config::builder()
+    let settings = builder
         .add_source(File::new(config_path, FileFormat::Toml))
         .build()?;
 
