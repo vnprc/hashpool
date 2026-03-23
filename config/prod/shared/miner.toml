@@ -33,3 +33,7 @@ faucet_timeout = 3
 metrics_query_step_secs = 15
 # Interval in seconds for browser to poll web-proxy API
 client_poll_interval_secs = 3
+
+[monitoring]
+# REST API URL of the stratum-apps monitoring server (translator)
+api_url = "http://127.0.0.1:9109"

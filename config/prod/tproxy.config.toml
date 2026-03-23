@@ -62,6 +62,8 @@ shares_per_minute = 1.0
 # enable variable difficulty adjustment mechanism
 # if false, difficulty will be managed by upstream (useful with JDC)
 enable_vardiff = true
+# interval in seconds between keepalive mining.notify messages sent to prevent SV1 miner timeouts
+job_keepalive_interval_secs = 60
 
 [upstream_difficulty_config]
 # interval in seconds to elapse before updating channel hashrate with the pool
