@@ -8,7 +8,6 @@ use key_utils::{Secp256k1PublicKey, Secp256k1SecretKey};
 use once_cell::sync::OnceCell;
 use pool_sv2::PoolSv2;
 use rand::{rng, Rng};
-use shared_config;
 use std::{
     convert::{TryFrom, TryInto},
     net::SocketAddr,
@@ -256,6 +255,7 @@ pub fn start_sv2_translator(upstream: SocketAddr) -> (TranslatorSv2, SocketAddr)
         min_individual_miner_hashrate,
         SHARES_PER_MINUTE,
         true,
+        60, // job_keepalive_interval_secs
     );
     let upstream_conf = translator_sv2::config::Upstream::new(
         upstream_address,
@@ -263,13 +263,6 @@ pub fn start_sv2_translator(upstream: SocketAddr) -> (TranslatorSv2, SocketAddr)
         upstream_authority_pubkey,
     );
     let downstream_extranonce2_size = 4;
-
-    let wallet_config = shared_config::WalletConfig {
-        mnemonic: "test mnemonic".to_string(),
-        db_path: "/tmp/test_wallet.db".to_string(),
-        locking_pubkey: None,
-        locking_privkey: None,
-    };
 
     let config = translator_sv2::config::TranslatorConfig::new(
         vec![upstream_conf],
@@ -281,8 +274,10 @@ pub fn start_sv2_translator(upstream: SocketAddr) -> (TranslatorSv2, SocketAddr)
         downstream_extranonce2_size,
         "user_identity".to_string(),
         false,
-        wallet_config,
-        None, // No mint configured for tests
+        vec![], // supported_extensions
+        vec![], // required_extensions
+        None,   // monitoring_address
+        None,   // monitoring_cache_refresh_secs
     );
     let translator_v2 = translator_sv2::TranslatorSv2::new(config);
     let clone_translator_v2 = translator_v2.clone();

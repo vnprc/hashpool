@@ -11,6 +11,8 @@ pub struct Config {
     pub upstream_port: u16,
     pub faucet_enabled: bool,
     pub faucet_url: Option<String>,
+    /// URL of the stratum-apps monitoring REST API (e.g. "http://127.0.0.1:9109")
+    pub monitoring_api_url: Option<String>,
     pub metrics_query_step_secs: u64,
     pub client_poll_interval_secs: u64,
     pub request_timeout_secs: u64,
@@ -241,6 +243,13 @@ impl Config {
             .and_then(|i| i.as_integer())
             .unwrap_or(3) as u64;
 
+        // Extract monitoring API URL (optional)
+        let monitoring_api_url = shared_config
+            .get("monitoring")
+            .and_then(|m| m.get("api_url"))
+            .and_then(|u| u.as_str())
+            .map(|s| s.to_string());
+
         Ok(Config {
             metrics_store_url,
             web_server_address,
@@ -250,6 +259,7 @@ impl Config {
             upstream_port: tproxy.upstream_port,
             faucet_enabled,
             faucet_url,
+            monitoring_api_url,
             metrics_query_step_secs,
             client_poll_interval_secs,
             request_timeout_secs: web_proxy_config

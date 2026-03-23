@@ -48,7 +48,9 @@ impl TaskManager {
         );
 
         let handle = tokio::spawn(fut.instrument(span));
-        self.tasks.lock().unwrap().push(handle);
+        let mut tasks = self.tasks.lock().unwrap();
+        tasks.retain(|h| !h.is_finished());
+        tasks.push(handle);
     }
 
     /// Waits for all managed tasks to complete.

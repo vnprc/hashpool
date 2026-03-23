@@ -24,6 +24,8 @@ pub struct AppState {
     pub prometheus: PrometheusClient,
     pub faucet_enabled: bool,
     pub faucet_url: Option<String>,
+    /// URL of the stratum-apps monitoring REST API (e.g. "http://127.0.0.1:9109")
+    pub monitoring_api_url: Option<String>,
     pub downstream_address: String,
     pub downstream_port: u16,
     pub upstream_address: String,
@@ -47,6 +49,7 @@ pub async fn run_http_server(
     prometheus: PrometheusClient,
     faucet_enabled: bool,
     faucet_url: Option<String>,
+    monitoring_api_url: Option<String>,
     downstream_address: String,
     downstream_port: u16,
     upstream_address: String,
@@ -58,6 +61,7 @@ pub async fn run_http_server(
         prometheus,
         faucet_enabled,
         faucet_url,
+        monitoring_api_url,
         downstream_address,
         downstream_port,
         upstream_address,
@@ -141,16 +145,31 @@ async fn pool_page_handler(State(state): State<Arc<AppState>>) -> impl IntoRespo
 }
 
 async fn api_miners_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let stats = match get_miner_stats(&state.prometheus).await {
-        Ok(stats) => stats,
-        Err(err) => {
-            warn!("Failed to fetch miner stats: {}", err);
-            json!({
-                "total_miners": 0,
-                "total_hashrate": "0 H/s",
-                "total_shares": 0,
-                "miners": []
-            })
+    let stats = if let Some(monitoring_url) = &state.monitoring_api_url {
+        match get_miner_stats_from_api(monitoring_url).await {
+            Ok(stats) => stats,
+            Err(err) => {
+                warn!("Failed to fetch miner stats from monitoring API: {}", err);
+                json!({
+                    "total_miners": 0,
+                    "total_hashrate": "0 H/s",
+                    "total_shares": 0,
+                    "miners": []
+                })
+            }
+        }
+    } else {
+        match get_miner_stats(&state.prometheus).await {
+            Ok(stats) => stats,
+            Err(err) => {
+                warn!("Failed to fetch miner stats from prometheus: {}", err);
+                json!({
+                    "total_miners": 0,
+                    "total_hashrate": "0 H/s",
+                    "total_shares": 0,
+                    "miners": []
+                })
+            }
         }
     };
 
@@ -174,11 +193,21 @@ async fn api_pool_handler(State(state): State<Arc<AppState>>) -> impl IntoRespon
 }
 
 async fn balance_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let balance = match get_wallet_balance(&state.prometheus).await {
-        Ok(balance) => balance,
-        Err(err) => {
-            warn!("Failed to fetch wallet balance: {}", err);
-            0
+    let balance = if let Some(faucet_url) = &state.faucet_url {
+        match get_wallet_balance_from_faucet(faucet_url).await {
+            Ok(b) => b,
+            Err(err) => {
+                warn!("Failed to fetch wallet balance from faucet: {}", err);
+                0
+            }
+        }
+    } else {
+        match get_wallet_balance(&state.prometheus).await {
+            Ok(b) => b,
+            Err(err) => {
+                warn!("Failed to fetch wallet balance from prometheus: {}", err);
+                0
+            }
         }
     };
 
@@ -191,13 +220,25 @@ async fn balance_handler(State(state): State<Arc<AppState>>) -> impl IntoRespons
 }
 
 async fn health_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let healthy = match state
-        .prometheus
-        .query_instant("hashpool_translator_info")
-        .await
-    {
-        Ok(results) => !results.is_empty(),
-        Err(_) => false,
+    // Prefer checking stratum-apps /health endpoint over Prometheus
+    let healthy = if let Some(monitoring_url) = &state.monitoring_api_url {
+        let url = format!("{}/health", monitoring_url);
+        reqwest::Client::new()
+            .get(&url)
+            .timeout(std::time::Duration::from_secs(3))
+            .send()
+            .await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
+    } else {
+        match state
+            .prometheus
+            .query_instant("hashpool_translator_info")
+            .await
+        {
+            Ok(results) => !results.is_empty(),
+            Err(_) => false,
+        }
     };
 
     let status_code = if healthy {
@@ -274,6 +315,21 @@ async fn mint_tokens_handler(State(state): State<Arc<AppState>>) -> impl IntoRes
     }
 }
 
+async fn get_wallet_balance_from_faucet(faucet_url: &str) -> Result<u64, String> {
+    let url = format!("{}/balance", faucet_url);
+    let resp = reqwest::Client::new()
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to reach faucet: {}", e))?;
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse faucet balance: {}", e))?;
+    Ok(json.get("balance").and_then(|v| v.as_u64()).unwrap_or(0))
+}
+
 async fn get_wallet_balance(prometheus: &PrometheusClient) -> Result<u64, String> {
     let samples = prometheus
         .query_instant("hashpool_translator_wallet_balance_ehash")
@@ -312,6 +368,99 @@ async fn get_pool_info(prometheus: &PrometheusClient) -> Result<serde_json::Valu
             "connected": false
         }))
     }
+}
+
+/// Fetch miner stats from the stratum-apps monitoring REST API
+async fn get_miner_stats_from_api(monitoring_url: &str) -> Result<serde_json::Value, String> {
+    let url = format!("{}/api/v1/sv1/clients", monitoring_url);
+    let resp = reqwest::Client::new()
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to reach monitoring API: {}", e))?;
+
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse monitoring API response: {}", e))?;
+
+    // The monitoring API returns a paginated response: { offset, limit, total, items: [...] }
+    let clients: Vec<serde_json::Value> = body
+        .get("items")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let now = unix_timestamp();
+    let mut total_hashrate_raw: f64 = 0.0;
+    let mut total_shares: u64 = 0;
+
+    let miners_json: Vec<serde_json::Value> = clients
+        .iter()
+        .map(|client| {
+            let id = client.get("client_id").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            let name = client
+                .get("authorized_worker_name")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| {
+                    client
+                        .get("user_identity")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown")
+                })
+                .to_string();
+            let address = client
+                .get("peer_address")
+                .and_then(|v| v.as_str())
+                .unwrap_or("REDACTED")
+                .to_string();
+            // Prefer windowed hashrate over target-derived hashrate
+            let hashrate_hs = client
+                .get("hashrate_5min")
+                .and_then(|v| v.as_f64())
+                .or_else(|| {
+                    client
+                        .get("hashrate")
+                        .and_then(|v| v.as_f64())
+                })
+                .unwrap_or(0.0);
+            let shares = client
+                .get("shares_submitted")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let connected_at = client
+                .get("connected_at_secs")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+
+            total_hashrate_raw += hashrate_hs;
+            total_shares += shares;
+
+            let connected_time = if connected_at == 0 {
+                "Just now".to_string()
+            } else {
+                format_elapsed_time(now, connected_at)
+            };
+
+            json!({
+                "name": name,
+                "id": id,
+                "address": address,
+                "hashrate": format_hashrate(hashrate_hs),
+                "shares": shares,
+                "connected_time": connected_time
+            })
+        })
+        .collect();
+
+    Ok(json!({
+        "total_miners": clients.len(),
+        "total_hashrate": format_hashrate(total_hashrate_raw),
+        "total_shares": total_shares,
+        "miners": miners_json
+    }))
 }
 
 async fn get_miner_stats(prometheus: &PrometheusClient) -> Result<serde_json::Value, String> {

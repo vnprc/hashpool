@@ -1,9 +1,11 @@
 pub(super) mod channel;
 pub(super) mod data;
 pub mod downstream;
-mod message_handler;
 
-use v1::{client_to_server::Submit, utils::HexU32Be};
+use stratum_apps::{
+    stratum_core::sv1_api::{client_to_server::Submit, utils::HexU32Be},
+    utils::types::{ChannelId, DownstreamId},
+};
 
 /// Messages sent from downstream handling logic to the SV1 server.
 ///
@@ -16,7 +18,7 @@ pub enum DownstreamMessages {
     SubmitShares(SubmitShareWithChannelId),
     /// Request to open an extended mining channel for a downstream that just sent its first
     /// message.
-    OpenChannel(u32), // downstream_id
+    OpenChannel(DownstreamId), // downstream_id
 }
 
 /// A wrapper around a `mining.submit` message with additional channel information.
@@ -27,9 +29,9 @@ pub enum DownstreamMessages {
 #[derive(Debug, Clone)]
 pub struct SubmitShareWithChannelId {
     /// The SV2 channel ID this share belongs to
-    pub channel_id: u32,
+    pub channel_id: ChannelId,
     /// The downstream connection ID that submitted this share
-    pub downstream_id: u32,
+    pub downstream_id: DownstreamId,
     /// The actual SV1 share submission data
     pub share: Submit<'static>,
     /// The complete extranonce used for this share

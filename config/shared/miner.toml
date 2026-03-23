@@ -28,6 +28,11 @@ host = "127.0.0.1"
 port = 8083
 faucet_timeout = 3
 
+[monitoring]
+# REST API URL of the stratum-apps monitoring server (translator)
+# Used by web-proxy to fetch per-miner stats
+api_url = "http://127.0.0.1:9109"
+
 [web_proxy]
 # Query step for Prometheus/VictoriaMetrics range queries (seconds)
 metrics_query_step_secs = 15
