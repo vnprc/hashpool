@@ -13,6 +13,8 @@ pub struct Config {
     pub faucet_url: Option<String>,
     /// URL of the stratum-apps monitoring REST API (e.g. "http://127.0.0.1:9109")
     pub monitoring_api_url: Option<String>,
+    /// Whether to redact miner IP addresses from the web UI
+    pub redact_ip: bool,
     pub metrics_query_step_secs: u64,
     pub client_poll_interval_secs: u64,
     pub request_timeout_secs: u64,
@@ -250,6 +252,13 @@ impl Config {
             .and_then(|u| u.as_str())
             .map(|s| s.to_string());
 
+        // Extract redact_ip flag (optional, defaults to false)
+        let redact_ip = shared_config
+            .get("web_proxy")
+            .and_then(|w| w.get("redact_ip"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
         Ok(Config {
             metrics_store_url,
             web_server_address,
@@ -260,6 +269,7 @@ impl Config {
             faucet_enabled,
             faucet_url,
             monitoring_api_url,
+            redact_ip,
             metrics_query_step_secs,
             client_poll_interval_secs,
             request_timeout_secs: web_proxy_config

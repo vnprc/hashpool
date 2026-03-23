@@ -26,6 +26,8 @@ pub struct AppState {
     pub faucet_url: Option<String>,
     /// URL of the stratum-apps monitoring REST API (e.g. "http://127.0.0.1:9109")
     pub monitoring_api_url: Option<String>,
+    /// Whether to redact miner IP addresses from the web UI
+    pub redact_ip: bool,
     pub downstream_address: String,
     pub downstream_port: u16,
     pub upstream_address: String,
@@ -50,6 +52,7 @@ pub async fn run_http_server(
     faucet_enabled: bool,
     faucet_url: Option<String>,
     monitoring_api_url: Option<String>,
+    redact_ip: bool,
     downstream_address: String,
     downstream_port: u16,
     upstream_address: String,
@@ -62,6 +65,7 @@ pub async fn run_http_server(
         faucet_enabled,
         faucet_url,
         monitoring_api_url,
+        redact_ip,
         downstream_address,
         downstream_port,
         upstream_address,
@@ -146,7 +150,7 @@ async fn pool_page_handler(State(state): State<Arc<AppState>>) -> impl IntoRespo
 
 async fn api_miners_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let stats = if let Some(monitoring_url) = &state.monitoring_api_url {
-        match get_miner_stats_from_api(monitoring_url).await {
+        match get_miner_stats_from_api(monitoring_url, state.redact_ip).await {
             Ok(stats) => stats,
             Err(err) => {
                 warn!("Failed to fetch miner stats from monitoring API: {}", err);
@@ -159,7 +163,7 @@ async fn api_miners_handler(State(state): State<Arc<AppState>>) -> impl IntoResp
             }
         }
     } else {
-        match get_miner_stats(&state.prometheus).await {
+        match get_miner_stats(&state.prometheus, state.redact_ip).await {
             Ok(stats) => stats,
             Err(err) => {
                 warn!("Failed to fetch miner stats from prometheus: {}", err);
@@ -371,7 +375,7 @@ async fn get_pool_info(prometheus: &PrometheusClient) -> Result<serde_json::Valu
 }
 
 /// Fetch miner stats from the stratum-apps monitoring REST API
-async fn get_miner_stats_from_api(monitoring_url: &str) -> Result<serde_json::Value, String> {
+async fn get_miner_stats_from_api(monitoring_url: &str, redact_ip: bool) -> Result<serde_json::Value, String> {
     let url = format!("{}/api/v1/sv1/clients", monitoring_url);
     let resp = reqwest::Client::new()
         .get(&url)
@@ -411,11 +415,15 @@ async fn get_miner_stats_from_api(monitoring_url: &str) -> Result<serde_json::Va
                         .unwrap_or("unknown")
                 })
                 .to_string();
-            let address = client
-                .get("peer_address")
-                .and_then(|v| v.as_str())
-                .unwrap_or("REDACTED")
-                .to_string();
+            let address = if redact_ip {
+                "REDACTED".to_string()
+            } else {
+                client
+                    .get("peer_address")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string()
+            };
             // Prefer windowed hashrate over target-derived hashrate
             let hashrate_hs = client
                 .get("hashrate_5min")
@@ -463,8 +471,8 @@ async fn get_miner_stats_from_api(monitoring_url: &str) -> Result<serde_json::Va
     }))
 }
 
-async fn get_miner_stats(prometheus: &PrometheusClient) -> Result<serde_json::Value, String> {
-    let miners = fetch_miners(prometheus).await?;
+async fn get_miner_stats(prometheus: &PrometheusClient, redact_ip: bool) -> Result<serde_json::Value, String> {
+    let miners = fetch_miners(prometheus, redact_ip).await?;
     let total_miners = miners.len();
     let total_shares: u64 = miners.iter().map(|m| m.shares).sum();
     let total_hashrate_raw: f64 = miners.iter().map(|m| m.hashrate_hs).sum();
@@ -502,7 +510,7 @@ async fn get_miner_stats(prometheus: &PrometheusClient) -> Result<serde_json::Va
     }))
 }
 
-async fn fetch_miners(prometheus: &PrometheusClient) -> Result<Vec<MinerMetrics>, String> {
+async fn fetch_miners(prometheus: &PrometheusClient, redact_ip: bool) -> Result<Vec<MinerMetrics>, String> {
     let mut miners: HashMap<u32, MinerMetrics> = HashMap::new();
 
     let info_samples = prometheus
@@ -517,11 +525,15 @@ async fn fetch_miners(prometheus: &PrometheusClient) -> Result<Vec<MinerMetrics>
                 .get("name")
                 .cloned()
                 .unwrap_or_else(|| format!("miner_{}", id));
-            entry.address = sample
-                .metric
-                .get("address")
-                .cloned()
-                .unwrap_or_else(|| "REDACTED".to_string());
+            entry.address = if redact_ip {
+                "REDACTED".to_string()
+            } else {
+                sample
+                    .metric
+                    .get("address")
+                    .cloned()
+                    .unwrap_or_else(|| "unknown".to_string())
+            };
         }
     }
 
