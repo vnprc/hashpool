@@ -33,6 +33,8 @@ faucet_timeout = 3
 metrics_query_step_secs = 15
 # Interval in seconds for browser to poll web-proxy API
 client_poll_interval_secs = 3
+# Redact miner IP addresses from web UI
+redact_ip = true
 
 [monitoring]
 # REST API URL of the stratum-apps monitoring server (translator)

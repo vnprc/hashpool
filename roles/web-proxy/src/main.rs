@@ -50,6 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.faucet_enabled,
         config.faucet_url,
         config.monitoring_api_url,
+        config.redact_ip,
         config.downstream_address,
         config.downstream_port,
         config.upstream_address,
