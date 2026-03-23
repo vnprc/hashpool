@@ -66,6 +66,37 @@
             text-align: center;
             color: #00ff00;
         }
+        .tooltip-wrap {
+            display: inline-block;
+            position: relative;
+        }
+        .tooltip-trigger {
+            display: inline-block;
+            margin-left: 4px;
+            cursor: help;
+        }
+        .tooltip-trigger:hover {
+        }
+        .tooltip-trigger:hover .tooltip-text {
+            display: block;
+        }
+        .tooltip-text {
+            display: none;
+            position: absolute;
+            top: calc(100% + 8px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: #111;
+            border: 1px solid #00aa00;
+            color: #00cc00;
+            font-size: 0.85em;
+            font-weight: normal;
+            padding: 12px 16px;
+            width: 340px;
+            line-height: 1.5;
+            z-index: 100;
+            text-align: left;
+        }
         .chart-header {
             display: flex;
             justify-content: space-between;
@@ -216,9 +247,9 @@
             </table>
         </div>
 
-        <!-- Aggregate Hashrate Chart -->
+        <!-- Aggregate Work Chart -->
         <div class="chart-section">
-            <h3>Aggregate Hashrate</h3>
+            <h3>Aggregate Work <span class="tooltip-wrap"><span class="tooltip-trigger">[?]<span class="tooltip-text">Most mining pool dashboards estimate hashrate by counting shares as equal units. Hashpool weights each share by its actual difficulty, so a block-finding share appears as a spike rather than a flat line. This is the foundation of the ehash unit: every accepted share is credited exactly proportional to the work it proves.</span></span></span></h3>
             <div class="time-controls">
                 <label>Time Range:</label>
                 <button class="time-btn active" data-hours="1">1h</button>
