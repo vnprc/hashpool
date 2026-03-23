@@ -12,13 +12,14 @@ ExecStartPre=+/bin/sh -c 'mkdir -p /var/log/hashpool /var/lib/hashpool && touch 
 # Wait for bitcoin-node chainman to be ready before connecting via IPC.
 # The IPC socket opens before chainman is initialized; connecting too early
 # triggers an assertion failure in node/interfaces.cpp:980.
-ExecStartPre=/bin/sh -c 'until /opt/hashpool/bin/bitcoin-cli -datadir=/var/lib/hashpool -chain=testnet4 getblockchaininfo >/dev/null 2>&1; do sleep 2; done'
+ExecStartPre=/bin/sh -c 'until /opt/hashpool/bin/bitcoin-cli -datadir=/var/lib/hashpool -chain=testnet4 -conf=/opt/hashpool/config/bitcoin.conf getblockchaininfo >/dev/null 2>&1; do sleep 2; done'
 ExecStart=/opt/hashpool/bin/sv2-tp \
   -datadir=/var/lib/hashpool \
   -chain=testnet4 \
   -conf=/opt/hashpool/config/sv2-tp.conf
 Restart=on-failure
 RestartSec=5
+TimeoutStartSec=300
 
 [Install]
 WantedBy=multi-user.target
