@@ -187,6 +187,18 @@ impl Buffer for PPool {
         todo!()
     }
 
+    fn get_data_by_ref_(&self, _len: usize) -> &[u8] {
+        todo!()
+    }
+
+    fn danger_set_start(&mut self, _index: usize) {
+        todo!()
+    }
+
+    fn is_droppable(&self) -> bool {
+        todo!()
+    }
+
     fn len(&self) -> usize {
         todo!()
     }
@@ -251,6 +263,18 @@ impl Buffer for MaxEfficeincy {
     }
 
     fn get_data_by_ref(&mut self, _len: usize) -> &mut [u8] {
+        todo!()
+    }
+
+    fn get_data_by_ref_(&self, _len: usize) -> &[u8] {
+        todo!()
+    }
+
+    fn danger_set_start(&mut self, _index: usize) {
+        todo!()
+    }
+
+    fn is_droppable(&self) -> bool {
         todo!()
     }
 

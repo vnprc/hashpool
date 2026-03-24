@@ -3,10 +3,14 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
     routing::get,
-    Router,
+    Json, Router,
 };
 use stats_sv2::metrics::derive_hashrate;
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
+use stratum_apps::monitoring::GlobalInfo;
 use stratum_common::roles_logic_sv2::utils::Mutex;
 use tracing::info;
 
@@ -16,20 +20,43 @@ use crate::mining_pool::Pool;
 pub struct MonitoringState {
     pool: Arc<Mutex<Pool>>,
     listen_address: String,
+    network: Option<String>,
+    start_time: u64,
+}
+
+impl MonitoringState {
+    fn uptime_secs(&self) -> u64 {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        now.saturating_sub(self.start_time)
+    }
 }
 
 pub async fn run_monitoring_server(
     address: String,
     pool: Arc<Mutex<Pool>>,
     listen_address: String,
+    network: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let start_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
     let state = MonitoringState {
         pool,
         listen_address,
+        network,
+        start_time,
     };
+
+    let api_v1 = Router::new().route("/global", get(global_handler));
 
     let app = Router::new()
         .route("/metrics", get(metrics_handler))
+        .nest("/api/v1", api_v1)
         .with_state(Arc::new(state));
 
     let listener = tokio::net::TcpListener::bind(&address).await?;
@@ -38,6 +65,19 @@ pub async fn run_monitoring_server(
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+// Lightweight global endpoint used by the translator to poll for the Bitcoin network
+// name. server/sv2_clients/sv1_clients are intentionally None — the pool exposes those
+// stats only via Prometheus (/metrics), not through this endpoint.
+async fn global_handler(State(state): State<Arc<MonitoringState>>) -> Json<GlobalInfo> {
+    Json(GlobalInfo {
+        server: None,
+        sv2_clients: None,
+        sv1_clients: None,
+        uptime_secs: state.uptime_secs(),
+        network: state.network.clone(),
+    })
 }
 
 async fn metrics_handler(State(state): State<Arc<MonitoringState>>) -> impl IntoResponse {

@@ -172,11 +172,13 @@ impl PoolSv2 {
         if let Some(monitoring_address) = config.monitoring_address().map(|s| s.to_string()) {
             let listen_address = config.listen_address().clone();
             let pool_clone = pool.clone();
+            let network = config.network().map(str::to_owned);
             tokio::spawn(async move {
                 if let Err(err) = monitoring::run_monitoring_server(
                     monitoring_address,
                     pool_clone,
                     listen_address,
+                    network,
                 )
                 .await
                 {

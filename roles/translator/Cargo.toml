@@ -44,12 +44,15 @@ hyper = { version = "1.0", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"
 
+# HTTP client for monitoring polling (used when monitoring feature is enabled)
+reqwest = { version = "0.12", features = ["json"], optional = true }
+
 # Hashpool-specific metrics
 stats-sv2 = { path = "../roles-utils/stats-sv2" }
 
 [features]
 default = ["monitoring"]
-monitoring = ["stratum-apps/monitoring"]
+monitoring = ["stratum-apps/monitoring", "dep:reqwest"]
 hotpath = ["hotpath/hotpath"]
 hotpath-alloc = ["hotpath", "hotpath/hotpath-alloc"]
 

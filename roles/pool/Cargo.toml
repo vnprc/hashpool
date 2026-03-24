@@ -51,6 +51,7 @@ shared_config = { path = "../roles-utils/config" }
 mint_quote_sv2 = { path = "../../protocols/v2/subprotocols/mint-quote" }
 serde_json = "1"
 axum = "0.8"
+stratum-apps = { path = "../../common/stratum-apps", features = ["monitoring", "with_buffer_pool"] }
 
 [dev-dependencies]
 integration_tests_sv2 = { path = "../../test/integration-tests" }

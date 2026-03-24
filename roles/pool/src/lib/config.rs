@@ -35,6 +35,12 @@ pub struct PoolConfig {
     monitoring_address: Option<String>,
     #[serde(default)]
     jd_server_address: Option<String>,
+    /// Bitcoin network this pool is operating on.
+    /// Exposed via `GET /api/v1/global` in the monitoring REST API.
+    /// Values follow bitcoin-cli convention: `"main"`, `"test"`, `"testnet4"`, `"regtest"`,
+    /// `"signet"`.
+    #[serde(default)]
+    network: Option<String>,
     #[serde(skip)]
     sv2_messaging: Option<Sv2MessagingConfig>,
     #[serde(skip)]
@@ -78,6 +84,7 @@ impl PoolConfig {
             locking_pubkey: None,
             monitoring_address: None,
             jd_server_address: None,
+            network: None,
             sv2_messaging: None,
             minimum_difficulty: None,
             minimum_share_difficulty_bits: None,
@@ -230,6 +237,11 @@ impl PoolConfig {
     /// Returns the optional JD-Server address (Job Declarator Server).
     pub fn jd_server_address(&self) -> Option<&str> {
         self.jd_server_address.as_deref()
+    }
+
+    /// Returns the Bitcoin network name (e.g. `"regtest"`, `"main"`).
+    pub fn network(&self) -> Option<&str> {
+        self.network.as_deref()
     }
 }
 

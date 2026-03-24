@@ -12,12 +12,12 @@ license = "MIT OR Apache-2.0"
 keywords = ["stratum", "mining", "bitcoin", "protocol"]
 
 [dependencies]
-criterion = {version = "0.3", optional = true}
 aes-gcm = { version = "0.10.2", features = ["alloc", "aes"], default-features = false }
 
 [dev-dependencies]
 rand = "0.8.3"
 iai = "0.1"
+criterion = "0.3"
 
 
 [[bench]]

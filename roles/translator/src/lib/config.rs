@@ -136,6 +136,11 @@ pub struct TranslatorConfig {
     /// Example: "http://127.0.0.1:9109"
     #[serde(default)]
     pub monitoring_api_url: Option<String>,
+    /// URL of the upstream pool's monitoring REST API.
+    /// Used to poll `GET <url>/api/v1/global` for the Bitcoin network name.
+    /// Example: "http://127.0.0.1:9108"
+    #[serde(default)]
+    pub pool_monitoring_url: Option<String>,
 }
 
 fn default_faucet_port() -> u16 {
@@ -206,6 +211,7 @@ impl TranslatorConfig {
             faucet_port: 8083,
             faucet_timeout: 3,
             monitoring_api_url: None,
+            pool_monitoring_url: None,
         }
     }
 
@@ -217,6 +223,11 @@ impl TranslatorConfig {
     /// Returns the monitoring cache refresh interval in seconds.
     pub fn monitoring_cache_refresh_secs(&self) -> Option<u64> {
         self.monitoring_cache_refresh_secs
+    }
+
+    /// Returns the pool monitoring URL for network polling.
+    pub fn pool_monitoring_url(&self) -> Option<&str> {
+        self.pool_monitoring_url.as_deref()
     }
 
     pub fn set_log_dir(&mut self, log_dir: Option<PathBuf>) {

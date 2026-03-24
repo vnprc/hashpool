@@ -26,6 +26,9 @@ server_id = 1
 # Monitoring HTTP endpoint for Prometheus/VictoriaMetrics scraping
 monitoring_address = "127.0.0.1:9108"
 
+# Bitcoin network for monitoring API (exposed via GET /api/v1/global)
+network = "testnet4"
+
 # Job Declarator Server address
 jd_server_address = "127.0.0.1:34264"
 

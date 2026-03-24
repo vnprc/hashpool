@@ -3,6 +3,7 @@
 /protocols/guix-example/guix-example.h
 /protocols/Cargo.lock
 /common/Cargo.lock
+/common/stratum-apps/Cargo.lock
 /protocols/v2/binary-sv2/derive_codec/Cargo.lock
 /benches/Cargo.lock
 /ignore

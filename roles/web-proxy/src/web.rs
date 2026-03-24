@@ -181,15 +181,29 @@ async fn api_miners_handler(State(state): State<Arc<AppState>>) -> impl IntoResp
 }
 
 async fn api_pool_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let pool_info = match get_pool_info(&state.prometheus).await {
-        Ok(info) => info,
-        Err(err) => {
-            warn!("Failed to fetch pool info: {}", err);
-            json!({
-                "blockchain_network": "unknown",
-                "upstream_pool": null,
-                "connected": false
-            })
+    let pool_info = if let Some(monitoring_url) = &state.monitoring_api_url {
+        match get_pool_info_from_global_api(monitoring_url).await {
+            Ok(info) => info,
+            Err(err) => {
+                warn!("Failed to fetch pool info from monitoring API: {}", err);
+                json!({
+                    "blockchain_network": "unknown",
+                    "upstream_pool": null,
+                    "connected": false
+                })
+            }
+        }
+    } else {
+        match get_pool_info(&state.prometheus).await {
+            Ok(info) => info,
+            Err(err) => {
+                warn!("Failed to fetch pool info: {}", err);
+                json!({
+                    "blockchain_network": "unknown",
+                    "upstream_pool": null,
+                    "connected": false
+                })
+            }
         }
     };
 
@@ -343,6 +357,45 @@ async fn get_wallet_balance(prometheus: &PrometheusClient) -> Result<u64, String
         .map(|sample| parse_sample_value(&sample.value.1) as u64)
         .unwrap_or(0);
     Ok(balance)
+}
+
+/// Fetch pool info from the stratum-apps `GET /api/v1/global` endpoint.
+///
+/// This is the preferred path when a monitoring API URL is configured. It reads
+/// `network` (maps to `blockchain_network`) and `server.total_channels` (used to
+/// derive `connected`) directly from the REST API, replacing the removed
+/// `hashpool_translator_info` Prometheus metric.
+async fn get_pool_info_from_global_api(monitoring_url: &str) -> Result<serde_json::Value, String> {
+    let url = format!("{}/api/v1/global", monitoring_url);
+    let body: serde_json::Value = reqwest::Client::new()
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(3))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to reach monitoring API: {}", e))?
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse global API response: {}", e))?;
+
+    let network = body
+        .get("network")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    // Consider the translator connected if it has at least one server channel open.
+    let total_channels = body
+        .get("server")
+        .and_then(|s| s.get("total_channels"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let connected = total_channels > 0;
+
+    Ok(json!({
+        "blockchain_network": network,
+        "upstream_pool": null,
+        "connected": connected
+    }))
 }
 
 async fn get_pool_info(prometheus: &PrometheusClient) -> Result<serde_json::Value, String> {

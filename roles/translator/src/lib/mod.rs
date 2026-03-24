@@ -243,6 +243,15 @@ impl TranslatorSv2 {
             .with_sv1_monitoring(sv1_server.clone()) // SV1 client connections
             .expect("Failed to add SV1 monitoring");
 
+            // Spawn network poller before run() consumes monitoring_server
+            let network_handle = monitoring_server.network_handle();
+            if let Some(pool_mon_url) = self.config.pool_monitoring_url().map(|s| s.to_string()) {
+                let token = cancellation_token.clone();
+                tokio::spawn(async move {
+                    poll_pool_network(pool_mon_url, network_handle, token).await;
+                });
+            }
+
             // Create shutdown signal using cancellation token
             let cancellation_token_clone = cancellation_token.clone();
             let fallback_coordinator_token = fallback_coordinator.token();
@@ -387,6 +396,15 @@ impl TranslatorSv2 {
                                     .expect("Failed to initialize monitoring server")
                                     .with_sv1_monitoring(sv1_server.clone())
                                     .expect("Failed to add SV1 monitoring");
+
+                                    // Spawn network poller before run() consumes monitoring_server
+                                    let network_handle = monitoring_server.network_handle();
+                                    if let Some(pool_mon_url) = self.config.pool_monitoring_url().map(|s| s.to_string()) {
+                                        let token = cancellation_token.clone();
+                                        tokio::spawn(async move {
+                                            poll_pool_network(pool_mon_url, network_handle, token).await;
+                                        });
+                                    }
 
                                     let cancellation_token_clone = cancellation_token.clone();
                                     let fallback_coordinator_token = fallback_coordinator.token();
@@ -666,5 +684,38 @@ impl Drop for TranslatorSv2 {
     fn drop(&mut self) {
         info!("TranslatorSv2 dropped");
         self.cancellation_token.cancel();
+    }
+}
+
+/// Background task that polls the pool's monitoring API for the Bitcoin network name
+/// and writes it into the shared `network_handle` Arc.
+///
+/// Runs until the cancellation token is cancelled. Polls immediately on start, then
+/// every 60 seconds. Logs warnings on fetch/parse errors without stopping.
+#[cfg(feature = "monitoring")]
+async fn poll_pool_network(
+    pool_mon_url: String,
+    network_handle: std::sync::Arc<std::sync::RwLock<Option<String>>>,
+    token: tokio_util::sync::CancellationToken,
+) {
+    use stratum_apps::monitoring::GlobalInfo;
+    loop {
+        let url = format!("{}/api/v1/global", pool_mon_url.trim_end_matches('/'));
+        match reqwest::get(url).await {
+            Ok(resp) => match resp.json::<GlobalInfo>().await {
+                Ok(info) => {
+                    if let Ok(mut guard) = network_handle.write() {
+                        *guard = info.network;
+                    }
+                }
+                Err(e) => warn!("Failed to parse pool global info: {e}"),
+            },
+            Err(e) => warn!("Failed to fetch pool network info from {pool_mon_url}: {e}"),
+        }
+
+        tokio::select! {
+            _ = token.cancelled() => break,
+            _ = tokio::time::sleep(Duration::from_secs(60)) => {}
+        }
     }
 }

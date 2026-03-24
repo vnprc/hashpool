@@ -25,6 +25,9 @@ aggregate_channels = false
 # Monitoring HTTP endpoint for Prometheus/VictoriaMetrics scraping
 monitoring_address = "127.0.0.1:9109"
 
+# Pool monitoring URL for fetching Bitcoin network name (exposed via GET /api/v1/global)
+pool_monitoring_url = "http://127.0.0.1:9108"
+
 # Redact miner IP addresses from database and website (prod)
 redact_ip = true
 
