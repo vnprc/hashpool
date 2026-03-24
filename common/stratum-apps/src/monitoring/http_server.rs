@@ -25,7 +25,7 @@ use serde::Deserialize;
 use std::{
     future::Future,
     net::SocketAddr,
-    sync::Arc,
+    sync::{Arc, RwLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::net::TcpListener;
@@ -88,6 +88,7 @@ struct ServerState {
     cache: Arc<SnapshotCache>,
     start_time: u64,
     metrics: PrometheusMetrics,
+    network: Arc<RwLock<Option<String>>>,
 }
 
 const DEFAULT_LIMIT: usize = 25;
@@ -180,8 +181,29 @@ impl MonitoringServer {
                 cache,
                 start_time,
                 metrics,
+                network: Arc::new(RwLock::new(None)),
             },
         })
+    }
+
+    /// Set the Bitcoin network this application is operating on.
+    ///
+    /// Values follow bitcoin-cli convention: `"main"`, `"test"`, `"testnet4"`, `"regtest"`,
+    /// `"signet"`. The value is served as-is in the `network` field of `GET /api/v1/global`.
+    ///
+    /// This is optional — if not called, `network` will be `None` in the global response.
+    pub fn with_network(self, network: Option<String>) -> Self {
+        *self.state.network.write().unwrap() = network;
+        self
+    }
+
+    /// Return a handle to the shared network value.
+    ///
+    /// The returned `Arc<RwLock<Option<String>>>` can be written to by a background task
+    /// after `run()` has consumed `self`. This allows applications (e.g. a translator proxy)
+    /// to update the network field at runtime once they learn it from an upstream source.
+    pub fn network_handle(&self) -> Arc<RwLock<Option<String>>> {
+        self.state.network.clone()
     }
 
     /// Add Sv1 clients monitoring (optional, for Translator Proxy only)
@@ -423,6 +445,7 @@ async fn handle_global(State(state): State<ServerState>) -> Json<GlobalInfo> {
         sv2_clients: snapshot.sv2_clients_summary,
         sv1_clients: snapshot.sv1_clients_summary,
         uptime_secs,
+        network: state.network.read().unwrap().clone(),
     })
 }
 
@@ -1035,6 +1058,10 @@ mod tests {
             extranonce2_len: 8,
             version_rolling_mask: Some("ffffffff".into()),
             version_rolling_min_bit: Some("00000000".into()),
+            shares_submitted: 0,
+            connected_at_secs: 0,
+            peer_address: None,
+            hashrate_5min: None,
         }
     }
 
@@ -1065,6 +1092,15 @@ mod tests {
         clients: Option<Arc<dyn super::super::client::Sv2ClientsMonitoring + Send + Sync>>,
         sv1: Option<Arc<dyn super::super::sv1::Sv1ClientsMonitoring + Send + Sync>>,
     ) -> Router {
+        build_test_app_with_options(server, clients, sv1, None)
+    }
+
+    fn build_test_app_with_options(
+        server: Option<Arc<dyn ServerMonitoring + Send + Sync>>,
+        clients: Option<Arc<dyn super::super::client::Sv2ClientsMonitoring + Send + Sync>>,
+        sv1: Option<Arc<dyn super::super::sv1::Sv1ClientsMonitoring + Send + Sync>>,
+        network: Option<String>,
+    ) -> Router {
         let cache = Arc::new(SnapshotCache::new(Duration::from_secs(60), server, clients));
 
         let cache = if let Some(sv1_source) = sv1 {
@@ -1094,6 +1130,7 @@ mod tests {
             cache,
             start_time,
             metrics,
+            network: Arc::new(RwLock::new(network)),
         };
 
         let api_v1 = Router::new()
@@ -1241,6 +1278,25 @@ mod tests {
         assert!(json["server"].is_null());
         assert!(json["sv2_clients"].is_null());
         assert!(json["uptime_secs"].as_u64().is_some());
+        assert!(json["network"].is_null());
+    }
+
+    #[tokio::test]
+    async fn global_endpoint_network_field() {
+        // Without network set, field should be null
+        let app = build_test_app(None, None, None);
+        let response = app.oneshot(make_request("/api/v1/global")).await.unwrap();
+        let body = get_body(response).await;
+        let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert!(json["network"].is_null());
+
+        // With network set, field should reflect the configured value
+        let app = build_test_app_with_options(None, None, None, Some("regtest".to_string()));
+        let response = app.oneshot(make_request("/api/v1/global")).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = get_body(response).await;
+        let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(json["network"], "regtest");
     }
 
     #[tokio::test]

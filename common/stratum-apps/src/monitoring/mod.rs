@@ -49,4 +49,9 @@ pub struct GlobalInfo {
     pub sv1_clients: Option<Sv1ClientsSummary>,
     /// Uptime in seconds since the application started
     pub uptime_secs: u64,
+    /// Bitcoin network this application is operating on.
+    /// `None` if the application has not been configured with a network.
+    /// Values follow bitcoin-cli convention: `"main"`, `"test"`, `"testnet4"`, `"regtest"`,
+    /// `"signet"`.
+    pub network: Option<String>,
 }
