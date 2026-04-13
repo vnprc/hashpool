@@ -27,15 +27,15 @@ members = [
 
 [patch.crates-io]
 channels_sv2    = { path = "../protocols/v2/channels-sv2" }
-cashu           = { git = "https://github.com/cashubtc/cdk", rev = "5dd5b93a" }
-cdk             = { git = "https://github.com/cashubtc/cdk", rev = "5dd5b93a" }
-cdk-common      = { git = "https://github.com/cashubtc/cdk", rev = "5dd5b93a" }
-cdk-axum        = { git = "https://github.com/cashubtc/cdk", rev = "5dd5b93a" }
-cdk-mintd       = { git = "https://github.com/cashubtc/cdk", rev = "5dd5b93a" }
-cdk-http-client = { git = "https://github.com/cashubtc/cdk", rev = "5dd5b93a" }
-cdk-signatory   = { git = "https://github.com/cashubtc/cdk", rev = "5dd5b93a" }
-cdk-sql-common  = { git = "https://github.com/cashubtc/cdk", rev = "5dd5b93a" }
-cdk-sqlite      = { git = "https://github.com/cashubtc/cdk", rev = "5dd5b93a" }
+cashu           = { git = "https://github.com/vnprc/cdk", rev = "04c584e3" }
+cdk             = { git = "https://github.com/vnprc/cdk", rev = "04c584e3" }
+cdk-common      = { git = "https://github.com/vnprc/cdk", rev = "04c584e3" }
+cdk-axum        = { git = "https://github.com/vnprc/cdk", rev = "04c584e3" }
+cdk-mintd       = { git = "https://github.com/vnprc/cdk", rev = "04c584e3" }
+cdk-http-client = { git = "https://github.com/vnprc/cdk", rev = "04c584e3" }
+cdk-signatory   = { git = "https://github.com/vnprc/cdk", rev = "04c584e3" }
+cdk-sql-common  = { git = "https://github.com/vnprc/cdk", rev = "04c584e3" }
+cdk-sqlite      = { git = "https://github.com/vnprc/cdk", rev = "04c584e3" }
 
 [profile.dev]
 # Required by super_safe_lock

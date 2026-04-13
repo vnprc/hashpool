@@ -13,7 +13,7 @@ mint_quote_sv2 = { version = "^1.0.0", path = "../v2/subprotocols/mint-quote" }
 thiserror = "1"
 hex = "0.4"
 serde_json = "1"
-cdk-common = { version = "0.15.1", features = ["mint"] }
+cdk-common = { version = "0.16.0", features = ["mint"] }
 derive_codec_sv2 = "1.1.2"
 
 [dev-dependencies]

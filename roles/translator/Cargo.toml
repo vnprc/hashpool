@@ -32,8 +32,8 @@ dashmap = "6.1.0"
 async-trait = "0.1"
 
 # Hashpool CDK payment layer
-cdk        = "0.15.1"
-cdk-sqlite = "0.15.1"
+cdk        = "0.16.0"
+cdk-sqlite = "0.16.0"
 bip39 = "2.0"
 anyhow = "1.0"
 bitcoin = "0.32.5"

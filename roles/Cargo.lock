@@ -507,28 +507,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
-name = "aws-lc-rs"
-version = "1.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94bffc006df10ac2a68c83692d734a465f8ee6c5b384d8545a636f81d858f4bf"
-dependencies = [
- "aws-lc-sys",
- "zeroize",
-]
-
-[[package]]
-name = "aws-lc-sys"
-version = "0.38.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4321e568ed89bb5a7d291a7f37997c2c0df89809d7b6d12062c81ddb54aa782e"
-dependencies = [
- "cc",
- "cmake",
- "dunce",
- "fs_extra",
-]
-
-[[package]]
 name = "axum"
 version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -910,8 +888,8 @@ checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 
 [[package]]
 name = "cashu"
-version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
+version = "0.16.0"
+source = "git+https://github.com/vnprc/cdk?rev=04c584e3#04c584e36df625df790fd0a7bfe276b58239ee27"
 dependencies = [
  "bitcoin 0.32.8",
  "cbor-diag",
@@ -982,8 +960,8 @@ dependencies = [
 
 [[package]]
 name = "cdk"
-version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
+version = "0.16.0"
+source = "git+https://github.com/vnprc/cdk?rev=04c584e3#04c584e36df625df790fd0a7bfe276b58239ee27"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1020,14 +998,15 @@ dependencies = [
 
 [[package]]
 name = "cdk-axum"
-version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
+version = "0.16.0"
+source = "git+https://github.com/vnprc/cdk?rev=04c584e3#04c584e36df625df790fd0a7bfe276b58239ee27"
 dependencies = [
  "anyhow",
  "async-trait",
  "axum",
  "cdk",
  "futures",
+ "maud",
  "moka",
  "paste",
  "serde",
@@ -1040,8 +1019,8 @@ dependencies = [
 
 [[package]]
 name = "cdk-cln"
-version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
+version = "0.16.0"
+source = "git+https://github.com/vnprc/cdk?rev=04c584e3#04c584e36df625df790fd0a7bfe276b58239ee27"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.8",
@@ -1058,8 +1037,8 @@ dependencies = [
 
 [[package]]
 name = "cdk-common"
-version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
+version = "0.16.0"
+source = "git+https://github.com/vnprc/cdk?rev=04c584e3#04c584e36df625df790fd0a7bfe276b58239ee27"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1071,6 +1050,7 @@ dependencies = [
  "ciborium",
  "futures",
  "getrandom 0.2.17",
+ "jsonwebtoken",
  "lightning",
  "lightning-invoice",
  "parking_lot",
@@ -1092,7 +1072,7 @@ dependencies = [
 [[package]]
 name = "cdk-ehash"
 version = "0.1.0"
-source = "git+https://github.com/vnprc/cdk-ehash?rev=d5d16cf8#d5d16cf8ccaedcc150c74dc60b25c26a4ab12818"
+source = "git+https://github.com/vnprc/cdk-ehash?rev=e53938e0#e53938e012442d4404ab6ba1801e9062a21c49aa"
 dependencies = [
  "async-trait",
  "cdk-common",
@@ -1108,8 +1088,8 @@ dependencies = [
 
 [[package]]
 name = "cdk-fake-wallet"
-version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
+version = "0.16.0"
+source = "git+https://github.com/vnprc/cdk?rev=04c584e3#04c584e36df625df790fd0a7bfe276b58239ee27"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.8",
@@ -1130,8 +1110,8 @@ dependencies = [
 
 [[package]]
 name = "cdk-http-client"
-version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
+version = "0.16.0"
+source = "git+https://github.com/vnprc/cdk?rev=04c584e3#04c584e36df625df790fd0a7bfe276b58239ee27"
 dependencies = [
  "futures",
  "futures-channel",
@@ -1151,8 +1131,8 @@ dependencies = [
 
 [[package]]
 name = "cdk-lnbits"
-version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
+version = "0.16.0"
+source = "git+https://github.com/vnprc/cdk?rev=04c584e3#04c584e36df625df790fd0a7bfe276b58239ee27"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1170,8 +1150,8 @@ dependencies = [
 
 [[package]]
 name = "cdk-lnd"
-version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
+version = "0.16.0"
+source = "git+https://github.com/vnprc/cdk?rev=04c584e3#04c584e36df625df790fd0a7bfe276b58239ee27"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1196,8 +1176,8 @@ dependencies = [
 
 [[package]]
 name = "cdk-mint-rpc"
-version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
+version = "0.16.0"
+source = "git+https://github.com/vnprc/cdk?rev=04c584e3#04c584e36df625df790fd0a7bfe276b58239ee27"
 dependencies = [
  "anyhow",
  "cdk",
@@ -1219,8 +1199,8 @@ dependencies = [
 
 [[package]]
 name = "cdk-mintd"
-version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
+version = "0.16.0"
+source = "git+https://github.com/vnprc/cdk?rev=04c584e3#04c584e36df625df790fd0a7bfe276b58239ee27"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1255,8 +1235,8 @@ dependencies = [
 
 [[package]]
 name = "cdk-payment-processor"
-version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
+version = "0.16.0"
+source = "git+https://github.com/vnprc/cdk?rev=04c584e3#04c584e36df625df790fd0a7bfe276b58239ee27"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1290,8 +1270,8 @@ dependencies = [
 
 [[package]]
 name = "cdk-prometheus"
-version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
+version = "0.16.0"
+source = "git+https://github.com/vnprc/cdk?rev=04c584e3#04c584e36df625df790fd0a7bfe276b58239ee27"
 dependencies = [
  "anyhow",
  "futures",
@@ -1307,8 +1287,8 @@ dependencies = [
 
 [[package]]
 name = "cdk-signatory"
-version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
+version = "0.16.0"
+source = "git+https://github.com/vnprc/cdk?rev=04c584e3#04c584e36df625df790fd0a7bfe276b58239ee27"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1332,8 +1312,8 @@ dependencies = [
 
 [[package]]
 name = "cdk-sql-common"
-version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
+version = "0.16.0"
+source = "git+https://github.com/vnprc/cdk?rev=04c584e3#04c584e36df625df790fd0a7bfe276b58239ee27"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.8",
@@ -1350,8 +1330,8 @@ dependencies = [
 
 [[package]]
 name = "cdk-sqlite"
-version = "0.15.1"
-source = "git+https://github.com/cashubtc/cdk?rev=5dd5b93a#5dd5b93a43c306b76eae0b872de345b2effb58a8"
+version = "0.16.0"
+source = "git+https://github.com/vnprc/cdk?rev=04c584e3#04c584e36df625df790fd0a7bfe276b58239ee27"
 dependencies = [
  "async-trait",
  "bitcoin 0.32.8",
@@ -1545,15 +1525,6 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-util",
-]
-
-[[package]]
-name = "cmake"
-version = "0.1.57"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75443c44cd6b379beb8c5b45d85d0773baf31cce901fe7bb252f4eff3008ef7d"
-dependencies = [
- "cc",
 ]
 
 [[package]]
@@ -2181,12 +2152,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
-name = "dunce"
-version = "1.0.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
-
-[[package]]
 name = "dyn-clone"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2470,12 +2435,6 @@ dependencies = [
  "buffer_sv2 3.0.1",
  "noise_sv2",
 ]
-
-[[package]]
-name = "fs_extra"
-version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c"
 
 [[package]]
 name = "funty"
@@ -3148,7 +3107,6 @@ dependencies = [
  "http 1.4.0",
  "hyper 1.8.1",
  "hyper-util",
- "log",
  "rustls 0.23.37",
  "rustls-native-certs",
  "rustls-pki-types",
@@ -3882,6 +3840,30 @@ name = "matchit"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
+
+[[package]]
+name = "maud"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8156733e27020ea5c684db5beac5d1d611e1272ab17901a49466294b84fc217e"
+dependencies = [
+ "axum-core",
+ "http 1.4.0",
+ "itoa",
+ "maud_macros",
+]
+
+[[package]]
+name = "maud_macros"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7261b00f3952f617899bc012e3dbd56e4f0110a038175929fa5d18e5a19913ca"
+dependencies = [
+ "proc-macro2",
+ "proc-macro2-diagnostics",
+ "quote",
+ "syn 2.0.117",
+]
 
 [[package]]
 name = "md-5"
@@ -4938,6 +4920,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "proc-macro2-diagnostics"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af066a9c399a26e020ada66a034357a868728e72cd426f3adcd35f80d88d88c8"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+ "version_check",
+]
+
+[[package]]
 name = "prometheus"
 version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5646,7 +5640,6 @@ version = "0.23.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "758025cb5fccfd3bc2fd74708fd4682be41d99e5dff73c377c0646c6012c73a4"
 dependencies = [
- "aws-lc-rs",
  "log",
  "once_cell",
  "ring",
@@ -5712,7 +5705,6 @@ version = "0.103.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7df23109aa6c1567d1c575b9952556388da57401e4ace1d15f79eedad0d8f53"
 dependencies = [
- "aws-lc-rs",
  "ring",
  "rustls-pki-types",
  "untrusted",

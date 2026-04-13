@@ -20,11 +20,11 @@ bitcoin = { version= "0.32.2" }
 uuid = { version = "1.7", features = ["v4"] }
 hex = "0.4"
 
-cdk        = "0.15.1"
-cdk-axum   = "0.15.1"
-cdk-ehash  = { git = "https://github.com/vnprc/cdk-ehash", rev = "d5d16cf8" }
-cdk-mintd  = "0.15.1"
-cdk-sqlite = "0.15.1"
+cdk        = "0.16.0"
+cdk-axum   = "0.16.0"
+cdk-ehash  = { git = "https://github.com/vnprc/cdk-ehash", rev = "e53938e0" }
+cdk-mintd  = "0.16.0"
+cdk-sqlite = "0.16.0"
 toml = "0.8.22"
 
 shared_config = { path = "../roles-utils/config" }

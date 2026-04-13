@@ -3,7 +3,7 @@ use binary_sv2::Str0255;
 use cdk::mint::{Mint, MintQuoteRequest, MintQuoteResponse as CdkMintQuoteResponse};
 use cdk::{
     cdk_payment::{PaymentIdentifier, WaitPaymentResponse},
-    nuts::CurrencyUnit,
+    nuts::{CurrencyUnit, PaymentMethod},
     Amount,
 };
 use codec_sv2::StandardEitherFrame;
@@ -56,7 +56,7 @@ pub async fn process_mint_quote_message(
                 .map_err(|e| anyhow::anyhow!("Failed to convert MintQuoteRequest: {e}"))?;
 
             let mint_quote_request = MintQuoteRequest::Custom {
-                method: "ehash".to_string(),
+                method: PaymentMethod::Custom("ehash".to_string()),
                 request: cdk_custom_request,
             };
 
