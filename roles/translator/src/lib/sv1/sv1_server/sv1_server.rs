@@ -1237,7 +1237,7 @@ mod tests {
     use crate::config::{DownstreamDifficultyConfig, TranslatorConfig, Upstream};
     use async_channel::unbounded;
     use std::{collections::HashMap, str::FromStr};
-    use stratum_apps::key_utils::Secp256k1PublicKey;
+    use key_utils::Secp256k1PublicKey;
 
     fn create_test_config() -> TranslatorConfig {
         let pubkey_str = "9bDuixKmZqAJnrmP746n8zU1wyAQRrus7th9dxnkPg6RzQvCnan";

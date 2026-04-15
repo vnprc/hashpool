@@ -1,8 +1,8 @@
 # SRI PR: Add `network` field to `GlobalInfo`
 
 **Target repo:** `stratum-mining/sv2-apps`
-**Status:** Ready to file pending rebase + integration test run. All code changes complete
-as of 2026-04-14. Branch `feat/globalinfo-network` in `stratum-mining/sv2-apps`
+**PR:** https://github.com/stratum-mining/sv2-apps/pull/367
+**Status:** Open. Branch `feat/globalinfo-network` in `stratum-mining/sv2-apps`
 (local checkout: `/home/vnprc/work/sv2-apps`).
 
 ---
@@ -83,101 +83,82 @@ Branch `feat/globalinfo-network` in `stratum-mining/sv2-apps`
 
 - `GlobalInfo` gets `pub network: Option<String>`
 - `MonitoringServer` gets `pub fn with_network(self, network: Option<String>) -> Self`
-  (writes into existing `Arc<RwLock<...>>` — does not replace the Arc)
-- `handle_global` serves `state.network.read().unwrap().clone()`
+  (writes into `Arc<RwLock<...>>`)
+- `handle_global` serves `state.network.read().expect("...").clone()`
 - Unit tests: `global_endpoint_with_no_sources` asserts `network` is null;
   `global_endpoint_network_field` asserts both null and populated cases
 
-### Step 1.2 — Extend `MonitoringServer` for runtime network updates ✅
+### Step 1.2 — `MonitoringServer` owns the upstream fetch ✅
 
 **File:** `stratum-apps/src/monitoring/http_server.rs`
 
-The translator learns its network by polling the pool — it cannot know the network from
-static config because it is a proxy. This requires updating network after the monitoring
-server starts.
+The translator learns its network from the pool. Rather than leaking internal state via
+`network_handle()` and making the translator responsible for the HTTP fetch, the fetch
+logic lives entirely inside `MonitoringServer`.
 
-- `ServerState.network` changed from `Option<String>` to `Arc<RwLock<Option<String>>>`
-- `with_network(self, Option<String>)` writes into the Arc (no public API change)
-- `network_handle(&self) -> Arc<RwLock<Option<String>>>` — returns a clone of the Arc
-  so a background task can write to it after `run()` has consumed `self`
-- `handle_global` reads: `state.network.read().unwrap().clone()`
+- `MonitoringServer` gains `upstream_monitoring_url: Option<String>` field
+- `pub fn with_upstream_monitoring_url(self, url: Option<String>) -> Self` builder:
+  validates the URL starts with `http://` (logs a warning and ignores if not); stores the URL
+- `network_handle()` **removed** from the public API
+- `run()` spawns a one-shot `tokio::spawn` that calls `fetch_network_from_upstream(url, network)`
+  concurrently with the HTTP server startup
+- Private `fetch_network_from_upstream` calls private `fetch_global_info` which uses
+  `hyper` (already compiled via `axum`) + `http-body-util` — **no reqwest, no new Cargo.lock entries**
+- `stratum-apps/Cargo.toml`: `hyper`, `hyper-util`, `http-body-util` added to the `monitoring`
+  feature (they are already transitively present via axum; making them explicit adds
+  zero new crates to Cargo.lock)
+- All `.unwrap()` on `RwLock` guards changed to `.expect("network lock poisoned")`
 
 ### Step 1.3 — Pool infers network from tp_address port ✅
 
 **Files:** `pool-apps/pool/src/lib/config.rs`, `pool-apps/pool/src/lib/mod.rs`
 
-Old approach (to be replaced): `PoolConfig` had `network: Option<String>` set manually
-by the operator. This is error-prone and redundant — the operator already configures
-`tp_address` correctly or nothing works.
-
-New approach:
-- Add a helper (e.g. `fn network_from_tp_port(port: u16) -> Option<&'static str>`) that
-  maps standard sv2-tp ports to network name strings:
+- `fn network_from_tp_port(port: u16) -> Option<&'static str>` maps standard sv2-tp ports
+  using bitcoin-cli (`getblockchaininfo`) convention:
   ```rust
-  match port {
-      8442  => Some("mainnet"),
-      18442 => Some("testnet3"),
-      48442 => Some("testnet4"),
-      38442 => Some("signet"),
-      18447 => Some("regtest"),
-      _     => None,
-  }
+  8442  => Some("main"),      // mainnet
+  18442 => Some("test"),      // testnet3
+  48442 => Some("testnet4"),
+  38442 => Some("signet"),
+  18447 => Some("regtest"),
   ```
-- `PoolConfig` retains `network: Option<String>` with `#[serde(default)]` as an
-  **explicit override** for non-standard port setups
-- Add `fn effective_network(&self) -> Option<String>` (or equivalent) that:
-  1. Returns `self.network.clone()` if it is `Some` (config override wins)
-  2. Otherwise parses the port from `self.tp_address` and maps it via the helper
-  3. Returns `None` if the port is non-standard and no override is set
+- `const VALID_NETWORKS: &[&str]` enumerates the known values; `effective_network()` validates
+  the explicit override against it and logs a warning + returns `None` for unrecognised values
+- `PoolConfig` retains `network: Option<String>` with `#[serde(default)]` as an override for
+  non-standard port setups; `effective_network()` returns the override if valid, otherwise
+  falls back to port inference
 - Pool calls `.with_network(config.effective_network())` on its `MonitoringServer`
+- Unit tests: `network_from_tp_port_known_ports` uses correct bitcoin-cli names;
+  new `valid_networks_covers_known_port_outputs` asserts every port-inference result is
+  in `VALID_NETWORKS`
 
-No changes to `stratum-apps` library code are needed; only `config.rs` and the
-call-site in `mod.rs` change.
+### Step 1.4 — Translator delegates upstream fetch to MonitoringServer ✅
 
-### Step 1.4 — Translator fetches network from pool on connect ✅
+**Files:** `miner-apps/translator/Cargo.toml`, `miner-apps/translator/src/lib/mod.rs`
 
-**Files:** `miner-apps/translator/src/lib/config.rs`, `miner-apps/translator/src/lib/mod.rs`
+- `reqwest` **removed entirely** from `translator/Cargo.toml` — no longer needed
+- `TranslatorConfig` retains `upstream_monitoring_url: Option<String>` with `#[serde(default)]`
+  (TOML config shape unchanged; operators configure this field as before)
+- Translator chains `.with_upstream_monitoring_url(self.config.upstream_monitoring_url())`
+  onto the `MonitoringServer` builder — a one-liner replacing the old `network_handle` +
+  spawned task pattern
+- `fetch_network_from_pool` private function **removed** from `translator/src/lib/mod.rs`
+- Both the initial-connect and reconnect paths updated identically
 
-Old approach (to be replaced): a background task polling `/api/v1/global` every 60
-seconds indefinitely. This is overkill — the network is stable for the lifetime of the
-process.
-
-New approach: fetch once per upstream connection, stop as soon as a result is obtained.
-
-- `TranslatorConfig` gains `upstream_monitoring_url: Option<String>` with `#[serde(default)]`
-  (config shape unchanged)
-- After establishing the upstream SV2 connection to the pool, perform a single
-  `GET <upstream_monitoring_url>/api/v1/global` and write the result into the network Arc
-- No background timer or periodic re-poll; the fetch is a one-shot per connection
-- On disconnect/reconnect (existing fallback-restart path), fetch again — covers the
-  case of reconnecting to a different pool instance, and naturally handles pool-not-ready
-  at startup since the SV2 connection itself would not yet be established
-- If `upstream_monitoring_url` is not set, network remains `None`
-
-### Step 1.5 — Integration test ✅
+### Step 1.5 — Integration tests ✅
 
 **File:** `integration-tests/tests/monitoring_integration.rs`
-**Also:** `integration-tests/lib/mod.rs`
 
-The existing test `global_info_exposes_network` uses `network = "regtest"` as an
-explicit config override (config-override path). This tests that the override works
-but does not exercise port-based inference.
+- `global_info_exposes_network` renamed to **`global_info_network_from_config_override`**
+  (name now reflects what the test actually exercises)
+- Polling deadline bumped **10 s → 30 s** (headroom for slow CI machines)
+- New test **`global_info_network_unreachable_upstream`**: translator starts with
+  `upstream_monitoring_url` pointing at a port where nothing is listening; asserts that
+  the translator starts cleanly and serves `network: null` rather than panicking
+- Port-based inference is validated by the unit tests in `pool/src/lib/config.rs`
+  (`network_from_tp_port_known_ports`, `valid_networks_covers_known_port_outputs`)
 
-Updated approach — two test cases:
-
-1. **`global_info_network_from_config_override`** — pool config has `network = "regtest"`
-   with tp_address on a non-standard port; verifies the config override takes precedence.
-   (This is essentially the old test, renamed.)
-
-2. **`global_info_network_inferred_from_tp_port`** — pool config has no `network` field;
-   sv2-tp runs on port 18447 (regtest default); verifies the pool reports `"regtest"` via
-   port inference. Translator still polls pool monitoring to acquire the value.
-
-Helper `start_pool_with_network()` renamed to `start_pool_with_network_override()` to
-signal it uses the config path. A new `start_pool_on_regtest_port()` helper (or similar)
-starts the pool with sv2-tp bound to port 18447 and no explicit `network` config.
-
-Existing `start_pool`/`start_sv2_translator` remain unchanged.
+Existing `start_pool` / `start_sv2_translator` helpers unchanged.
 
 ---
 
@@ -206,13 +187,23 @@ Removed `network =` from tproxy config files.
 
 ### Step 2.2 — Sync vendored `stratum-apps` library (library sync) ✅
 
-`common/stratum-apps/src/monitoring/http_server.rs` updated to match upstream Steps
-1.1/1.2: `Arc<RwLock<Option<String>>>`, `with_network()` writes into existing Arc,
-`network_handle()` added, `handle_global` reads via lock.
+Vendored `common/stratum-apps/` synced to upstream commit `5e3bb6fe` (2026-04-15).
 
-This step must be re-synced after Step 1.3 revision lands upstream (though Step 1.3
-changes are in pool application code, not the library — check whether any library API
-surface changes).
+**`monitoring/http_server.rs`**: `network_handle()` removed; `with_upstream_monitoring_url()`
+builder added; `run()` spawns a one-shot hyper fetch at startup when the URL is set;
+`fetch_network_from_upstream()` / `fetch_global_info()` private functions added.
+`with_network()` `.unwrap()` → `.expect("network lock poisoned")`.
+`monitoring` feature in `Cargo.toml` now lists `hyper`/`hyper-util`/`http-body-util` explicitly.
+
+**`tp_type.rs`**: `VALID_NETWORKS` constant, `network_from_tp_port()` function,
+`BitcoinNetwork::as_network_str()` method, and `TemplateProviderType::infer_network()`
+method added as public API, matching upstream Step 1.3. New unit tests added.
+
+**`monitoring/sv1.rs`**: hashpool-specific extensions preserved
+(`shares_submitted`, `connected_at_secs`, `peer_address`, `hashrate_5min`).
+
+**`key_utils/mod.rs`**: intentionally kept as `pub use key_utils_impl::*;` re-export
+(type identity fix; upstream's standalone implementation would cause `E0308` mismatches).
 
 ### Step 2.3 — Pool exposes `network` via monitoring server (parallel reimplementation) ✅
 
@@ -240,13 +231,22 @@ them in favour of port inference depends on confirming which ports hashpool's sv
 instances use. The port inference logic from Step 1.3 must also be added to hashpool's
 pool config (parallel reimplementation — the SRI pool config code is not shared).
 
+**Status (2026-04-15):** `network_from_tp_port()`, `VALID_NETWORKS`, and
+`TemplateProviderType::infer_network()` are now public API in the vendored
+`common/stratum-apps/src/tp_type.rs` (synced from upstream). The pool `config.rs` still
+uses only the direct `network: Option<String>` override; `effective_network()` (port
+inference + override validation) is not yet implemented in hashpool's pool config.
+Regtest port 18447 is confirmed as hashpool's sv2-tp port. Adding `effective_network()`
+to hashpool's `PoolConfig` would complete the parallel reimplementation.
+
 ### Step 2.4 — Translator fetches network from pool on connect (parallel reimplementation) ✅
 
-`pool_monitoring_url: Option<String>` added to `TranslatorConfig` (config shape
-unchanged). Current implementation uses a background polling loop — this must be revised
-to a one-shot fetch per upstream connection, consistent with revised SRI Step 1.4.
-Hashpool's translator is a separate application from the SRI translator; this change
-must be made independently in hashpool's codebase.
+`pool_monitoring_url: Option<String>` in `TranslatorConfig` (config shape unchanged).
+Revised 2026-04-15 to use the one-shot `with_upstream_monitoring_url()` API from Step 1.4:
+the background `reqwest`-based `fetch_pool_network` loop is removed; both the initial
+connection and reconnect paths now chain
+`.with_upstream_monitoring_url(self.config.pool_monitoring_url().map(|s| s.to_string()))`
+onto the `MonitoringServer` builder. `reqwest` dep removed from `translator/Cargo.toml`.
 `config/tproxy.config.toml`: `pool_monitoring_url = "http://127.0.0.1:9108"`
 
 ### Step 2.5 — Web-proxy ✅ (no changes needed)
@@ -282,12 +282,31 @@ port 18447, the explicit override can be dropped. Until then, keep the override.
 Before opening the PR against `stratum-mining/sv2-apps`:
 
 - [x] **Revise Step 1.3** — port-based inference + optional override implemented
-- [x] **Update integration tests** — helper renamed to `start_pool_with_network_override()`
+- [x] **Fix network naming** — `network_from_tp_port` now returns bitcoin-cli names
+  (`"main"`, `"test"`) matching `getblockchaininfo`; `VALID_NETWORKS` constant added
+- [x] **Remove reqwest** — translator no longer carries an HTTP client dep; fetch lives
+  in `stratum-apps/monitoring` using hyper (already compiled via axum)
+- [x] **`network_handle()` removed** — `MonitoringServer` owns the upstream fetch via
+  `with_upstream_monitoring_url()`; no internal Arc leaks into application code
+- [x] **URL validation** — `with_upstream_monitoring_url` rejects non-`http://` URLs with
+  a clear warning at startup
+- [x] **Lock poisoning** — all `.unwrap()` on RwLock guards changed to `.expect("...")`
+- [x] **Update integration tests** — test renamed to `global_info_network_from_config_override`;
+  timeout bumped to 30 s; new `global_info_network_unreachable_upstream` test added
+- [x] **JDC network inference** — moved `network_from_tp_port` / `VALID_NETWORKS` /
+  `infer_network()` / `BitcoinNetwork::as_network_str()` into `stratum-apps/src/tp_type.rs`
+  as public API; added `effective_network()` + `with_network()` builder + `network`
+  override field to `JobDeclaratorClientConfig`; wired into JDC `MonitoringServer` at
+  both startup and reconnect paths; new `global_info_network_jdc_from_config_override`
+  integration test; unit tests in `tp_type.rs`, pool config, and JDC config
 - [x] Rebase onto upstream main (2026-04-14; Cargo.toml conflict resolved)
-- [x] Squash commits — branch is 2 clean commits on top of main
-- [x] Vendored copy already in sync (Step 2.2 was done; rebase introduced no new API changes)
+- [x] Vendored copy synced (2026-04-15) to `5e3bb6fe` — see Step 2.2 above
+- [x] **PR open**: https://github.com/stratum-mining/sv2-apps/pull/367
+- [ ] Squash/amend commits — review feedback addressed in fixup commit; squash before merging
 - [ ] Run integration tests in the sv2-apps repo — blocked by missing `capnp` binary in
-  devenv shell; tests pass structurally (`cargo check` clean on all three workspaces)
+  devenv shell; unit tests pass (`cargo test` clean on stratum-apps, pool-apps, miner-apps);
+  integration-tests workspace has a pre-existing `icu_provider` dep constraint (requires
+  rustc 1.86, project pins 1.85) unrelated to these changes
 
 ---
 

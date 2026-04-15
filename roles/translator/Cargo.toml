@@ -16,7 +16,7 @@ name = "translator_sv2"
 path = "src/main.rs"
 
 [dependencies]
-# sv2-apps translator base (stratum-apps v0.3.0, 2026-03-19)
+# sv2-apps translator base (stratum-apps v0.3.0, vendored @ 5e3bb6fe)
 stratum-apps = { path = "../../common/stratum-apps", features = ["translator"] }
 async-channel = "1.5.1"
 serde = { version = "1.0.89", default-features = false, features = ["derive", "alloc"] }
@@ -44,15 +44,12 @@ hyper = { version = "1.0", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"
 
-# HTTP client for monitoring polling (used when monitoring feature is enabled)
-reqwest = { version = "0.12", features = ["json"], optional = true }
-
 # Hashpool-specific metrics
 stats-sv2 = { path = "../roles-utils/stats-sv2" }
 
 [features]
 default = ["monitoring"]
-monitoring = ["stratum-apps/monitoring", "dep:reqwest"]
+monitoring = ["stratum-apps/monitoring"]
 hotpath = ["hotpath/hotpath"]
 hotpath-alloc = ["hotpath", "hotpath/hotpath-alloc"]
 

@@ -28,8 +28,11 @@ use std::{
     sync::{Arc, RwLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::net::TcpListener;
-use tracing::info;
+use http_body_util::{BodyExt, Empty};
+use hyper::{body::Bytes, Request, Uri};
+use hyper_util::rt::TokioIo;
+use tokio::net::{TcpListener, TcpStream};
+use tracing::{info, warn};
 use utoipa::{IntoParams, OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -130,6 +133,7 @@ pub struct MonitoringServer {
     bind_address: SocketAddr,
     state: ServerState,
     refresh_interval: Duration,
+    upstream_monitoring_url: Option<String>,
 }
 
 impl MonitoringServer {
@@ -183,6 +187,7 @@ impl MonitoringServer {
                 metrics,
                 network: Arc::new(RwLock::new(None)),
             },
+            upstream_monitoring_url: None,
         })
     }
 
@@ -193,17 +198,35 @@ impl MonitoringServer {
     ///
     /// This is optional — if not called, `network` will be `None` in the global response.
     pub fn with_network(self, network: Option<String>) -> Self {
-        *self.state.network.write().unwrap() = network;
+        *self.state.network.write().expect("network lock poisoned") = network;
         self
     }
 
-    /// Return a handle to the shared network value.
+    /// Configure the URL of an upstream application's monitoring server.
     ///
-    /// The returned `Arc<RwLock<Option<String>>>` can be written to by a background task
-    /// after `run()` has consumed `self`. This allows applications (e.g. a translator proxy)
-    /// to update the network field at runtime once they learn it from an upstream source.
-    pub fn network_handle(&self) -> Arc<RwLock<Option<String>>> {
-        self.state.network.clone()
+    /// When set, [`run`] performs a one-shot `GET <url>/api/v1/global` at startup and
+    /// populates the `network` field in this server's `GET /api/v1/global` response from
+    /// the upstream's value. This is used by the translator to inherit the network from
+    /// the pool it connects to.
+    ///
+    /// Only plain `http://` URLs are supported — HTTPS is not. If the URL does not start
+    /// with `http://`, a warning is logged and the option is ignored.
+    ///
+    /// If the upstream is unreachable or returns an unexpected response, a warning is
+    /// logged and `network` remains `None`.
+    pub fn with_upstream_monitoring_url(mut self, url: Option<String>) -> Self {
+        if let Some(ref u) = url {
+            if !u.starts_with("http://") {
+                warn!(
+                    "upstream_monitoring_url {:?} is not an http:// URL — only plain HTTP is \
+                     supported. Upstream network fetch disabled.",
+                    u
+                );
+                return self;
+            }
+        }
+        self.upstream_monitoring_url = url;
+        self
     }
 
     /// Add Sv1 clients monitoring (optional, for Translator Proxy only)
@@ -251,6 +274,15 @@ impl MonitoringServer {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         info!("Starting monitoring server on http://{}", self.bind_address);
         info!("Cache refresh interval: {:?}", self.refresh_interval);
+
+        // If an upstream monitoring URL is configured, fetch the network field once at startup.
+        // The fetch runs concurrently; network stays None until it completes.
+        if let Some(url) = self.upstream_monitoring_url {
+            let network = self.state.network.clone();
+            tokio::spawn(async move {
+                fetch_network_from_upstream(&url, network).await;
+            });
+        }
 
         // Spawn background task to refresh cache periodically
         let cache_for_refresh = self.state.cache.clone();
@@ -307,6 +339,63 @@ impl MonitoringServer {
         info!("Monitoring server stopped");
         result.map_err(|e| e.into())
     }
+}
+
+/// Fetch `GET <url>/api/v1/global` from an upstream monitoring server and write the reported
+/// `network` value into `network`. Called once at startup; if the upstream is unreachable
+/// or returns an unexpected response a warning is logged and `network` stays `None`.
+async fn fetch_network_from_upstream(url: &str, network: Arc<RwLock<Option<String>>>) {
+    let full_url = format!("{}/api/v1/global", url.trim_end_matches('/'));
+    match fetch_global_info(&full_url).await {
+        Ok(info) => {
+            *network.write().expect("network lock poisoned") = info.network;
+        }
+        Err(e) => warn!("Failed to fetch network from upstream {}: {}", url, e),
+    }
+}
+
+/// Perform a plain HTTP/1.1 GET to `url` and deserialize the response body as [`GlobalInfo`].
+///
+/// Only `http://` URLs are supported (TLS is not). Returns an error on connection failure,
+/// non-2xx status, or JSON parse failure.
+async fn fetch_global_info(
+    url: &str,
+) -> Result<GlobalInfo, Box<dyn std::error::Error + Send + Sync>> {
+    let uri: Uri = url.parse()?;
+    let host = uri.host().ok_or("URL missing host")?;
+    let port = uri.port_u16().unwrap_or(80);
+    let path = uri
+        .path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or("/");
+
+    let stream = TcpStream::connect(format!("{}:{}", host, port)).await?;
+    let io = TokioIo::new(stream);
+
+    let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await?;
+    tokio::spawn(async move {
+        if let Err(e) = conn.await {
+            warn!("Upstream monitoring HTTP connection error: {}", e);
+        }
+    });
+
+    let req = Request::builder()
+        .method("GET")
+        .uri(path)
+        .header(
+            "host",
+            uri.authority().map(|a| a.as_str()).unwrap_or(host),
+        )
+        .body(Empty::<Bytes>::new())?;
+
+    let resp = sender.send_request(req).await?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()).into());
+    }
+
+    let body = resp.collect().await?.to_bytes();
+    let info: GlobalInfo = serde_json::from_slice(&body)?;
+    Ok(info)
 }
 
 // Response types - used for both actual responses and OpenAPI documentation

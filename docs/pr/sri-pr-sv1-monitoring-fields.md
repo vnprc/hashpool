@@ -2,7 +2,7 @@
 
 **Target repo:** `stratum-mining/stratum`
 **File:** `protocols/stratum-apps/src/monitoring/sv1.rs`
-**Status:** Pending — blocked on un-vendoring `common/stratum-apps/` first
+**Status:** Pending — can be filed now; does not require un-vendoring `common/stratum-apps/`
 
 ---
 
@@ -98,9 +98,11 @@ translator-side data and are the natural fit for the monitoring REST API.
 
 ## Unblocking condition
 
-This PR can be filed immediately against `stratum-mining/stratum`. It does not depend on
-any other work. Once merged and released (e.g. as stratum-apps 0.3.1), the fork branch
-used for the git dep in `roles/Cargo.toml` can be retired and the version dep bumped.
+This PR can be filed immediately against `stratum-mining/sv2-apps`. It does not depend on
+any other work. Once merged, the vendored copy at `common/stratum-apps/src/monitoring/sv1.rs`
+can be synced to include the upstream fields and the hashpool-specific comment annotations
+can be removed. If the PR uses `nominal_hashrate` (see "Local changes needed" below),
+update the vendored struct and all call sites at that time.
 
 ---
 

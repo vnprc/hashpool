@@ -60,7 +60,7 @@ default = ["network", "config", "std"]
 network = ["tokio-util", "core"]
 config = []
 rpc = ["serde_json", "hex", "base64", "hyper", "hyper-util", "http-body-util"]
-monitoring = ["serde_json", "axum", "prometheus", "utoipa", "utoipa-swagger-ui"]
+monitoring = ["serde_json", "axum", "prometheus", "utoipa", "utoipa-swagger-ui", "hyper", "hyper-util", "http-body-util"]
 std = ["key_utils_impl/std", "secp256k1/rand-std", "rand/std", "rand/std_rng"]
 core = ["stratum-core"]
 

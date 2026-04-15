@@ -241,15 +241,8 @@ impl TranslatorSv2 {
             )
             .expect("Failed to initialize monitoring server")
             .with_sv1_monitoring(sv1_server.clone()) // SV1 client connections
-            .expect("Failed to add SV1 monitoring");
-
-            // Fetch network from pool once per connection before run() consumes monitoring_server
-            let network_handle = monitoring_server.network_handle();
-            if let Some(pool_mon_url) = self.config.pool_monitoring_url().map(|s| s.to_string()) {
-                tokio::spawn(async move {
-                    fetch_pool_network(pool_mon_url, network_handle).await;
-                });
-            }
+            .expect("Failed to add SV1 monitoring")
+            .with_upstream_monitoring_url(self.config.pool_monitoring_url().map(|s| s.to_string()));
 
             // Create shutdown signal using cancellation token
             let cancellation_token_clone = cancellation_token.clone();
@@ -394,15 +387,8 @@ impl TranslatorSv2 {
                                     )
                                     .expect("Failed to initialize monitoring server")
                                     .with_sv1_monitoring(sv1_server.clone())
-                                    .expect("Failed to add SV1 monitoring");
-
-                                    // Fetch network from pool once per connection before run() consumes monitoring_server
-                                    let network_handle = monitoring_server.network_handle();
-                                    if let Some(pool_mon_url) = self.config.pool_monitoring_url().map(|s| s.to_string()) {
-                                        tokio::spawn(async move {
-                                            fetch_pool_network(pool_mon_url, network_handle).await;
-                                        });
-                                    }
+                                    .expect("Failed to add SV1 monitoring")
+                                    .with_upstream_monitoring_url(self.config.pool_monitoring_url().map(|s| s.to_string()));
 
                                     let cancellation_token_clone = cancellation_token.clone();
                                     let fallback_coordinator_token = fallback_coordinator.token();
@@ -685,25 +671,3 @@ impl Drop for TranslatorSv2 {
     }
 }
 
-/// Fetches the pool's monitoring API once per upstream connection and writes the reported
-/// Bitcoin network name into `network_handle`. Retries are handled by the translator's
-/// existing reconnect logic — no polling loop needed.
-#[cfg(feature = "monitoring")]
-async fn fetch_pool_network(
-    pool_mon_url: String,
-    network_handle: std::sync::Arc<std::sync::RwLock<Option<String>>>,
-) {
-    use stratum_apps::monitoring::GlobalInfo;
-    let url = format!("{}/api/v1/global", pool_mon_url.trim_end_matches('/'));
-    match reqwest::get(url).await {
-        Ok(resp) => match resp.json::<GlobalInfo>().await {
-            Ok(info) => {
-                if let Ok(mut guard) = network_handle.write() {
-                    *guard = info.network;
-                }
-            }
-            Err(e) => warn!("Failed to parse pool global info: {e}"),
-        },
-        Err(e) => warn!("Failed to fetch pool network info from {pool_mon_url}: {e}"),
-    }
-}
