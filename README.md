@@ -105,6 +105,39 @@ For deploying Hashpool on Debian 12, see the
 
 ---
 
+## Troubleshooting
+
+### TUI detaches but processes keep running
+
+If you try to copy text from the devenv shell while `devenv up` is running, process-compose can crash and detach the TUI, leaving all background processes running as orphans.
+
+**1. Find and kill the orphaned processes:**
+
+```bash
+pgrep -a -f "pool_sv2|translator_sv2|mint|jd_server|jd_client|web_pool|web_proxy|sv2-tp|bitcoin-node|prometheus"
+```
+
+Kill the listed PIDs:
+
+```bash
+kill <pids...>
+```
+
+**2. Verify everything is dead:**
+
+```bash
+pgrep -f "pool_sv2|translator_sv2|mint|jd_server|jd_client|web_pool|web_proxy|sv2-tp|bitcoin-node|prometheus" && echo "still running" || echo "all clear"
+```
+
+**3. Remove the stale socket and restart:**
+
+```bash
+rm .devenv/run/pc.sock
+devenv up
+```
+
+---
+
 ## Contribution
 
 This project is very early. PRs and bug reports are very welcome!
