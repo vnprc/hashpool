@@ -44,7 +44,8 @@ miner. These were rejected because:
 
 3. **Burning tokens at contribution time eliminates double-spend by construction.** Once tokens
    are burned into a quote, they cannot be redeemed elsewhere. The mint holds a clean obligation
-   that settles via exactly one path.
+   that settles via one of two paths: on-chain coinbase payout or ecash fallback (with
+   additional paths possible as more payment methods are added).
 
 ## Required Mint Capabilities
 
@@ -86,7 +87,9 @@ At epoch close (block found):
 1. Pool stops creating quotes for the closing epoch's currency unit
 2. Pool sends authenticated request to create a new asset for the next epoch
 3. Mint creates new keyset, begins accepting quotes for the new currency unit
-4. Old keyset tokens remain redeemable (backed by BTC from the block reward)
+4. Old keyset tokens are no longer tradeable or redeemable for mint quotes. They can only
+   be redeemed for bitcoin payouts (ecash, lightning, or on-chain if the mint supports it)
+   for a limited time before the redemption window closes.
 
 These two capabilities are the foundation that the settlement mechanism builds on.
 
@@ -152,9 +155,10 @@ The mint verifies coinbase outputs using on-chain payment verification (NUT-XX /
 processor from CDK). This is the same machinery used for standard on-chain Cashu deposits,
 adapted to verify third-party payments (the pool paid, not the mint).
 
-**Coinbase maturity:** Bitcoin requires 100 confirmations before coinbase outputs are spendable.
-The mint should wait for maturity before marking quotes as PAID. Intermediate state:
-PENDING_CONFIRMATION.
+**Coinbase confirmation:** The mint configures how many confirmations are required before
+updating the quote status to CONFIRMED. There is no need to wait for the full 100-block
+coinbase maturity period — the miners own those outputs as soon as the block is found, even
+though the outputs are locked for 100 blocks. Intermediate state: PENDING_CONFIRMATION.
 
 ### Accounting
 
@@ -205,16 +209,26 @@ when blocks are found. The pool is a mining coordinator.
 
 ### Auto-Rollover (Ocean Model)
 
-When an epoch closes and a miner's quote is not paid on-chain:
-1. Quote closes, miner receives ecash for the accumulated balance
-2. New quote auto-created for next epoch with identical settings (same payout address)
-3. Ecash balance automatically contributed as "floor balance" (denominated in satoshis)
-4. New ehash contributions from the next epoch add speculative value above the floor
-5. Miner mines on autopilot until balance crosses the coinbase payout threshold
+When an epoch closes and a miner's quote is not paid on-chain, one of two things happens
+depending on whether the miner wants to manage an ecash wallet:
+
+**No ecash wallet (default for simple miners):** The accumulated balance is automatically
+rolled into a new quote for the next epoch with identical settings (same payout address).
+No ecash is issued — the balance carries forward directly as a "floor balance" denominated
+in satoshis. New ehash contributions from the next epoch add speculative value above the
+floor. The miner mines on autopilot until the balance crosses the coinbase payout threshold.
+
+**Ecash wallet (opt-in):** The quote closes and the miner receives ecash for the accumulated
+balance. No auto-rollover occurs. The miner manages their own ecash and decides when and
+how to spend it.
 
 If a miner stops contributing shares, their accumulated floor balance persists and the pool
-will eventually include their output in a coinbase when space allows. Sensible default: always
-roll over unless miner explicitly opts out.
+will eventually include their output in a coinbase when space allows.
+
+**Ark payouts:** This model naturally lends itself to Ark-based settlement, where the miner
+holds an offchain VTXO instead of the mint custodying their bitcoin balance. The mint
+coordinates an Ark round at epoch close, granting miners self-custodial offchain UTXOs
+without requiring on-chain coinbase space for each payout.
 
 ### Open Coinbase Marketplace
 
@@ -247,17 +261,32 @@ trustless: neither the miner nor the pool/mint should be able to cheat the other
 - HTLC ensures atomicity: either both sides complete or neither does
 - The pool collects ehash (proof of miner contributions) and the miner receives ecash (BTC claim)
 
-**Open questions:**
-- Does the pool need to be the swap counterparty, or can any ecash holder buy ehash?
-- What is the TTL for swap availability after epoch close?
-- After the swap window closes, what happens to unredeemed ehash?
-- Does the pool need to explicitly destroy collected ehash tokens at the mint?
+**Design decisions:**
+- Anyone can buy ehash — the pool does not need to be the swap counterparty.
+- The TTL for swap availability after epoch close is configurable by the mint, based on how
+  aggressively it wants to close epochs and issue proofs (relevant for future verifiable
+  mining features).
+- After the swap window closes, unredeemed ehash is lost. This is effectively a donation
+  of free work to the rest of the miners in that epoch.
+- The mint burns ehash tokens at two points: when they are accumulated into a quote, and
+  when they are redeemed for ecash tokens.
 
-This is an unsolved design problem that needs further work.
+### Coinbase Keyset Identification
 
-### Coinbase Fingerprint
+The V2 keyset ID must be included in the coinbase tag (the data miners place in the
+coinbase transaction's scriptSig, after the BIP 34 block height). This is crucial for
+functionality: it proves that miner templates are using the correct coinbase for the
+current epoch. Without this, there is no way to verify that a miner's template commits
+to the correct keyset.
 
-On-chain verifiability for external observers:
-- OP_RETURN output in the coinbase with the keyset ID
-- Proves which mint/epoch settled, links on-chain blocks to off-chain ehash tokens
-- Not needed for functionality, only for trustless auditability
+- Enables verification that block templates reference the active epoch's keyset
+- Also provides on-chain auditability: links mined blocks to the pool and epoch that
+  produced them
+
+**Space constraint:** The coinbase scriptSig has a hard consensus limit of 100 bytes.
+After accounting for the BIP 34 block height (~4 bytes) and the extra nonce used by
+mining software (~8-12 bytes), roughly 84-88 bytes remain. A V2 keyset ID is 32 bytes
+(1 version byte + 31 bytes of truncated SHA-256). Hex-encoding it to 64 ASCII characters
+would not leave room for a pool identifier, so the keyset ID must be embedded as raw
+bytes rather than hex-encoded ASCII. A raw 32-byte keyset ID plus a short pool tag
+(e.g., 10 bytes for `/hashpool/`) fits comfortably within the available space.
