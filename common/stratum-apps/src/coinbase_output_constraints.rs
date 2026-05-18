@@ -73,8 +73,9 @@ pub fn coinbase_output_constraints_message(
 
 /// Creates a CoinbaseOutputConstraints message with safety margins (offsets) applied.
 ///
-/// This function first calculates the exact constraints using [`coinbase_output_constraints_message`],
-/// then adds safety margins to account for address type variation in solo mining scenarios.
+/// This function first calculates the exact constraints using
+/// [`coinbase_output_constraints_message`], then adds safety margins to account for address type
+/// variation in solo mining scenarios.
 ///
 /// The offsets ensure that the coinbase can accommodate the largest possible address types
 /// (p2tr for size, p2pkh for sigops) even when the actual mining address differs from what
@@ -114,7 +115,8 @@ mod tests {
     /// sizes and sigop counts. Run with `--nocapture` to see the output.
     ///
     /// The offsets were determined by finding the worst-case address types:
-    /// - **Size**: p2tr (Taproot) produces the largest coinbase output (43 bytes larger than others)
+    /// - **Size**: p2tr (Taproot) produces the largest coinbase output (43 bytes larger than
+    ///   others)
     /// - **Sigops**: p2pkh has higher sigop count than modern address types (4 sigops)
     ///
     /// Since the pool cannot know in advance which address type the miner will use,

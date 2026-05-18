@@ -20,6 +20,9 @@ use axum::{
     routing::get,
     Router,
 };
+use http_body_util::{BodyExt, Empty};
+use hyper::{body::Bytes, Request, Uri};
+use hyper_util::rt::TokioIo;
 use prometheus::{Encoder, TextEncoder};
 use serde::Deserialize;
 use std::{
@@ -28,9 +31,6 @@ use std::{
     sync::{Arc, RwLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use http_body_util::{BodyExt, Empty};
-use hyper::{body::Bytes, Request, Uri};
-use hyper_util::rt::TokioIo;
 use tokio::net::{TcpListener, TcpStream};
 use tracing::{info, warn};
 use utoipa::{IntoParams, OpenApi, ToSchema};
@@ -83,7 +83,7 @@ use utoipa_swagger_ui::SwaggerUi;
         (name = "sv1", description = "Sv1 clients monitoring (Translator Proxy only)")
     )
 )]
-struct ApiDoc;
+pub struct ApiDoc;
 
 /// Shared state for all HTTP handlers
 #[derive(Clone)]
@@ -166,17 +166,17 @@ impl MonitoringServer {
         let has_server = server_monitoring.is_some();
         let has_sv2_clients = sv2_clients_monitoring.is_some();
 
-        // Create the snapshot cache
-        let cache = Arc::new(SnapshotCache::new(
-            refresh_interval,
-            server_monitoring,
-            sv2_clients_monitoring,
-        ));
-
-        // Do initial refresh
-        cache.refresh();
-
         let metrics = PrometheusMetrics::new(has_server, has_sv2_clients, false)?;
+
+        // Create the snapshot cache with metrics attached so refresh()
+        // updates Prometheus gauges atomically alongside the snapshot data.
+        let cache = Arc::new(
+            SnapshotCache::new(refresh_interval, server_monitoring, sv2_clients_monitoring)
+                .with_metrics(metrics.clone()),
+        );
+
+        // Do initial refresh (populates both snapshot and Prometheus gauges)
+        cache.refresh();
 
         Ok(Self {
             bind_address,
@@ -195,8 +195,6 @@ impl MonitoringServer {
     ///
     /// Values follow bitcoin-cli convention: `"main"`, `"test"`, `"testnet4"`, `"regtest"`,
     /// `"signet"`. The value is served as-is in the `network` field of `GET /api/v1/global`.
-    ///
-    /// This is optional — if not called, `network` will be `None` in the global response.
     pub fn with_network(self, network: Option<String>) -> Self {
         *self.state.network.write().expect("network lock poisoned") = network;
         self
@@ -205,21 +203,12 @@ impl MonitoringServer {
     /// Configure the URL of an upstream application's monitoring server.
     ///
     /// When set, [`run`] performs a one-shot `GET <url>/api/v1/global` at startup and
-    /// populates the `network` field in this server's `GET /api/v1/global` response from
-    /// the upstream's value. This is used by the translator to inherit the network from
-    /// the pool it connects to.
-    ///
-    /// Only plain `http://` URLs are supported — HTTPS is not. If the URL does not start
-    /// with `http://`, a warning is logged and the option is ignored.
-    ///
-    /// If the upstream is unreachable or returns an unexpected response, a warning is
-    /// logged and `network` remains `None`.
+    /// populates this server's `network` field from the upstream response.
     pub fn with_upstream_monitoring_url(mut self, url: Option<String>) -> Self {
         if let Some(ref u) = url {
             if !u.starts_with("http://") {
                 warn!(
-                    "upstream_monitoring_url {:?} is not an http:// URL — only plain HTTP is \
-                     supported. Upstream network fetch disabled.",
+                    "upstream_monitoring_url {:?} is not an http:// URL; upstream network fetch disabled",
                     u
                 );
                 return self;
@@ -241,18 +230,21 @@ impl MonitoringServer {
         let has_server = snapshot.server_info.is_some();
         let has_sv2_clients = snapshot.sv2_clients_summary.is_some();
 
-        // Add Sv1 clients source to the cache
+        // Create metrics with SV1 monitoring enabled
+        let metrics = PrometheusMetrics::new(has_server, has_sv2_clients, true)?;
+
+        // Add Sv1 clients source and attach new metrics to the cache
         let cache = Arc::new(
             Arc::try_unwrap(self.state.cache)
                 .unwrap_or_else(|arc| (*arc).clone())
-                .with_sv1_clients_source(sv1_monitoring),
+                .with_sv1_clients_source(sv1_monitoring)
+                .with_metrics(metrics.clone()),
         );
 
-        // Refresh cache with new SV1 data
+        // Refresh cache with new SV1 data (also updates Prometheus gauges)
         cache.refresh();
 
-        // Re-create metrics with SV1 enabled
-        self.state.metrics = PrometheusMetrics::new(has_server, has_sv2_clients, true)?;
+        self.state.metrics = metrics;
         self.state.cache = cache;
 
         Ok(self)
@@ -275,8 +267,6 @@ impl MonitoringServer {
         info!("Starting monitoring server on http://{}", self.bind_address);
         info!("Cache refresh interval: {:?}", self.refresh_interval);
 
-        // If an upstream monitoring URL is configured, fetch the network field once at startup.
-        // The fetch runs concurrently; network stays None until it completes.
         if let Some(url) = self.upstream_monitoring_url {
             let network = self.state.network.clone();
             tokio::spawn(async move {
@@ -339,63 +329,6 @@ impl MonitoringServer {
         info!("Monitoring server stopped");
         result.map_err(|e| e.into())
     }
-}
-
-/// Fetch `GET <url>/api/v1/global` from an upstream monitoring server and write the reported
-/// `network` value into `network`. Called once at startup; if the upstream is unreachable
-/// or returns an unexpected response a warning is logged and `network` stays `None`.
-async fn fetch_network_from_upstream(url: &str, network: Arc<RwLock<Option<String>>>) {
-    let full_url = format!("{}/api/v1/global", url.trim_end_matches('/'));
-    match fetch_global_info(&full_url).await {
-        Ok(info) => {
-            *network.write().expect("network lock poisoned") = info.network;
-        }
-        Err(e) => warn!("Failed to fetch network from upstream {}: {}", url, e),
-    }
-}
-
-/// Perform a plain HTTP/1.1 GET to `url` and deserialize the response body as [`GlobalInfo`].
-///
-/// Only `http://` URLs are supported (TLS is not). Returns an error on connection failure,
-/// non-2xx status, or JSON parse failure.
-async fn fetch_global_info(
-    url: &str,
-) -> Result<GlobalInfo, Box<dyn std::error::Error + Send + Sync>> {
-    let uri: Uri = url.parse()?;
-    let host = uri.host().ok_or("URL missing host")?;
-    let port = uri.port_u16().unwrap_or(80);
-    let path = uri
-        .path_and_query()
-        .map(|pq| pq.as_str())
-        .unwrap_or("/");
-
-    let stream = TcpStream::connect(format!("{}:{}", host, port)).await?;
-    let io = TokioIo::new(stream);
-
-    let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await?;
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            warn!("Upstream monitoring HTTP connection error: {}", e);
-        }
-    });
-
-    let req = Request::builder()
-        .method("GET")
-        .uri(path)
-        .header(
-            "host",
-            uri.authority().map(|a| a.as_str()).unwrap_or(host),
-        )
-        .body(Empty::<Bytes>::new())?;
-
-    let resp = sender.send_request(req).await?;
-    if !resp.status().is_success() {
-        return Err(format!("HTTP {}", resp.status()).into());
-    }
-
-    let body = resp.collect().await?.to_bytes();
-    let info: GlobalInfo = serde_json::from_slice(&body)?;
-    Ok(info)
 }
 
 // Response types - used for both actual responses and OpenAPI documentation
@@ -534,8 +467,53 @@ async fn handle_global(State(state): State<ServerState>) -> Json<GlobalInfo> {
         sv2_clients: snapshot.sv2_clients_summary,
         sv1_clients: snapshot.sv1_clients_summary,
         uptime_secs,
-        network: state.network.read().unwrap().clone(),
+        network: state.network.read().expect("network lock poisoned").clone(),
     })
+}
+
+/// Fetch `GET <url>/api/v1/global` from an upstream monitoring server and write the reported
+/// `network` value into `network`.
+async fn fetch_network_from_upstream(url: &str, network: Arc<RwLock<Option<String>>>) {
+    let full_url = format!("{}/api/v1/global", url.trim_end_matches('/'));
+    match fetch_global_info(&full_url).await {
+        Ok(info) => {
+            *network.write().expect("network lock poisoned") = info.network;
+        }
+        Err(e) => warn!("Failed to fetch network from upstream {}: {}", url, e),
+    }
+}
+
+async fn fetch_global_info(
+    url: &str,
+) -> Result<GlobalInfo, Box<dyn std::error::Error + Send + Sync>> {
+    let uri: Uri = url.parse()?;
+    let host = uri.host().ok_or("URL missing host")?;
+    let port = uri.port_u16().unwrap_or(80);
+    let path = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
+
+    let stream = TcpStream::connect(format!("{}:{}", host, port)).await?;
+    let io = TokioIo::new(stream);
+
+    let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await?;
+    tokio::spawn(async move {
+        if let Err(e) = conn.await {
+            warn!("Upstream monitoring HTTP connection error: {}", e);
+        }
+    });
+
+    let req = Request::builder()
+        .method("GET")
+        .uri(path)
+        .header("host", uri.authority().map(|a| a.as_str()).unwrap_or(host))
+        .body(Empty::<Bytes>::new())?;
+
+    let res = sender.send_request(req).await?;
+    if !res.status().is_success() {
+        return Err(format!("HTTP status {}", res.status()).into());
+    }
+
+    let bytes = res.into_body().collect().await?.to_bytes();
+    Ok(serde_json::from_slice::<GlobalInfo>(&bytes)?)
 }
 
 /// Get server (upstream) metadata - use /server/channels for channel details
@@ -845,10 +823,18 @@ async fn handle_sv1_client_by_id(
     }
 }
 
-/// Handler for Prometheus metrics endpoint
+/// Handler for Prometheus metrics endpoint.
+///
+/// All GaugeVec metric values are updated atomically by the background cache refresh
+/// task in `SnapshotCache::refresh()`. This handler only needs to:
+/// 1. Set the uptime gauge (requires wall-clock time at scrape time)
+/// 2. Gather and encode all registered metrics
+///
+/// Because metric values are always kept in sync with the snapshot data, there is
+/// never a gap where label series momentarily disappear. Tests can assert on metrics
+/// directly after a cache refresh without polling for transient states.
 async fn handle_prometheus_metrics(State(state): State<ServerState>) -> Response {
-    let snapshot = state.cache.get_snapshot();
-
+    // Uptime is the only metric set at scrape time (needs current wall clock)
     let uptime_secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -856,163 +842,7 @@ async fn handle_prometheus_metrics(State(state): State<ServerState>) -> Response
         - state.start_time;
     state.metrics.sv2_uptime_seconds.set(uptime_secs as f64);
 
-    // Reset per-channel metrics before repopulating
-    if let Some(ref metric) = state.metrics.sv2_client_channel_hashrate {
-        metric.reset();
-    }
-    if let Some(ref metric) = state.metrics.sv2_client_shares_accepted_total {
-        metric.reset();
-    }
-    if let Some(ref metric) = state.metrics.sv2_server_channel_hashrate {
-        metric.reset();
-    }
-    if let Some(ref metric) = state.metrics.sv2_server_shares_accepted_total {
-        metric.reset();
-    }
-
-    // Collect server metrics
-    if let Some(ref summary) = snapshot.server_summary {
-        if let Some(ref metric) = state.metrics.sv2_server_channels {
-            metric
-                .with_label_values(&["extended"])
-                .set(summary.extended_channels as f64);
-            metric
-                .with_label_values(&["standard"])
-                .set(summary.standard_channels as f64);
-        }
-        if let Some(ref metric) = state.metrics.sv2_server_hashrate_total {
-            metric.set(summary.total_hashrate as f64);
-        }
-    }
-
-    if let Some(ref server) = snapshot.server_info {
-        for channel in &server.extended_channels {
-            let channel_id = channel.channel_id.to_string();
-            let user = &channel.user_identity;
-
-            if let Some(ref metric) = state.metrics.sv2_server_shares_accepted_total {
-                metric
-                    .with_label_values(&[&channel_id, user])
-                    .set(channel.shares_acknowledged as f64);
-            }
-            if let (Some(ref metric), Some(hashrate)) = (
-                &state.metrics.sv2_server_channel_hashrate,
-                channel.nominal_hashrate,
-            ) {
-                metric
-                    .with_label_values(&[&channel_id, user])
-                    .set(hashrate as f64);
-            }
-        }
-
-        for channel in &server.standard_channels {
-            let channel_id = channel.channel_id.to_string();
-            let user = &channel.user_identity;
-
-            if let Some(ref metric) = state.metrics.sv2_server_shares_accepted_total {
-                metric
-                    .with_label_values(&[&channel_id, user])
-                    .set(channel.shares_accepted as f64);
-            }
-            if let (Some(ref metric), Some(hashrate)) = (
-                &state.metrics.sv2_server_channel_hashrate,
-                channel.nominal_hashrate,
-            ) {
-                metric
-                    .with_label_values(&[&channel_id, user])
-                    .set(hashrate as f64);
-            }
-        }
-
-        if let Some(ref metric) = state.metrics.sv2_server_blocks_found_total {
-            let total: u64 = server
-                .extended_channels
-                .iter()
-                .map(|c| c.blocks_found as u64)
-                .chain(
-                    server
-                        .standard_channels
-                        .iter()
-                        .map(|c| c.blocks_found as u64),
-                )
-                .sum();
-            metric.set(total as f64);
-        }
-    }
-
-    // Collect Sv2 clients metrics
-    if let Some(ref summary) = snapshot.sv2_clients_summary {
-        if let Some(ref metric) = state.metrics.sv2_clients_total {
-            metric.set(summary.total_clients as f64);
-        }
-        if let Some(ref metric) = state.metrics.sv2_client_channels {
-            metric
-                .with_label_values(&["extended"])
-                .set(summary.extended_channels as f64);
-            metric
-                .with_label_values(&["standard"])
-                .set(summary.standard_channels as f64);
-        }
-        if let Some(ref metric) = state.metrics.sv2_client_hashrate_total {
-            metric.set(summary.total_hashrate as f64);
-        }
-
-        let mut client_blocks_total: u64 = 0;
-
-        for client in snapshot.sv2_clients.as_deref().unwrap_or(&[]) {
-            let client_id = client.client_id.to_string();
-
-            for channel in &client.extended_channels {
-                let channel_id = channel.channel_id.to_string();
-                let user = &channel.user_identity;
-
-                if let Some(ref metric) = state.metrics.sv2_client_shares_accepted_total {
-                    metric
-                        .with_label_values(&[&client_id, &channel_id, user])
-                        .set(channel.shares_accepted as f64);
-                }
-                if let Some(ref metric) = state.metrics.sv2_client_channel_hashrate {
-                    metric
-                        .with_label_values(&[&client_id, &channel_id, user])
-                        .set(channel.nominal_hashrate as f64);
-                }
-                client_blocks_total += channel.blocks_found as u64;
-            }
-
-            for channel in &client.standard_channels {
-                let channel_id = channel.channel_id.to_string();
-                let user = &channel.user_identity;
-
-                if let Some(ref metric) = state.metrics.sv2_client_shares_accepted_total {
-                    metric
-                        .with_label_values(&[&client_id, &channel_id, user])
-                        .set(channel.shares_accepted as f64);
-                }
-                if let Some(ref metric) = state.metrics.sv2_client_channel_hashrate {
-                    metric
-                        .with_label_values(&[&client_id, &channel_id, user])
-                        .set(channel.nominal_hashrate as f64);
-                }
-                client_blocks_total += channel.blocks_found as u64;
-            }
-        }
-
-        if let Some(ref metric) = state.metrics.sv2_client_blocks_found_total {
-            metric.set(client_blocks_total as f64);
-        }
-    }
-
-    // Collect SV1 client metrics
-    if let Some(ref summary) = snapshot.sv1_clients_summary {
-        if let Some(ref metric) = state.metrics.sv1_clients_total {
-            metric.set(summary.total_clients as f64);
-        }
-        if let Some(ref metric) = state.metrics.sv1_hashrate_total {
-            metric.set(summary.total_hashrate as f64);
-        }
-    }
-
-    // Encode and return metrics
+    // Gather and encode — all other metrics were set by the last cache refresh
     let encoder = TextEncoder::new();
     let metric_families = state.metrics.registry.gather();
     let mut buffer = Vec::new();
@@ -1043,6 +873,7 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use http_body_util::BodyExt;
+    use std::{collections::HashMap, sync::Mutex};
     use tower::ServiceExt;
 
     // ── helpers ──────────────────────────────────────────────────────
@@ -1110,6 +941,7 @@ mod tests {
             version_rolling: true,
             shares_acknowledged: 10,
             shares_rejected: 0,
+            shares_rejected_by_reason: HashMap::new(),
             share_work_sum: 100.0,
             shares_submitted: 12,
             best_diff: 50.0,
@@ -1127,9 +959,11 @@ mod tests {
             nominal_hashrate: hashrate,
             target_hex: "00ff".into(),
             extranonce_prefix_hex: "bb".into(),
-            shares_accepted: 20,
-            share_work_sum: 200.0,
+            shares_acknowledged: 20,
             shares_submitted: 22,
+            shares_rejected: 1,
+            shares_rejected_by_reason: HashMap::from([("duplicate-share".to_string(), 1)]),
+            share_work_sum: 200.0,
             best_diff: 80.0,
             blocks_found: 0,
         }
@@ -1181,16 +1015,16 @@ mod tests {
         clients: Option<Arc<dyn super::super::client::Sv2ClientsMonitoring + Send + Sync>>,
         sv1: Option<Arc<dyn super::super::sv1::Sv1ClientsMonitoring + Send + Sync>>,
     ) -> Router {
-        build_test_app_with_options(server, clients, sv1, None)
-    }
+        let has_server = server.is_some();
+        let has_clients = clients.is_some();
+        let has_sv1 = sv1.is_some();
 
-    fn build_test_app_with_options(
-        server: Option<Arc<dyn ServerMonitoring + Send + Sync>>,
-        clients: Option<Arc<dyn super::super::client::Sv2ClientsMonitoring + Send + Sync>>,
-        sv1: Option<Arc<dyn super::super::sv1::Sv1ClientsMonitoring + Send + Sync>>,
-        network: Option<String>,
-    ) -> Router {
-        let cache = Arc::new(SnapshotCache::new(Duration::from_secs(60), server, clients));
+        let metrics = PrometheusMetrics::new(has_server, has_clients, has_sv1).unwrap();
+
+        let cache = Arc::new(
+            SnapshotCache::new(Duration::from_secs(60), server, clients)
+                .with_metrics(metrics.clone()),
+        );
 
         let cache = if let Some(sv1_source) = sv1 {
             Arc::new(
@@ -1204,12 +1038,6 @@ mod tests {
 
         cache.refresh();
 
-        let has_server = cache.get_snapshot().server_info.is_some();
-        let has_clients = cache.get_snapshot().sv2_clients_summary.is_some();
-        let has_sv1 = cache.get_snapshot().sv1_clients.is_some();
-
-        let metrics = PrometheusMetrics::new(has_server, has_clients, has_sv1).unwrap();
-
         let start_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -1219,7 +1047,7 @@ mod tests {
             cache,
             start_time,
             metrics,
-            network: Arc::new(RwLock::new(network)),
+            network: Arc::new(RwLock::new(None)),
         };
 
         let api_v1 = Router::new()
@@ -1367,25 +1195,6 @@ mod tests {
         assert!(json["server"].is_null());
         assert!(json["sv2_clients"].is_null());
         assert!(json["uptime_secs"].as_u64().is_some());
-        assert!(json["network"].is_null());
-    }
-
-    #[tokio::test]
-    async fn global_endpoint_network_field() {
-        // Without network set, field should be null
-        let app = build_test_app(None, None, None);
-        let response = app.oneshot(make_request("/api/v1/global")).await.unwrap();
-        let body = get_body(response).await;
-        let json: serde_json::Value = serde_json::from_str(&body).unwrap();
-        assert!(json["network"].is_null());
-
-        // With network set, field should reflect the configured value
-        let app = build_test_app_with_options(None, None, None, Some("regtest".to_string()));
-        let response = app.oneshot(make_request("/api/v1/global")).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = get_body(response).await;
-        let json: serde_json::Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(json["network"], "regtest");
     }
 
     #[tokio::test]
@@ -1470,6 +1279,32 @@ mod tests {
         assert_eq!(json["offset"], 1);
         assert_eq!(json["limit"], 1);
         assert_eq!(json["extended_channels"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn server_channels_endpoint_keeps_rejected_shares_total_compatible() {
+        let server = Arc::new(MockServer(super::super::server::ServerInfo {
+            extended_channels: vec![],
+            standard_channels: vec![create_server_standard_channel_info(1, Some(50.0))],
+        }));
+
+        let app = build_test_app(
+            Some(server as Arc<dyn ServerMonitoring + Send + Sync>),
+            None,
+            None,
+        );
+        let response = app
+            .oneshot(make_request("/api/v1/server/channels"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = get_body(response).await;
+        let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let channel = &json["standard_channels"][0];
+
+        assert_eq!(channel["shares_rejected"], 1);
+        assert_eq!(channel["shares_rejected_by_reason"]["duplicate-share"], 1);
     }
 
     #[tokio::test]
@@ -1693,5 +1528,92 @@ mod tests {
         // Server/client metrics should NOT be present when sources are None
         assert!(!body.contains("sv2_server_channels"));
         assert!(!body.contains("sv2_clients_total"));
+    }
+
+    // Mutable mock that allows changing data between requests
+    struct MutableMockClients(Mutex<Vec<Sv2ClientInfo>>);
+    impl super::super::client::Sv2ClientsMonitoring for MutableMockClients {
+        fn get_sv2_clients(&self) -> Vec<Sv2ClientInfo> {
+            self.0.lock().unwrap().clone()
+        }
+    }
+
+    /// Verify that stale channel labels are removed without a reset gap.
+    ///
+    /// Scenario: First scrape has client with channel 1 and channel 2.
+    /// Second scrape: channel 2 is gone. The test verifies that:
+    /// - Channel 1 metrics are still present (no gap)
+    /// - Channel 2 metrics are removed (stale cleanup)
+    #[tokio::test]
+    async fn metrics_stale_labels_removed_without_reset_gap() {
+        let initial_clients = vec![Sv2ClientInfo {
+            client_id: 1,
+            extended_channels: vec![
+                create_extended_channel_info(1, 100.0),
+                create_extended_channel_info(2, 200.0),
+            ],
+            standard_channels: vec![],
+        }];
+
+        let mock_clients = Arc::new(MutableMockClients(Mutex::new(initial_clients)));
+        let metrics = PrometheusMetrics::new(false, true, false).unwrap();
+        let cache = Arc::new(
+            SnapshotCache::new(
+                Duration::from_secs(60),
+                None,
+                Some(mock_clients.clone()
+                    as Arc<dyn super::super::client::Sv2ClientsMonitoring + Send + Sync>),
+            )
+            .with_metrics(metrics.clone()),
+        );
+        cache.refresh();
+
+        let start_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        let state = ServerState {
+            cache: cache.clone(),
+            start_time,
+            metrics,
+            network: Arc::new(RwLock::new(None)),
+        };
+
+        let app = Router::new()
+            .route("/metrics", get(handle_prometheus_metrics))
+            .with_state(state);
+
+        // First scrape — both channels present
+        let response = app.clone().oneshot(make_request("/metrics")).await.unwrap();
+        let body = get_body(response).await;
+        // Prometheus sorts label keys alphabetically: channel_id, client_id, user_identity
+        assert!(
+            body.contains("sv2_client_shares_accepted_total{channel_id=\"1\",client_id=\"1\""),
+            "Channel 1 should be present on first scrape"
+        );
+        assert!(
+            body.contains("sv2_client_shares_accepted_total{channel_id=\"2\",client_id=\"1\""),
+            "Channel 2 should be present on first scrape"
+        );
+
+        // Remove channel 2 from mock data and refresh cache
+        {
+            let mut clients = mock_clients.0.lock().unwrap();
+            clients[0].extended_channels.retain(|c| c.channel_id == 1);
+        }
+        cache.refresh();
+
+        // Second scrape — channel 2 should be removed, channel 1 still present
+        let response = app.clone().oneshot(make_request("/metrics")).await.unwrap();
+        let body = get_body(response).await;
+        assert!(
+            body.contains("sv2_client_shares_accepted_total{channel_id=\"1\",client_id=\"1\""),
+            "Channel 1 should still be present after stale removal"
+        );
+        assert!(
+            !body.contains("sv2_client_shares_accepted_total{channel_id=\"2\",client_id=\"1\""),
+            "Channel 2 should be removed as stale"
+        );
     }
 }

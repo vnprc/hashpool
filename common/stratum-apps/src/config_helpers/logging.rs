@@ -1,6 +1,8 @@
 use std::{
+    backtrace::Backtrace,
     fs::OpenOptions,
     io::{self, IsTerminal},
+    panic,
     path::Path,
     str::FromStr,
 };
@@ -23,15 +25,13 @@ pub fn init_logging(log_file: Option<&Path>) {
         Some(path) => {
             // Log to both file and stdout
             let path = path.to_owned();
-            let file_layer = fmt::layer()
-                .with_writer(move || {
-                    OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open(&path)
-                        .expect("Failed to open log file")
-                })
-                .with_ansi(false);
+            // Open file only once, and not on every write.
+            let file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .expect("Failed to open log file");
+            let file_layer = fmt::layer().with_writer(file).with_ansi(false);
             Box::new(
                 Registry::default()
                     .with(env_filter)
@@ -46,4 +46,14 @@ pub fn init_logging(log_file: Option<&Path>) {
     };
 
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set global subscriber");
+
+    // Set up a panic hook that records panic information and a backtrace
+    // as tracing events, ensuring they are persisted in the log file.
+    let default_panic_hook = panic::take_hook();
+    panic::set_hook(Box::new(move |panic_info| {
+        let backtrace = Backtrace::force_capture();
+        tracing::error!("panic: {panic_info}");
+        tracing::error!("Backtrace: {backtrace}");
+        default_panic_hook(panic_info);
+    }));
 }

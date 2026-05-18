@@ -4,10 +4,14 @@ use crate::{
     sv2::ChannelManager,
     utils::{proxy_extranonce_prefix_len, AggregatedState, AGGREGATED_CHANNEL_ID},
 };
+use roles_logic_sv2::extranonce::{ExtendedExtranonce, Extranonce};
 use stratum_apps::{
     stratum_core::{
         bitcoin::Target,
-        channels_sv2::client::{extended::ExtendedChannel, group::GroupChannel},
+        channels_sv2::{
+            client::{extended::ExtendedChannel, group::GroupChannel},
+            extranonce_manager::ExtranoncePrefix,
+        },
         handlers_sv2::{HandleMiningMessagesFromServerAsync, SupportedChannelTypes},
         mining_sv2::{
             CloseChannel, NewExtendedMiningJob, NewMiningJob, OpenExtendedMiningChannelSuccess,
@@ -21,7 +25,6 @@ use stratum_apps::{
     },
     utils::types::{DownstreamId, Hashrate},
 };
-use roles_logic_sv2::extranonce::{ExtendedExtranonce, Extranonce};
 use tracing::{debug, error, info, warn};
 
 #[cfg_attr(not(test), hotpath::measure_all)]
@@ -117,7 +120,11 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
             let extended_channel = ExtendedChannel::new(
                 m.channel_id,
                 user_identity.clone(),
-                extranonce_prefix.clone(),
+                ExtranoncePrefix::from_wire(extranonce_prefix.clone()).map_err(|e| {
+                    TproxyError::shutdown(TproxyErrorKind::General(format!(
+                        "invalid extranonce prefix: {e:?}"
+                    )))
+                })?,
                 target,
                 nominal_hashrate,
                 version_rolling,
@@ -129,7 +136,7 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
             if is_aggregated() {
                 // Store the upstream extended channel under AGGREGATED_CHANNEL_ID
                 self.extended_channels
-                    .insert(AGGREGATED_CHANNEL_ID, extended_channel.clone());
+                    .insert(AGGREGATED_CHANNEL_ID, extended_channel);
 
                 let upstream_extranonce_prefix: Extranonce = m.extranonce_prefix.clone().into();
                 let translator_proxy_extranonce_prefix_len = proxy_extranonce_prefix_len(
@@ -169,7 +176,14 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
                 let new_downstream_extended_channel = ExtendedChannel::new(
                     m.channel_id,
                     user_identity.clone(),
-                    new_extranonce_prefix.clone().into_static().to_vec(),
+                    ExtranoncePrefix::from_wire(
+                        new_extranonce_prefix.clone().into_static().to_vec(),
+                    )
+                    .map_err(|e| {
+                        TproxyError::shutdown(TproxyErrorKind::General(format!(
+                            "invalid extranonce prefix: {e:?}"
+                        )))
+                    })?,
                     target,
                     nominal_hashrate,
                     true,
@@ -228,7 +242,14 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
                     let new_downstream_extended_channel = ExtendedChannel::new(
                         m.channel_id,
                         user_identity.clone(),
-                        new_extranonce_prefix.clone().into_static().to_vec(),
+                        ExtranoncePrefix::from_wire(
+                            new_extranonce_prefix.clone().into_static().to_vec(),
+                        )
+                        .map_err(|e| {
+                            TproxyError::shutdown(TproxyErrorKind::General(format!(
+                                "invalid extranonce prefix: {e:?}"
+                            )))
+                        })?,
                         target,
                         nominal_hashrate,
                         true,
@@ -424,7 +445,7 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
 
         // if None, the channel may be closed/missing, so we ignore this accounting update
         if let Some(mut ch) = self.extended_channels.get_mut(&key) {
-            ch.on_share_rejection();
+            ch.on_share_rejection(m.error_code.as_utf8_or_hex().to_string());
         }
 
         Ok(())

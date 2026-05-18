@@ -4,6 +4,7 @@
 //! An app typically has one server connection with one or more channels.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use utoipa::ToSchema;
 
 /// Information about an extended channel opened with the server
@@ -21,6 +22,7 @@ pub struct ServerExtendedChannelInfo {
     pub shares_acknowledged: u32,
     pub shares_submitted: u32,
     pub shares_rejected: u32,
+    pub shares_rejected_by_reason: HashMap<String, u32>,
     pub share_work_sum: f64,
     pub best_diff: f64,
     pub blocks_found: u32,
@@ -35,9 +37,11 @@ pub struct ServerStandardChannelInfo {
     pub nominal_hashrate: Option<f32>,
     pub target_hex: String,
     pub extranonce_prefix_hex: String,
-    pub shares_accepted: u32,
-    pub share_work_sum: f64,
+    pub shares_acknowledged: u32,
     pub shares_submitted: u32,
+    pub shares_rejected: u32,
+    pub shares_rejected_by_reason: HashMap<String, u32>,
+    pub share_work_sum: f64,
     pub best_diff: f64,
     pub blocks_found: u32,
 }
@@ -117,6 +121,7 @@ mod tests {
             version_rolling: true,
             shares_acknowledged: 10,
             shares_rejected: 0,
+            shares_rejected_by_reason: HashMap::new(),
             share_work_sum: 100.0,
             shares_submitted: 12,
             best_diff: 50.0,
@@ -134,9 +139,11 @@ mod tests {
             nominal_hashrate: hashrate,
             target_hex: "00ff".into(),
             extranonce_prefix_hex: "bb".into(),
-            shares_accepted: 20,
-            share_work_sum: 200.0,
+            shares_acknowledged: 20,
             shares_submitted: 22,
+            shares_rejected: 1,
+            shares_rejected_by_reason: HashMap::from([("duplicate-share".to_string(), 1)]),
+            share_work_sum: 200.0,
             best_diff: 80.0,
             blocks_found: 0,
         }

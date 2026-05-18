@@ -8,12 +8,16 @@ use crate::{
 };
 use async_channel::{Receiver, Sender};
 use dashmap::DashMap;
+use roles_logic_sv2::extranonce::ExtendedExtranonce;
 use std::sync::Arc;
 use stratum_apps::{
     custom_mutex::Mutex,
     fallback_coordinator::FallbackCoordinator,
     stratum_core::{
-        channels_sv2::client::{extended::ExtendedChannel, group::GroupChannel},
+        channels_sv2::{
+            client::{extended::ExtendedChannel, group::GroupChannel},
+            extranonce_manager::ExtranoncePrefix,
+        },
         codec_sv2::StandardSv2Frame,
         extensions_sv2::{EXTENSION_TYPE_WORKER_HASHRATE_TRACKING, TLV_FIELD_TYPE_USER_IDENTITY},
         framing_sv2,
@@ -27,7 +31,6 @@ use stratum_apps::{
         types::{ChannelId, DownstreamId, Hashrate, RequestId, Sv2Frame},
     },
 };
-use roles_logic_sv2::extranonce::ExtendedExtranonce;
 
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
@@ -432,7 +435,7 @@ impl ChannelManager {
                         let downstream_extranonce_prefix = self
                             .extended_channels
                             .get(&m.channel_id)
-                            .map(|channel| channel.get_extranonce_prefix().clone());
+                            .map(|channel| channel.get_extranonce_prefix().to_vec());
                         // Get the length of the upstream prefix (range0)
                         let range0_len = self
                             .extranonce_factories
@@ -468,7 +471,7 @@ impl ChannelManager {
                             let downstream_extranonce_prefix = self
                                 .extended_channels
                                 .get(&m.channel_id)
-                                .map(|channel| channel.get_extranonce_prefix().clone());
+                                .map(|channel| channel.get_extranonce_prefix().to_vec());
                             let range0_len = factory.get_range0_len();
                             if let Some(downstream_extranonce_prefix) = downstream_extranonce_prefix
                             {
@@ -683,11 +686,18 @@ impl ChannelManager {
                 let new_downstream_extended_channel = ExtendedChannel::new(
                     next_channel_id,
                     user_identity.clone(),
-                    new_extranonce_prefix
-                        .clone()
-                        .into_b032()
-                        .into_static()
-                        .to_vec(),
+                    ExtranoncePrefix::from_wire(
+                        new_extranonce_prefix
+                            .clone()
+                            .into_b032()
+                            .into_static()
+                            .to_vec(),
+                    )
+                    .map_err(|e| {
+                        TproxyError::shutdown(TproxyErrorKind::General(format!(
+                            "invalid extranonce prefix: {e:?}"
+                        )))
+                    })?,
                     target,
                     hashrate,
                     true,

@@ -13,17 +13,16 @@ code while maintaining a stable base.
 
 ## Findings
 
-### 1. stratum-apps 0.3.0 is already on crates.io
+### 1. stratum-apps 0.4.0 is already on crates.io
 
-Published 2026-03-19. The vendored `common/stratum-apps/` differs from the published crate
-in **exactly two files**:
+Published 2026-05-06. The vendored `common/stratum-apps/` is based on the published crate
+with Hashpool-specific monitoring and workspace type-unification changes:
 
 | File | Change |
 |------|--------|
 | `src/monitoring/sv1.rs` | 4 extra fields on `Sv1ClientInfo`: `shares_submitted`, `connected_at_secs`, `peer_address`, `hashrate_5min` (to be renamed `nominal_hashrate`) |
 | `src/key_utils/mod.rs` | Re-export of local `key-utils` crate to unify `Secp256k1PublicKey` types across the workspace |
-
-Everything else is unmodified upstream code.
+| `src/monitoring/mod.rs`, `src/monitoring/http_server.rs` | `GlobalInfo.network` plus optional upstream monitoring fetch so proxy-side monitoring can surface pool-side network state |
 
 ### 2. Prometheus paths in web-proxy are dead code
 

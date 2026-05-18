@@ -105,6 +105,10 @@ impl From<ResolveError> for Error {
 /// Use [`noise_stream::NoiseTcpStream::new`] directly to override.
 const NOISE_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Default timeout for establishing outbound TCP connections to SV2 peers.
+/// This keeps fallback attempts bounded when a remote endpoint is unreachable or filtered.
+pub const TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// Connects to an upstream server as a Noise initiator, returning the split read/write halves.
 ///
 /// The handshake timeout is opinionated and fixed at [`NOISE_HANDSHAKE_TIMEOUT`]. If you need a

@@ -1,6 +1,6 @@
 [package]
 name = "stratum-apps"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["The Stratum V2 Developers"]
 edition = "2021"
 readme = "README.md"
@@ -12,7 +12,7 @@ homepage = "https://stratumprotocol.org"
 keywords = ["stratum", "mining", "bitcoin", "protocol", "sv2"]
 
 [dependencies]
-stratum-core = { version = "0.2.1", optional = true }
+stratum-core = { version = "0.3.0", optional = true }
 
 # External dependencies needed by the modules
 # Network helpers dependencies
@@ -81,6 +81,11 @@ mining_device = ["config"]
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 hyper = "1.1.0"
+
+[[bin]]
+name = "generate-openapi"
+path = "src/bin/generate-openapi.rs"
+required-features = ["monitoring"]
 
 [package.metadata.docs.rs]
 features = ["pool", "jd_client", "jd_server", "translator", "sv1", "rpc"]

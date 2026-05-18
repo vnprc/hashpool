@@ -78,3 +78,6 @@ pub mod coinbase_output_constraints;
 
 /// Fallback coordinator
 pub mod fallback_coordinator;
+
+/// Shared async channel cleanup helpers.
+pub mod channel_utils;
