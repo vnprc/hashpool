@@ -10,11 +10,10 @@ use stratum_apps::{
         channels_sv2::client::{extended::ExtendedChannel, group::GroupChannel},
         handlers_sv2::{HandleMiningMessagesFromServerAsync, SupportedChannelTypes},
         mining_sv2::{
-            CloseChannel, ExtendedExtranonce, Extranonce, NewExtendedMiningJob, NewMiningJob,
-            OpenExtendedMiningChannelSuccess, OpenMiningChannelError,
-            OpenStandardMiningChannelSuccess, SetCustomMiningJobError, SetCustomMiningJobSuccess,
-            SetExtranoncePrefix, SetGroupChannel, SetNewPrevHash, SetTarget, SubmitSharesError,
-            SubmitSharesSuccess, UpdateChannelError,
+            CloseChannel, NewExtendedMiningJob, NewMiningJob, OpenExtendedMiningChannelSuccess,
+            OpenMiningChannelError, OpenStandardMiningChannelSuccess, SetCustomMiningJobError,
+            SetCustomMiningJobSuccess, SetExtranoncePrefix, SetGroupChannel, SetNewPrevHash,
+            SetTarget, SubmitSharesError, SubmitSharesSuccess, UpdateChannelError,
             MESSAGE_TYPE_OPEN_STANDARD_MINING_CHANNEL_SUCCESS,
             MESSAGE_TYPE_SET_CUSTOM_MINING_JOB_ERROR, MESSAGE_TYPE_SET_CUSTOM_MINING_JOB_SUCCESS,
         },
@@ -22,6 +21,7 @@ use stratum_apps::{
     },
     utils::types::{DownstreamId, Hashrate},
 };
+use roles_logic_sv2::extranonce::{ExtendedExtranonce, Extranonce};
 use tracing::{debug, error, info, warn};
 
 #[cfg_attr(not(test), hotpath::measure_all)]

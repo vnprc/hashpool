@@ -2,6 +2,7 @@ use bitcoin::Target;
 use stratum_common::roles_logic_sv2::{
     self,
     channels_sv2::{client::extended::ExtendedChannel, server::jobs::factory::JobFactory},
+    extranonce::{ExtendedExtranonce, MAX_EXTRANONCE_LEN},
     handlers_sv2::{HandleMiningMessagesFromServerAsync, SupportedChannelTypes},
     mining_sv2::*,
     parsers_sv2::{AnyMessage, IsSv2Message, Mining, TemplateDistribution},

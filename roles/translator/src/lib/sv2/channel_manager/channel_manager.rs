@@ -18,7 +18,7 @@ use stratum_apps::{
         extensions_sv2::{EXTENSION_TYPE_WORKER_HASHRATE_TRACKING, TLV_FIELD_TYPE_USER_IDENTITY},
         framing_sv2,
         handlers_sv2::{HandleExtensionsFromServerAsync, HandleMiningMessagesFromServerAsync},
-        mining_sv2::{ExtendedExtranonce, OpenExtendedMiningChannelSuccess},
+        mining_sv2::OpenExtendedMiningChannelSuccess,
         parsers_sv2::{AnyMessage, Mining, Tlv, TlvList},
     },
     task_manager::TaskManager,
@@ -27,6 +27,7 @@ use stratum_apps::{
         types::{ChannelId, DownstreamId, Hashrate, RequestId, Sv2Frame},
     },
 };
+use roles_logic_sv2::extranonce::ExtendedExtranonce;
 
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};

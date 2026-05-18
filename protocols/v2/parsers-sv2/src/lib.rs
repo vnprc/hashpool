@@ -528,7 +528,7 @@ impl IsSv2Message for JobDeclaration<'_> {
             Self::ProvideMissingTransactionsSuccess(_) => {
                 CHANNEL_BIT_PROVIDE_MISSING_TRANSACTIONS_SUCCESS
             }
-            Self::PushSolution(_) => CHANNEL_BIT_SUBMIT_SOLUTION_JD,
+            Self::PushSolution(_) => CHANNEL_BIT_PUSH_SOLUTION,
         }
     }
 }

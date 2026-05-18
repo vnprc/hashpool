@@ -32,6 +32,7 @@ use stratum_common::roles_logic_sv2::{
         standard::StandardChannel,
     },
     errors::Error,
+    extranonce::MAX_EXTRANONCE_LEN,
     handlers::mining::{ParseMiningMessagesFromDownstream, SendTo, SupportedChannelTypes},
     mining_sv2::*,
     parsers_sv2::Mining,

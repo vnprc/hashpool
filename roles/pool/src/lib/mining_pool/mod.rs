@@ -59,11 +59,9 @@ use stratum_common::{
             self, HandshakeRole, StandardEitherFrame, StandardSv2Frame,
         },
         errors::Error,
+        extranonce::{ExtendedExtranonce, MAX_EXTRANONCE_LEN},
         handlers::mining::{ParseMiningMessagesFromDownstream, SendTo},
-        mining_sv2::{
-            ExtendedExtranonce, SetNewPrevHash as SetNewPrevHashMp, SetTarget,
-            MAX_EXTRANONCE_LEN,
-        },
+        mining_sv2::{SetNewPrevHash as SetNewPrevHashMp, SetTarget},
         parsers_sv2::{AnyMessage, Mining},
         template_distribution_sv2::{
             NewTemplate, SetNewPrevHash as SetNewPrevHashTdp, SubmitSolution,

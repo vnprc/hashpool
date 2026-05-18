@@ -20,6 +20,7 @@ use stratum_common::{
             },
         },
         codec_sv2::HandshakeRole,
+        extranonce::{ExtendedExtranonce, MAX_EXTRANONCE_LEN},
         handlers_sv2::{
             HandleJobDeclarationMessagesFromServerAsync, HandleMiningMessagesFromClientAsync,
             HandleMiningMessagesFromServerAsync, HandleTemplateDistributionMessagesFromServerAsync,
@@ -28,9 +29,8 @@ use stratum_common::{
             AllocateMiningJobToken, AllocateMiningJobTokenSuccess, DeclareMiningJob,
         },
         mining_sv2::{
-            ExtendedExtranonce, OpenExtendedMiningChannel, SetCustomMiningJob, SetTarget,
-            UpdateChannel, MAX_EXTRANONCE_LEN, MESSAGE_TYPE_OPEN_EXTENDED_MINING_CHANNEL,
-            MESSAGE_TYPE_OPEN_STANDARD_MINING_CHANNEL,
+            OpenExtendedMiningChannel, SetCustomMiningJob, SetTarget, UpdateChannel,
+            MESSAGE_TYPE_OPEN_EXTENDED_MINING_CHANNEL, MESSAGE_TYPE_OPEN_STANDARD_MINING_CHANNEL,
         },
         parsers_sv2::{AnyMessage, JobDeclaration, Mining},
         template_distribution_sv2::{NewTemplate, SetNewPrevHash as SetNewPrevHashTdp},

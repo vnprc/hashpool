@@ -20,7 +20,7 @@ path = "src/lib/mod.rs"
 async-channel = "1.5.1"
 async-trait = "0.1"
 stratum-common = { path = "../../common", features = ["with_network_helpers"] }
-buffer_sv2 = "3.0.0"
+buffer_sv2 = "3.0.1"
 rand = "0.8.4"
 serde = { version = "1.0.89", features = ["derive", "alloc"], default-features = false }
 secp256k1 = { version = "0.28.2", default-features = false, features = ["alloc", "rand", "rand-std"] }
@@ -42,9 +42,9 @@ reqwest = { version = "0.11", features = ["json"] }
 sha2 = "0.10"
 binary_sv2 = "5.0.1"
 bitcoin = "0.32.5"
-codec_sv2 = { version = "4.0.1", features = ["noise_sv2", "with_buffer_pool"] }
+codec_sv2 = { version = "5.0.0", features = ["noise_sv2", "with_buffer_pool"] }
 framing_sv2 = "6.0.1"
-noise_sv2 = "1.4.1"
+noise_sv2 = "1.4.2"
 hex = "0.4.3"
 ehash = { path = "../../protocols/ehash" }
 shared_config = { path = "../roles-utils/config" }

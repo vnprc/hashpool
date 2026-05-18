@@ -18,6 +18,7 @@
 //!
 //! - `prop_test`: Enables support for property testing in [`template_distribution_sv2`] crate.
 pub mod errors;
+pub mod extranonce;
 pub mod handlers;
 pub mod utils;
 pub mod vardiff;
@@ -26,6 +27,7 @@ pub use channels_sv2;
 pub use codec_sv2;
 pub use common_messages_sv2;
 pub use errors::Error;
+pub use extranonce::{ExtendedExtranonce, ExtendedExtranonceError, Extranonce, MAX_EXTRANONCE_LEN};
 pub use handlers_sv2;
 pub use job_declaration_sv2;
 pub use mining_sv2;

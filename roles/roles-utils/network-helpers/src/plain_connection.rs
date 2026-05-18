@@ -96,7 +96,7 @@ impl PlainConnection {
                     Ok(frame) => {
                         let b = encoder.encode(frame.try_into().unwrap()).unwrap();
 
-                        match (writer).write_all(b).await {
+                        match (writer).write_all(b.as_ref()).await {
                             Ok(_) => (),
                             Err(_) => {
                                 let _ = writer.shutdown().await;
