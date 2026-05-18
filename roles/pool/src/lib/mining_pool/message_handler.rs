@@ -17,10 +17,7 @@ use std::{
 };
 use stratum_common::roles_logic_sv2::{
     bitcoin::{
-        hashes::Hash as BitcoinHash,
-        consensus::Decodable,
-        transaction::TxOut,
-        Amount,
+        consensus::Decodable, hashes::Hash as BitcoinHash, transaction::TxOut, Amount,
         Target as BitcoinTarget,
     },
     channels_sv2::server::{
@@ -37,7 +34,7 @@ use stratum_common::roles_logic_sv2::{
     mining_sv2::*,
     parsers_sv2::Mining,
     template_distribution_sv2::SubmitSolution,
-    utils::{Mutex, target_to_difficulty},
+    utils::{target_to_difficulty, Mutex},
     Vardiff, VardiffState,
 };
 use tracing::{debug, error, info, warn};
@@ -98,7 +95,12 @@ async fn dispatch_quote(
 
     // Submit quote to dispatcher
     dispatcher
-        .submit_quote(&header_hash_bytes, pubkey.into_static(), channel_id, sequence_number)
+        .submit_quote(
+            &header_hash_bytes,
+            pubkey.into_static(),
+            channel_id,
+            sequence_number,
+        )
         .map_err(|e| QuoteDispatchError::QuoteDispatchFailed(e.to_string()))?;
 
     Ok(())
@@ -362,30 +364,30 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
         // Apply optional minimum downstream hashrate policy
         if let Some(min_hashrate) = self.min_downstream_hashrate {
             if nominal_hash_rate < min_hashrate {
-                info!("Clamping nominal_hash_rate from {} to {} (min_downstream_hashrate policy)",
-                      nominal_hash_rate, min_hashrate);
+                info!(
+                    "Clamping nominal_hash_rate from {} to {} (min_downstream_hashrate policy)",
+                    nominal_hash_rate, min_hashrate
+                );
                 nominal_hash_rate = min_hashrate;
             }
         }
 
         let requested_max_target = incoming.max_target.into_static();
-        let requested_max_target_bitcoin = BitcoinTarget::from_le_bytes(
-            requested_max_target.inner_as_ref().try_into().unwrap(),
-        );
+        let requested_max_target_bitcoin =
+            BitcoinTarget::from_le_bytes(requested_max_target.inner_as_ref().try_into().unwrap());
 
         let extranonce_prefix = self
             .extranonce_prefix_factory_standard
-            .safe_lock(|factory| factory.next_prefix_standard())
+            .safe_lock(|factory| factory.allocate_standard())
             .map_err(|e| Error::PoisonLock(e.to_string()))
-            .and_then(|res| res.map_err(Error::ExtranoncePrefixFactoryError))?
-            .to_vec();
+            .and_then(|res| res.map_err(|_| Error::BadPayloadSize))?;
 
         let channel_id = self.channel_id_factory.next();
         let job_store = DefaultJobStore::new();
         let mut standard_channel = match StandardChannel::new_for_pool(
             channel_id,
             user_identity,
-            extranonce_prefix.clone(),
+            extranonce_prefix,
             requested_max_target_bitcoin,
             nominal_hash_rate,
             self.share_batch_size,
@@ -400,19 +402,6 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
                     let open_standard_mining_channel_error = OpenMiningChannelError {
                         request_id,
                         error_code: "invalid-nominal-hashrate"
-                            .to_string()
-                            .try_into()
-                            .expect("error code must be valid string"),
-                    };
-                    return Ok(SendTo::Respond(Mining::OpenMiningChannelError(
-                        open_standard_mining_channel_error,
-                    )));
-                }
-                StandardChannelError::RequestedMaxTargetOutOfRange => {
-                    error!("OpenMiningChannelError: max-target-out-of-range");
-                    let open_standard_mining_channel_error = OpenMiningChannelError {
-                        request_id,
-                        error_code: "max-target-out-of-range"
                             .to_string()
                             .try_into()
                             .expect("error code must be valid string"),
@@ -445,7 +434,7 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
             target: standard_channel.get_target().to_le_bytes().into(),
             extranonce_prefix: standard_channel
                 .get_extranonce_prefix()
-                .clone()
+                .to_vec()
                 .try_into()
                 .expect("extranonce_prefix must be valid"),
             group_channel_id,
@@ -459,7 +448,13 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
         if let Some(locking_key) = self.locking_key_bytes.clone() {
             let mint_manager = self.mint_manager.clone();
             let downstream_id = self.id;
-            spawn_channel_registration(mint_manager, downstream_id, channel_id, locking_key, "standard");
+            spawn_channel_registration(
+                mint_manager,
+                downstream_id,
+                channel_id,
+                locking_key,
+                "standard",
+            );
         } else {
             debug!(
                 "Skipping mint registration for standard channel {} (missing locking key)",
@@ -550,27 +545,28 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
         // Apply optional minimum downstream hashrate policy
         if let Some(min_hashrate) = self.min_downstream_hashrate {
             if nominal_hash_rate < min_hashrate {
-                info!("Clamping nominal_hash_rate from {} to {} (min_downstream_hashrate policy)",
-                      nominal_hash_rate, min_hashrate);
+                info!(
+                    "Clamping nominal_hash_rate from {} to {} (min_downstream_hashrate policy)",
+                    nominal_hash_rate, min_hashrate
+                );
                 nominal_hash_rate = min_hashrate;
             }
         }
 
         let requested_max_target = m.max_target.into_static();
-        let requested_max_target_bitcoin = BitcoinTarget::from_le_bytes(
-            requested_max_target.inner_as_ref().try_into().unwrap(),
-        );
+        let requested_max_target_bitcoin =
+            BitcoinTarget::from_le_bytes(requested_max_target.inner_as_ref().try_into().unwrap());
         let requested_min_rollable_extranonce_size = m.min_extranonce_size;
 
         let extranonce_prefix = match self
             .extranonce_prefix_factory_extended
             .safe_lock(|factory| {
-                factory.next_prefix_extended(requested_min_rollable_extranonce_size.into())
+                factory.allocate_extended(requested_min_rollable_extranonce_size.into())
             })
             .map_err(|e| Error::PoisonLock(e.to_string()))
-            .and_then(|res| res.map_err(Error::ExtranoncePrefixFactoryError))
+            .and_then(|res| res.map_err(|_| Error::BadPayloadSize))
         {
-            Ok(extranonce_prefix) => extranonce_prefix.to_vec(),
+            Ok(extranonce_prefix) => extranonce_prefix,
             Err(_) => {
                 error!("OpenMiningChannelError: min-extranonce-size-too-large");
                 let open_extended_mining_channel_error = OpenMiningChannelError {
@@ -616,19 +612,6 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
                         open_extended_mining_channel_error,
                     )));
                 }
-                ExtendedChannelError::RequestedMaxTargetOutOfRange => {
-                    error!("OpenMiningChannelError: max-target-out-of-range");
-                    let open_extended_mining_channel_error = OpenMiningChannelError {
-                        request_id,
-                        error_code: "max-target-out-of-range"
-                            .to_string()
-                            .try_into()
-                            .expect("error code must be valid string"),
-                    };
-                    return Ok(SendTo::Respond(Mining::OpenMiningChannelError(
-                        open_extended_mining_channel_error,
-                    )));
-                }
                 ExtendedChannelError::RequestedMinExtranonceSizeTooLarge => {
                     error!("OpenMiningChannelError: min-extranonce-size-too-large");
                     let open_extended_mining_channel_error = OpenMiningChannelError {
@@ -657,8 +640,9 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
             target: extended_channel.get_target().to_le_bytes().into(),
             extranonce_prefix: extended_channel
                 .get_extranonce_prefix()
-                .clone()
-                .try_into()?,
+                .to_vec()
+                .try_into()
+                .expect("extranonce_prefix must be valid"),
             extranonce_size: extended_channel.get_rollable_extranonce_size(),
             group_channel_id: 0,
         }
@@ -671,7 +655,13 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
         if let Some(locking_key) = self.locking_key_bytes.clone() {
             let mint_manager = self.mint_manager.clone();
             let downstream_id = self.id;
-            spawn_channel_registration(mint_manager, downstream_id, channel_id, locking_key, "extended");
+            spawn_channel_registration(
+                mint_manager,
+                downstream_id,
+                channel_id,
+                locking_key,
+                "extended",
+            );
         } else {
             debug!(
                 "Skipping mint registration for extended channel {} (missing locking key)",
@@ -774,8 +764,10 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
                 .expect("standard channel must exist")
                 .write()
                 .map_err(|e| Error::PoisonLock(e.to_string()))?;
-            let res = standard_channel
-                .update_channel(new_nominal_hash_rate, Some(requested_maximum_target_bitcoin));
+            let res = standard_channel.update_channel(
+                new_nominal_hash_rate,
+                Some(requested_maximum_target_bitcoin),
+            );
             match res {
                 Ok(_) => {}
                 Err(e) => {
@@ -786,19 +778,6 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
                             let update_channel_error = UpdateChannelError {
                                 channel_id,
                                 error_code: "invalid-nominal-hashrate"
-                                    .to_string()
-                                    .try_into()
-                                    .expect("error code must be valid string"),
-                            };
-                            return Ok(SendTo::Respond(Mining::UpdateChannelError(
-                                update_channel_error,
-                            )));
-                        }
-                        StandardChannelError::RequestedMaxTargetOutOfRange => {
-                            error!("UpdateChannelError: requested-max-target-out-of-range");
-                            let update_channel_error = UpdateChannelError {
-                                channel_id,
-                                error_code: "requested-max-target-out-of-range"
                                     .to_string()
                                     .try_into()
                                     .expect("error code must be valid string"),
@@ -826,8 +805,10 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
                 .expect("extended channel must exist")
                 .write()
                 .map_err(|e| Error::PoisonLock(e.to_string()))?;
-            let res = extended_channel
-                .update_channel(new_nominal_hash_rate, Some(requested_maximum_target_bitcoin));
+            let res = extended_channel.update_channel(
+                new_nominal_hash_rate,
+                Some(requested_maximum_target_bitcoin),
+            );
             match res {
                 Ok(_) => {}
                 Err(e) => {
@@ -838,19 +819,6 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
                             let update_channel_error = UpdateChannelError {
                                 channel_id,
                                 error_code: "invalid-nominal-hashrate"
-                                    .to_string()
-                                    .try_into()
-                                    .expect("error code must be valid string"),
-                            };
-                            return Ok(SendTo::Respond(Mining::UpdateChannelError(
-                                update_channel_error,
-                            )));
-                        }
-                        ExtendedChannelError::RequestedMaxTargetOutOfRange => {
-                            error!("UpdateChannelError: max-target-out-of-range");
-                            let update_channel_error = UpdateChannelError {
-                                channel_id,
-                                error_code: "max-target-out-of-range"
                                     .to_string()
                                     .try_into()
                                     .expect("error code must be valid string"),
@@ -939,7 +907,12 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
             Ok(ShareValidationResult::Valid(hash)) => {
                 let header_hash = *hash.as_byte_array();
 
-                if let Some(error_response) = validate_minimum_share_difficulty(&header_hash, self.minimum_share_difficulty_bits, channel_id, m.sequence_number) {
+                if let Some(error_response) = validate_minimum_share_difficulty(
+                    &header_hash,
+                    self.minimum_share_difficulty_bits,
+                    channel_id,
+                    m.sequence_number,
+                ) {
                     return Ok(error_response);
                 }
 
@@ -1123,7 +1096,12 @@ impl ParseMiningMessagesFromDownstream<()> for Downstream {
             Ok(ShareValidationResult::Valid(hash)) => {
                 let header_hash = *hash.as_byte_array();
 
-                if let Some(error_response) = validate_minimum_share_difficulty(&header_hash, self.minimum_share_difficulty_bits, channel_id, m.sequence_number) {
+                if let Some(error_response) = validate_minimum_share_difficulty(
+                    &header_hash,
+                    self.minimum_share_difficulty_bits,
+                    channel_id,
+                    m.sequence_number,
+                ) {
                     return Ok(error_response);
                 }
 

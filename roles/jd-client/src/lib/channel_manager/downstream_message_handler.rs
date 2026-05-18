@@ -293,12 +293,12 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
 
                         let extranonce_prefix = match channel_manager_data
                             .extranonce_prefix_factory_standard
-                            .next_prefix_standard()
+                            .allocate_standard()
                         {
                             Ok(p) => p,
                             Err(e) => {
                                 error!(?e, "Failed to get extranonce prefix");
-                                return Err(JDCError::RolesSv2Logic(roles_logic_sv2::Error::ExtranoncePrefixFactoryError(e)));
+                                return Err(JDCError::RolesSv2Logic(roles_logic_sv2::Error::BadPayloadSize));
                             }
                         };
 
@@ -307,7 +307,7 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                             match StandardChannel::new_for_job_declaration_client(
                                 standard_channel_id,
                                 user_identity.to_string(),
-                                extranonce_prefix.to_vec(),
+                                extranonce_prefix,
                                 Target::from_le_bytes(requested_max_target.inner_as_ref().try_into().unwrap()),
                                 nominal_hash_rate,
                                 self.share_batch_size,
@@ -322,9 +322,6 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                                     return match e {
                                         StandardChannelError::InvalidNominalHashrate => {
                                             Ok(vec![(downstream_id, build_error("invalid-nominal-hashrate")).into()])
-                                        }
-                                        StandardChannelError::RequestedMaxTargetOutOfRange => {
-                                            Ok(vec![(downstream_id, build_error("max-target-out-of-range")).into()])
                                         }
                                         other => Err(
                                             JDCError::RolesSv2Logic(
@@ -342,7 +339,7 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                                 target: standard_channel.get_target().to_le_bytes().into(),
                                 extranonce_prefix: standard_channel
                                     .get_extranonce_prefix()
-                                    .clone()
+                                    .to_vec()
                                     .try_into()
                                     .expect("extranonce_prefix must be valid"),
                                 group_channel_id,
@@ -503,12 +500,12 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                         let extended_channel_id = channel_manager_data.channel_id_factory.next();
 
                         let extranonce_prefix = match channel_manager_data.extranonce_prefix_factory_extended
-                            .next_prefix_extended(requested_min_rollable_extranonce_size.into())
+                            .allocate_extended(requested_min_rollable_extranonce_size.into())
                         {
                             Ok(p) => p,
                             Err(e) => {
                                 error!(?e, "Extranonce prefix error");
-                                return Err(JDCError::RolesSv2Logic(roles_logic_sv2::Error::ExtranoncePrefixFactoryError(e)));
+                                return Err(JDCError::RolesSv2Logic(roles_logic_sv2::Error::BadPayloadSize));
                             }
                         };
 
@@ -527,7 +524,7 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                         let mut extended_channel = match ExtendedChannel::new_for_job_declaration_client(
                             extended_channel_id,
                             user_identity.to_string(),
-                            extranonce_prefix.into(),
+                            extranonce_prefix,
                             Target::from_le_bytes(requested_max_target.inner_as_ref().try_into().unwrap()),
                             nominal_hash_rate,
                             true,
@@ -544,9 +541,6 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                                 return match e {
                                     ExtendedChannelError::InvalidNominalHashrate => {
                                         Ok(vec![(downstream_id, build_error("invalid-nominal-hashrate")).into()])
-                                    }
-                                    ExtendedChannelError::RequestedMaxTargetOutOfRange => {
-                                        Ok(vec![(downstream_id, build_error("max-target-out-of-range")).into()])
                                     }
                                     ExtendedChannelError::RequestedMinExtranonceSizeTooLarge  => {
                                         Ok(vec![(downstream_id, build_error("min-extranonce-size-too-large")).into()])
@@ -567,7 +561,7 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                                 target: extended_channel.get_target().to_le_bytes().into(),
                                 extranonce_prefix: extended_channel
                                     .get_extranonce_prefix()
-                                    .clone()
+                                    .to_vec()
                                     .try_into()
                                     .expect("valid extranonce prefix"),
                                 extranonce_size: extended_channel.get_rollable_extranonce_size(),
@@ -714,7 +708,9 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                             {
                                 let update_channel = standard_channel.update_channel(
                                     new_nominal_hash_rate,
-                                    Some(Target::from_le_bytes(requested_maximum_target.inner_as_ref().try_into().unwrap())),
+                                    Some(Target::from_le_bytes(
+                                        requested_maximum_target.inner_as_ref().try_into().unwrap(),
+                                    )),
                                 );
                                 let new_target = standard_channel.get_target().clone();
 
@@ -724,9 +720,6 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                                     let err_code = match e {
                                         StandardChannelError::InvalidNominalHashrate => {
                                             "invalid-nominal-hashrate"
-                                        }
-                                        StandardChannelError::RequestedMaxTargetOutOfRange => {
-                                            "requested-max-target-out-of-range"
                                         }
                                         _ => "internal-error",
                                     };
@@ -752,7 +745,9 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                             {
                                 let update_channel = extended_channel.update_channel(
                                     new_nominal_hash_rate,
-                                    Some(Target::from_le_bytes(requested_maximum_target.inner_as_ref().try_into().unwrap())),
+                                    Some(Target::from_le_bytes(
+                                        requested_maximum_target.inner_as_ref().try_into().unwrap(),
+                                    )),
                                 );
                                 let new_target = extended_channel.get_target().clone();
 
@@ -761,9 +756,6 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                                     let err_code = match e {
                                         ExtendedChannelError::InvalidNominalHashrate => {
                                             "invalid-nominal-hashrate"
-                                        }
-                                        ExtendedChannelError::RequestedMaxTargetOutOfRange => {
-                                            "requested-max-target-out-of-range"
                                         }
                                         _ => "internal-error",
                                     };
@@ -979,7 +971,7 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                 }
 
                 if let Some(upstream_channel) = channel_manager_data.upstream_channel.as_mut() {
-                    let prefix = standard_channel.get_extranonce_prefix().clone();
+                    let prefix = standard_channel.get_extranonce_prefix();
                     let mut extranonce_parts = Vec::new();
                     let up_prefix = upstream_channel.get_extranonce_prefix();
                     extranonce_parts.extend_from_slice(&prefix[up_prefix.len()..]);
@@ -1179,7 +1171,7 @@ impl HandleMiningMessagesFromClientAsync for ChannelManager {
                 }
 
                 if let Some(upstream_channel) = channel_manager_data.upstream_channel.as_mut() {
-                    let prefix = extended_channel.get_extranonce_prefix().clone();
+                    let prefix = extended_channel.get_extranonce_prefix();
                     let mut extranonce_parts = Vec::new();
                     let up_prefix = upstream_channel.get_extranonce_prefix();
                     extranonce_parts.extend_from_slice(&prefix[up_prefix.len()..]);

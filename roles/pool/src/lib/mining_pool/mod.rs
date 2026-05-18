@@ -25,18 +25,18 @@ use super::{
 };
 use crate::config::PoolConfig;
 use async_channel::{Receiver, Sender};
+use binary_sv2::U256;
 use config_helpers_sv2::CoinbaseRewardScript;
 use error_handling::handle_result;
 use hex;
 use key_utils::SignatureService;
 use mint_pool_messaging::MintPoolMessageHub;
 use nohash_hasher::BuildNoHashHasher;
+use noise_sv2::Responder;
 use pool_stats;
 use quote_dispatcher::QuoteDispatcher;
 use secp256k1;
 use share_hooks;
-use binary_sv2::U256;
-use noise_sv2::Responder;
 use std::{
     collections::HashMap,
     convert::TryInto,
@@ -49,17 +49,17 @@ use stratum_common::{
     roles_logic_sv2::{
         self,
         bitcoin::{Amount, Target, TxOut},
-        channels_sv2::server::{
-            extended::ExtendedChannel,
-            group::GroupChannel,
-            jobs::{extended::ExtendedJob, job_store::DefaultJobStore, standard::StandardJob},
-            standard::StandardChannel,
+        channels_sv2::{
+            extranonce_manager::{bytes_needed, ExtranonceAllocator},
+            server::{
+                extended::ExtendedChannel,
+                group::GroupChannel,
+                jobs::{extended::ExtendedJob, job_store::DefaultJobStore, standard::StandardJob},
+                standard::StandardChannel,
+            },
         },
-        codec_sv2::{
-            self, HandshakeRole, StandardEitherFrame, StandardSv2Frame,
-        },
+        codec_sv2::{self, HandshakeRole, StandardEitherFrame, StandardSv2Frame},
         errors::Error,
-        extranonce::{ExtendedExtranonce, MAX_EXTRANONCE_LEN},
         handlers::mining::{ParseMiningMessagesFromDownstream, SendTo},
         mining_sv2::{SetNewPrevHash as SetNewPrevHashMp, SetTarget},
         parsers_sv2::{AnyMessage, Mining},
@@ -100,6 +100,9 @@ pub type StdFrame = StandardSv2Frame<Message>;
 /// A standard SV2 frame that can contain either type of frame.
 pub type EitherFrame = StandardEitherFrame<Message>;
 
+const MAX_EXTRANONCE_LEN: u8 = 32;
+const MAX_DOWNSTREAM_CHANNELS: u32 = 65_536;
+
 /// Represents a single connection to a downstream miner.
 ///
 /// Encapsulates the state and communication channels for one miner. An instance
@@ -133,8 +136,8 @@ pub struct Downstream {
     // Used in share quote requests for eHash attribution
     locking_key_bytes: Option<Vec<u8>>,
     channel_id_factory: IdFactory,
-    extranonce_prefix_factory_extended: Arc<Mutex<ExtendedExtranonce>>,
-    extranonce_prefix_factory_standard: Arc<Mutex<ExtendedExtranonce>>,
+    extranonce_prefix_factory_extended: Arc<Mutex<ExtranonceAllocator>>,
+    extranonce_prefix_factory_standard: Arc<Mutex<ExtranonceAllocator>>,
     // A map of all extended channels, keyed by their ID.
     extended_channels:
         HashMap<u32, Arc<RwLock<ExtendedChannel<'static, DefaultJobStore<ExtendedJob<'static>>>>>>,
@@ -196,8 +199,8 @@ pub struct Pool {
     downstream_id_factory: IdFactory,
     // Sender channel for reporting status updates and errors to the main monitoring loop.
     status_tx: status::Sender,
-    extranonce_prefix_factory_extended: Arc<Mutex<ExtendedExtranonce>>,
-    extranonce_prefix_factory_standard: Arc<Mutex<ExtendedExtranonce>>,
+    extranonce_prefix_factory_extended: Arc<Mutex<ExtranonceAllocator>>,
+    extranonce_prefix_factory_standard: Arc<Mutex<ExtranonceAllocator>>,
     share_batch_size: usize,
     last_future_template: Option<NewTemplate<'static>>,
     last_new_prev_hash: Option<SetNewPrevHashTdp<'static>>,
@@ -302,9 +305,7 @@ impl Downstream {
             if let Some(ref base_dispatcher) = p.quote_dispatcher {
                 // Get the config needed to create a new dispatcher
                 Some(Arc::new(
-                    (**base_dispatcher)
-                        .clone()
-                        .with_callback(stats_callback)
+                    (**base_dispatcher).clone().with_callback(stats_callback),
                 ))
             } else {
                 None
@@ -832,7 +833,9 @@ impl Pool {
                                         )?;
 
                                     let standard_job_id = standard_channel
-                                        .get_future_job_id_from_template_id(new_template.template_id)
+                                        .get_future_job_id_from_template_id(
+                                            new_template.template_id,
+                                        )
                                         .expect("job_id must exist");
                                     let standard_job = standard_channel
                                         .get_future_job(standard_job_id)
@@ -1083,41 +1086,24 @@ impl Pool {
         shares_per_minute: f32,
         recv_stop_signal: tokio::sync::watch::Receiver<()>,
     ) -> Result<Arc<Mutex<Self>>, PoolError> {
-        // range_1 is used for dynamically allocating extranonce_prefix across different channels
-        // from these 8 bytes, the first 2 bytes are statically defined by static_prefix
-        let range_1_start = 0;
-        let range_1_end = 8;
-
-        // range_0 is not used here
-        let range_0 = std::ops::Range {
-            start: range_1_start,
-            end: range_1_start,
-        };
-        let range_1 = std::ops::Range {
-            start: range_1_start,
-            end: range_1_end,
-        };
-        let range_2 = std::ops::Range {
-            start: range_1_end,
-            end: MAX_EXTRANONCE_LEN,
-        };
-
         // simulating a scenario where there are multiple mining servers
         // this static prefix allows unique extranonce_prefix allocation
         // for this mining server
         let static_prefix = config.server_id().to_be_bytes().to_vec();
+        let local_index_len = bytes_needed(MAX_DOWNSTREAM_CHANNELS) as usize;
+        let mut local_prefix = static_prefix.clone();
+        local_prefix.resize(8usize.saturating_sub(local_index_len), 0);
 
-        let extranonce_prefix_factory_extended = ExtendedExtranonce::new(
-            range_0.clone(),
-            range_1.clone(),
-            range_2.clone(),
-            Some(static_prefix.clone()),
+        let extranonce_prefix_factory_extended = ExtranonceAllocator::new(
+            local_prefix.clone(),
+            MAX_EXTRANONCE_LEN,
+            MAX_DOWNSTREAM_CHANNELS,
         )
-        .expect("Failed to create ExtendedExtranonce with valid ranges");
+        .expect("Failed to create extranonce allocator");
 
         let extranonce_prefix_factory_standard =
-            ExtendedExtranonce::new(range_0, range_1, range_2, Some(static_prefix.clone()))
-                .expect("Failed to create ExtendedExtranonce with valid ranges");
+            ExtranonceAllocator::new(local_prefix, MAX_EXTRANONCE_LEN, MAX_DOWNSTREAM_CHANNELS)
+                .expect("Failed to create extranonce allocator");
 
         // --- Initialize Pool State ---
         // Initialize mint integration manager using shared configuration when available
@@ -1506,11 +1492,9 @@ mod test {
     use binary_sv2::{B0255, B064K};
     use ext_config::{Config, File, FileFormat};
     use std::convert::TryInto;
-    use stratum_common::roles_logic_sv2::{
-        bitcoin::{
-            self, absolute::LockTime, consensus, transaction::Version, Amount, Transaction, TxOut,
-            Witness,
-        },
+    use stratum_common::roles_logic_sv2::bitcoin::{
+        self, absolute::LockTime, consensus, transaction::Version, Amount, Transaction, TxOut,
+        Witness,
     };
     use tracing::error;
 

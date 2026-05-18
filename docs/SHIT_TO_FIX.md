@@ -274,21 +274,15 @@ Hashpool maintains `roles/test-utils/mining-device-sv1`, a custom Rust SV1 CPU m
 
 ---
 
-### Unvendor channels-sv2 After Upstreaming the Clamp Fix
+### DONE: Unvendor channels-sv2 After Upstreaming the Clamp Fix
 
-**Status:** Blocked on upstream PR merge
+**Status:** Done in `dep-bump/m2-unvendor-channels`
 **Priority:** Medium - Reduces vendored code surface area
 
-**Current State:**
-`protocols/v2/channels-sv2` is vendored (v1.0.2, modified) because of a bug fix applied in commit `b79b85da`: when vardiff computes a target easier than the client's declared `max_target`, the channel was returning `RequestedMaxTargetOutOfRange` instead of clamping to `max_target`. This caused a silent vardiff failure and the mass-disconnection loop. The fix clamps in four places: `ExtendedChannel::new()`, `ExtendedChannel::update_channel()`, `StandardChannel::new()`, `StandardChannel::update_channel()`.
+**Completed:**
+`protocols/v2/channels-sv2` was removed after the clamp fix landed upstream and was included in the SRI 1.9.0 crate set. `roles/Cargo.toml` now resolves `channels_sv2` from crates.io instead of patching to the vendored path.
 
 An upstream PR plan with the exact diff is documented in `docs/upstream-sri-clamp-fix-plan.md`.
-
-**What Needs To Happen:**
-1. Submit the PR to `stratum-mining/sv2-apps` per the plan in `docs/upstream-sri-clamp-fix-plan.md`
-2. Once merged and released, replace the vendored `channels-sv2` path dep with the crates.io version
-3. Remove `protocols/v2/channels-sv2` from the repo
-4. Update `roles/Cargo.toml` to use the published crate
 
 **Benefit:** Removes the largest vendored crate from the repo; upstream owns the fix going forward.
 

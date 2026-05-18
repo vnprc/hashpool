@@ -1,7 +1,6 @@
 use crate::{job::Job, miner::Miner};
 use async_channel::{unbounded, Receiver, Sender};
 use num_bigint::BigUint;
-use num_traits::FromPrimitive;
 use primitive_types::U256;
 use std::{
     convert::TryInto,

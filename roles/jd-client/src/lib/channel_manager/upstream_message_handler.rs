@@ -1,8 +1,10 @@
 use bitcoin::Target;
 use stratum_common::roles_logic_sv2::{
     self,
-    channels_sv2::{client::extended::ExtendedChannel, server::jobs::factory::JobFactory},
-    extranonce::{ExtendedExtranonce, MAX_EXTRANONCE_LEN},
+    channels_sv2::{
+        client::extended::ExtendedChannel, extranonce_manager::ExtranoncePrefix,
+        server::jobs::factory::JobFactory,
+    },
     handlers_sv2::{HandleMiningMessagesFromServerAsync, SupportedChannelTypes},
     mining_sv2::*,
     parsers_sv2::{AnyMessage, IsSv2Message, Mining, TemplateDistribution},
@@ -11,7 +13,10 @@ use stratum_common::roles_logic_sv2::{
 use tracing::{debug, error, info, warn};
 
 use crate::{
-    channel_manager::{downstream_message_handler::RouteMessageTo, ChannelManager, DeclaredJob},
+    channel_manager::{
+        downstream_message_handler::RouteMessageTo, make_extranonce_allocator, ChannelManager,
+        DeclaredJob, MAX_EXTRANONCE_LEN,
+    },
     error::JDCError,
     jd_mode::{get_jd_mode, JdMode},
     status::{State, Status},
@@ -93,10 +98,6 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
                     self.min_extranonce_size as usize,
                 );
                 let total_len = prefix_len + msg.extranonce_size as usize;
-                let range_0 = 0..prefix_len;
-                let range_1 = prefix_len..prefix_len + jdc_extranonce_len;
-                let range_2 = prefix_len + jdc_extranonce_len..total_len;
-
                 debug!(
                     prefix_len,
                     extranonce_size = msg.extranonce_size,
@@ -105,12 +106,23 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
                     "Calculated extranonce ranges"
                 );
 
-                let extranonces = match ExtendedExtranonce::from_upstream_extranonce(
-                    msg.extranonce_prefix.clone().into(),
-                    range_0,
-                    range_1,
-                    range_2,
-                ) {
+                let upstream_prefix = msg.extranonce_prefix.to_vec();
+                let make_allocator = || {
+                    make_extranonce_allocator(
+                        upstream_prefix.clone(),
+                        jdc_extranonce_len,
+                        total_len,
+                    )
+                };
+                let extranonces_extended = match make_allocator() {
+                    Ok(e) => e,
+                    Err(e) => {
+                        warn!("Failed to build extranonce factory: {e:?}");
+                        self.upstream_state.set(UpstreamState::NoChannel);
+                        return (self.upstream_state.get(), None, None);
+                    }
+                };
+                let extranonces_standard = match make_allocator() {
                     Ok(e) => e,
                     Err(e) => {
                         warn!("Failed to build extranonce factory: {e:?}");
@@ -128,7 +140,8 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
                 let mut extended_channel = ExtendedChannel::new(
                     msg.channel_id,
                     self.user_identity.clone(),
-                    msg.extranonce_prefix.to_vec(),
+                    ExtranoncePrefix::from_wire(msg.extranonce_prefix.to_vec())
+                        .expect("valid extranonce prefix"),
                     Target::from_le_bytes(msg.target.inner_as_ref().try_into().unwrap()),
                     hashrate,
                     true,
@@ -180,8 +193,8 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
                     None
                 };
 
-                data.extranonce_prefix_factory_extended = extranonces.clone();
-                data.extranonce_prefix_factory_standard = extranonces;
+                data.extranonce_prefix_factory_extended = extranonces_extended;
+                data.extranonce_prefix_factory_standard = extranonces_standard;
                 data.upstream_channel = Some(extended_channel);
                 data.job_factory = Some(job_factory);
                 self.upstream_state.set(UpstreamState::Connected);
@@ -305,9 +318,17 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
             .super_safe_lock(|channel_manager_data| {
                 let mut messages_results: Vec<Result<RouteMessageTo, Self::Error>> = vec![];
                 if let Some(upstream_channel) = channel_manager_data.upstream_channel.as_mut() {
-                    if let Err(_e) =
-                        upstream_channel.set_extranonce_prefix(msg.extranonce_prefix.to_vec())
-                    {
+                    let new_upstream_prefix =
+                        match ExtranoncePrefix::from_wire(msg.extranonce_prefix.to_vec()) {
+                            Ok(prefix) => prefix,
+                            Err(_) => {
+                                return Err(JDCError::RolesSv2Logic(
+                                    roles_logic_sv2::Error::BadPayloadSize,
+                                ));
+                            }
+                        };
+
+                    if let Err(_e) = upstream_channel.set_extranonce_prefix(new_upstream_prefix) {
                         // Correct these errors, we need Extended Channel Error but on client side.
                         return Err(JDCError::RolesSv2Logic(
                             roles_logic_sv2::Error::BadPayloadSize),
@@ -322,10 +343,6 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
                         self.min_extranonce_size as usize,
                     );
                     let total_len = prefix_len + extranonce_size;
-                    let range_0 = 0..prefix_len;
-                    let range_1 = prefix_len..prefix_len + jdc_extranonce_len;
-                    let range_2 = prefix_len + jdc_extranonce_len..total_len;
-
                     debug!(
                         prefix_len,
                         extranonce_size,
@@ -333,23 +350,31 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
                         total_len,
                         "Calculated extranonce ranges"
                     );
-                    let extranonces = match ExtendedExtranonce::from_upstream_extranonce(
-                        msg.extranonce_prefix.clone().into(),
-                        range_0,
-                        range_1,
-                        range_2,
-                    ) {
+                    let upstream_prefix = msg.extranonce_prefix.to_vec();
+                    let make_allocator = || {
+                        make_extranonce_allocator(upstream_prefix.clone(), jdc_extranonce_len, total_len)
+                    };
+                    let extranonces_extended = match make_allocator() {
                         Ok(e) => e,
                         Err(e) => {
                             warn!("Failed to build extranonce factory: {e:?}");
                             return Err(JDCError::RolesSv2Logic(
-                                roles_logic_sv2::Error::ExtranoncePrefixFactoryError(e),
+                                roles_logic_sv2::Error::BadPayloadSize,
+                            ));
+                        }
+                    };
+                    let extranonces_standard = match make_allocator() {
+                        Ok(e) => e,
+                        Err(e) => {
+                            warn!("Failed to build extranonce factory: {e:?}");
+                            return Err(JDCError::RolesSv2Logic(
+                                roles_logic_sv2::Error::BadPayloadSize,
                             ));
                         }
                     };
 
-                    channel_manager_data.extranonce_prefix_factory_extended = extranonces.clone();
-                    channel_manager_data.extranonce_prefix_factory_standard = extranonces;
+                    channel_manager_data.extranonce_prefix_factory_extended = extranonces_extended;
+                    channel_manager_data.extranonce_prefix_factory_standard = extranonces_standard;
 
                     for (downstream_id, downstream) in channel_manager_data.downstream.iter_mut() {
                         downstream.downstream_data.super_safe_lock(|data| {
@@ -357,15 +382,19 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
                             {
                                 match channel_manager_data
                                     .extranonce_prefix_factory_standard
-                                    .next_prefix_standard()
+                                    .allocate_standard()
                                 {
-                                    Ok(prefix) => match standard_channel.set_extranonce_prefix(prefix.clone().to_vec()) {
+                                    Ok(prefix) => {
+                                        let prefix_bytes = prefix.as_bytes().to_vec();
+                                        match standard_channel.set_extranonce_prefix(prefix) {
                                         Ok(_) => {
                                             messages_results.push(Ok((
                                                 *downstream_id,
                                                 Mining::SetExtranoncePrefix(SetExtranoncePrefix {
                                                     channel_id: *channel_id,
-                                                    extranonce_prefix: prefix.into(),
+                                                    extranonce_prefix: prefix_bytes
+                                                        .try_into()
+                                                        .expect("valid extranonce prefix"),
                                                 }),
                                             )
                                                 .into()));
@@ -375,10 +404,11 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
                                                 roles_logic_sv2::Error::FailedToUpdateStandardChannel(e),
                                             )));
                                         }
-                                    },
+                                    }},
                                     Err(e) => {
+                                        warn!("Failed to allocate standard extranonce prefix: {e:?}");
                                         messages_results.push(Err(JDCError::RolesSv2Logic(
-                                            roles_logic_sv2::Error::ExtranoncePrefixFactoryError(e),
+                                            roles_logic_sv2::Error::BadPayloadSize,
                                         )));
                                     }
                                 }
@@ -387,15 +417,19 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
                             {
                                 match channel_manager_data
                                     .extranonce_prefix_factory_extended
-                                    .next_prefix_extended(extended_channel.get_rollable_extranonce_size() as usize)
+                                    .allocate_extended(extended_channel.get_rollable_extranonce_size() as usize)
                                 {
-                                    Ok(prefix) => match extended_channel.set_extranonce_prefix(prefix.clone().to_vec()) {
+                                    Ok(prefix) => {
+                                        let prefix_bytes = prefix.as_bytes().to_vec();
+                                        match extended_channel.set_extranonce_prefix(prefix) {
                                         Ok(_) => {
                                             messages_results.push(Ok((
                                                 *downstream_id,
                                                 Mining::SetExtranoncePrefix(SetExtranoncePrefix {
                                                     channel_id: *channel_id,
-                                                    extranonce_prefix: prefix.into(),
+                                                    extranonce_prefix: prefix_bytes
+                                                        .try_into()
+                                                        .expect("valid extranonce prefix"),
                                                 }),
                                             )
                                                 .into()));
@@ -405,10 +439,11 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
                                                 roles_logic_sv2::Error::FailedToUpdateExtendedChannel(e),
                                             )));
                                         }
-                                    },
+                                    }},
                                     Err(e) => {
+                                        warn!("Failed to allocate extended extranonce prefix: {e:?}");
                                         messages_results.push(Err(JDCError::RolesSv2Logic(
-                                            roles_logic_sv2::Error::ExtranoncePrefixFactoryError(e),
+                                            roles_logic_sv2::Error::BadPayloadSize,
                                         )));
                                     }
                                 }
@@ -537,7 +572,9 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
         info!("Received: {}", msg);
         self.channel_manager_data.super_safe_lock(|data| {
             if let Some(ref mut upstream) = data.upstream_channel {
-                upstream.set_target(Target::from_le_bytes(msg.maximum_target.inner_as_ref().try_into().unwrap()));
+                upstream.set_target(Target::from_le_bytes(
+                    msg.maximum_target.inner_as_ref().try_into().unwrap(),
+                ));
             }
         });
         Ok(())

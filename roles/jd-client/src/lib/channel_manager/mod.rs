@@ -1,9 +1,9 @@
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use async_channel::{Receiver, Sender};
-use key_utils::{Secp256k1PublicKey, Secp256k1SecretKey};
 use bitcoin::Target;
 use framing_sv2::framing::Sv2Frame;
+use key_utils::{Secp256k1PublicKey, Secp256k1SecretKey};
 use noise_sv2::Responder;
 use stratum_common::{
     network_helpers_sv2::noise_stream::NoiseTcpStream,
@@ -11,6 +11,7 @@ use stratum_common::{
         self,
         channels_sv2::{
             client::extended::ExtendedChannel,
+            extranonce_manager::{bytes_needed, ExtranonceAllocator, ExtranonceAllocatorError},
             server::{
                 jobs::{
                     extended::ExtendedJob, factory::JobFactory, job_store::DefaultJobStore,
@@ -20,7 +21,6 @@ use stratum_common::{
             },
         },
         codec_sv2::HandshakeRole,
-        extranonce::{ExtendedExtranonce, MAX_EXTRANONCE_LEN},
         handlers_sv2::{
             HandleJobDeclarationMessagesFromServerAsync, HandleMiningMessagesFromClientAsync,
             HandleMiningMessagesFromServerAsync, HandleTemplateDistributionMessagesFromServerAsync,
@@ -55,6 +55,32 @@ mod jd_message_handler;
 mod template_message_handler;
 mod upstream_message_handler;
 
+const MAX_EXTRANONCE_LEN: usize = 32;
+const MAX_DOWNSTREAM_CHANNELS: u32 = 65_536;
+
+fn make_extranonce_allocator(
+    upstream_prefix: Vec<u8>,
+    local_prefix_len: usize,
+    total_extranonce_len: usize,
+) -> Result<ExtranonceAllocator, ExtranonceAllocatorError> {
+    let max_channels = if local_prefix_len >= bytes_needed(MAX_DOWNSTREAM_CHANNELS) as usize {
+        MAX_DOWNSTREAM_CHANNELS
+    } else {
+        256
+    };
+    let local_index_len = bytes_needed(max_channels) as usize;
+    let local_prefix_bytes = vec![0; local_prefix_len.saturating_sub(local_index_len)];
+
+    ExtranonceAllocator::from_upstream_prefix(
+        upstream_prefix,
+        local_prefix_bytes,
+        total_extranonce_len
+            .try_into()
+            .map_err(|_| ExtranonceAllocatorError::ExceedsMaxLength)?,
+        max_channels,
+    )
+}
+
 /// A `DeclaredJob` encapsulates all the relevant data associated with a single
 /// job declaration, including its template, optional messages, coinbase output,
 /// and transaction list.
@@ -87,10 +113,10 @@ pub struct ChannelManagerData {
     downstream: HashMap<u32, Downstream>,
     // Extranonce prefix factory for **extended downstream channels**.
     // Each new extended downstream receives a unique extranonce prefix.
-    extranonce_prefix_factory_extended: ExtendedExtranonce,
+    extranonce_prefix_factory_extended: ExtranonceAllocator,
     // Extranonce prefix factory for **standard downstream channels**.
     // Each new standard downstream receives a unique extranonce prefix.
-    extranonce_prefix_factory_standard: ExtendedExtranonce,
+    extranonce_prefix_factory_standard: ExtranonceAllocator,
     // Factory that generates **monotonically increasing request IDs**
     // for messages sent from the JDC.
     request_id_factory: IdFactory,
@@ -157,19 +183,12 @@ impl ChannelManagerData {
         self.request_id_factory = IdFactory::new();
         self.channel_id_factory = IdFactory::new();
 
-        let (range_0, range_1, range_2) = {
-            let range_1 = 0..min_extranonce_size;
-            (
-                0..range_1.start,
-                range_1.clone(),
-                range_1.end..MAX_EXTRANONCE_LEN,
-            )
-        };
         self.extranonce_prefix_factory_extended =
-            ExtendedExtranonce::new(range_0.clone(), range_1.clone(), range_2.clone(), None)
-                .expect("valid ranges");
+            make_extranonce_allocator(Vec::new(), min_extranonce_size, MAX_EXTRANONCE_LEN)
+                .expect("valid extranonce allocator");
         self.extranonce_prefix_factory_standard =
-            ExtendedExtranonce::new(range_0, range_1, range_2, None).expect("valid ranges");
+            make_extranonce_allocator(Vec::new(), min_extranonce_size, MAX_EXTRANONCE_LEN)
+                .expect("valid extranonce allocator");
 
         self.allocate_tokens = None;
         self.upstream_channel = None;
@@ -254,18 +273,13 @@ impl ChannelManager {
         status_sender: Sender<Status>,
         coinbase_outputs: Vec<u8>,
     ) -> Result<Self, JDCError> {
-        let (range_0, range_1, range_2) = {
-            let range_1 = 0..config.min_extranonce_size() as usize;
-            (
-                0..range_1.start,
-                range_1.clone(),
-                range_1.end..MAX_EXTRANONCE_LEN,
-            )
-        };
-
         let make_extranonce_factory = || {
-            ExtendedExtranonce::new(range_0.clone(), range_1.clone(), range_2.clone(), None)
-                .expect("Failed to create ExtendedExtranonce with valid ranges")
+            make_extranonce_allocator(
+                Vec::new(),
+                config.min_extranonce_size() as usize,
+                MAX_EXTRANONCE_LEN,
+            )
+            .expect("Failed to create extranonce allocator")
         };
 
         let extranonce_prefix_factory_extended = make_extranonce_factory();

@@ -26,7 +26,6 @@ members = [
 ]
 
 [patch.crates-io]
-channels_sv2    = { path = "../protocols/v2/channels-sv2" }
 cashu           = { git = "https://github.com/vnprc/cdk", rev = "04c584e3" }
 cdk             = { git = "https://github.com/vnprc/cdk", rev = "04c584e3" }
 cdk-common      = { git = "https://github.com/vnprc/cdk", rev = "04c584e3" }
