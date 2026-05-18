@@ -195,7 +195,7 @@ impl Client {
             if miner_cloned.safe_lock(|m| m.next_share()).unwrap().is_ok() {
                 let nonce = miner_cloned.safe_lock(|m| m.header.unwrap().nonce).unwrap();
                 let time = miner_cloned.safe_lock(|m| m.header.unwrap().time).unwrap();
-                let job_id = miner_cloned.safe_lock(|m| m.job_id).unwrap();
+                let job_id = miner_cloned.safe_lock(|m| m.job_id.clone()).unwrap();
                 let version = miner_cloned.safe_lock(|m| m.version).unwrap();
                 // Sends relevant candidate block header values needed to construct a
                 // `mining.submit` message to the `receiver_share` in the task that is responsible
@@ -239,7 +239,7 @@ impl Client {
                   let submit = client_to_server::Submit {
                       id: 0,
                       user_name: "cpu-miner".into(),
-                      job_id: job_id.to_string(),
+                      job_id,
                       extra_nonce2,
                       time: HexU32Be(ntime),
                       nonce: HexU32Be(nonce),

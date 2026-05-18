@@ -19,7 +19,7 @@ pub(crate) struct Miner {
     /// Current mining target.
     pub(crate) target: Option<U256>,
     /// ID of the job used while submitting share generated from this job.
-    pub(crate) job_id: Option<u32>,
+    pub(crate) job_id: Option<String>,
     /// Block header version
     pub(crate) version: Option<u32>,
     /// TODO: RRQ: Remove?
