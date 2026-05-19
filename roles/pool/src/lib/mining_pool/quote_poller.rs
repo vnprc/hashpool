@@ -398,6 +398,13 @@ impl MintQuoteStatusResponse {
             MintQuoteStatus::Unpaid
         } else if self.amount_paid > self.amount_issued {
             MintQuoteStatus::Paid
+        } else if let Some(expected) = self.amount {
+            if self.amount_issued >= expected {
+                MintQuoteStatus::Issued
+            } else {
+                // paid == issued but below expected total — partial issuance, keep polling
+                MintQuoteStatus::Paid
+            }
         } else {
             MintQuoteStatus::Issued
         }
@@ -744,6 +751,22 @@ mod tests {
         assert_eq!(response.amount_paid, 50000);
         assert_eq!(response.amount_issued, 50000);
         assert_eq!(response.status(), MintQuoteStatus::Issued);
+    }
+
+    #[test]
+    fn test_mint_quote_status_response_partial_issuance_stays_paid() {
+        // paid == issued but below expected total — must not be treated as Issued
+        let json = r#"{
+            "quote": "quote1",
+            "request": "custom-request",
+            "amount": 50000,
+            "amount_paid": 25000,
+            "amount_issued": 25000,
+            "unit": "hash"
+        }"#;
+
+        let response: MintQuoteStatusResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.status(), MintQuoteStatus::Paid);
     }
 
     #[test]

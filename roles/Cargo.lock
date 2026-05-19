@@ -1073,7 +1073,7 @@ dependencies = [
 [[package]]
 name = "cdk-ehash"
 version = "0.1.0"
-source = "git+https://github.com/vnprc/cdk-ehash?rev=b7edd52#b7edd524a74c2f72892ef88a713dafa4282f18da"
+source = "git+https://forge.anarch.diy/vnprc/cdk-ehash.git?rev=b7edd52#b7edd524a74c2f72892ef88a713dafa4282f18da"
 dependencies = [
  "async-trait",
  "cdk-common",

@@ -22,7 +22,7 @@ hex = "0.4"
 
 cdk        = "0.16.0"
 cdk-axum   = "0.16.0"
-cdk-ehash  = { git = "https://github.com/vnprc/cdk-ehash", rev = "b7edd52" }
+cdk-ehash  = { git = "https://forge.anarch.diy/vnprc/cdk-ehash.git", rev = "b7edd52" }
 cdk-mintd  = "0.16.0"
 cdk-sqlite = "0.16.0"
 toml = "0.8.22"
