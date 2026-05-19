@@ -19,7 +19,7 @@
 
   # CDK configuration
   cdkRepo = "https://github.com/vnprc/cdk.git";
-  cdkCommit = "0315c1f2";
+  cdkCommit = "2c898e17";
 
   bitcoindDataDir = "${config.devenv.root}/.devenv/state/bitcoind";
   translatorWalletDb = "${config.devenv.root}/.devenv/state/translator/wallet.sqlite";
@@ -110,7 +110,7 @@ in {
 
       # Clone and build
       git clone https://github.com/vnprc/cdk.git .
-      git checkout 77df2ae4
+      git checkout 2c898e17
       cargo build --release --bin cdk-cli
 
       # Copy to hashpool bin directory
