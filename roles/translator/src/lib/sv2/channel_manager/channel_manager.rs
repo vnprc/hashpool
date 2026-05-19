@@ -16,7 +16,7 @@ use stratum_apps::{
         binary_sv2::B032,
         channels_sv2::{
             client::{extended::ExtendedChannel, group::GroupChannel},
-            extranonce_manager::{ExtranonceAllocator, ExtranoncePrefix},
+            extranonce_manager::ExtranonceAllocator,
         },
         codec_sv2::StandardSv2Frame,
         extensions_sv2::{EXTENSION_TYPE_WORKER_HASHRATE_TRACKING, TLV_FIELD_TYPE_USER_IDENTITY},
@@ -667,14 +667,13 @@ impl ChannelManager {
             .get(&AGGREGATED_CHANNEL_ID)
             .unwrap()
             .rollable_extranonce_size() as usize;
-        let new_extranonce_prefix_bytes = self
+        let maybe_allocated = self
             .extranonce_factories
             .get_mut(&AGGREGATED_CHANNEL_ID)
             .unwrap()
             .allocate_extended(min_extranonce_size)
-            .ok()
-            .map(|allocated| allocated.as_bytes().to_vec());
-        if let Some(prefix_bytes) = new_extranonce_prefix_bytes {
+            .ok();
+        if let Some(allocated) = maybe_allocated {
             if new_extranonce_size >= min_extranonce_size {
                 // Find max channel ID, excluding AGGREGATED_CHANNEL_ID
                 // (u32::MAX) which would cause overflow when adding 1
@@ -684,19 +683,15 @@ impl ChannelManager {
                     .filter(|x| *x.key() != AGGREGATED_CHANNEL_ID)
                     .fold(0, |acc, x| std::cmp::max(acc, *x.key()));
                 let next_channel_id = channel_id + 1;
-                let new_extranonce_prefix: B032<'static> = prefix_bytes
-                    .clone()
+                let new_extranonce_prefix: B032<'static> = allocated
+                    .as_bytes()
+                    .to_vec()
                     .try_into()
                     .expect("extranonce prefix fits in 32 bytes");
                 let new_downstream_extended_channel = ExtendedChannel::new(
                     next_channel_id,
                     user_identity.clone(),
-                    ExtranoncePrefix::from_wire(prefix_bytes)
-                    .map_err(|e| {
-                        TproxyError::shutdown(TproxyErrorKind::General(format!(
-                            "invalid extranonce prefix: {e:?}"
-                        )))
-                    })?,
+                    allocated.into(),
                     target,
                     hashrate,
                     true,
