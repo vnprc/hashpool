@@ -4,13 +4,13 @@ use crate::{
     sv2::ChannelManager,
     utils::{proxy_extranonce_prefix_len, AggregatedState, AGGREGATED_CHANNEL_ID},
 };
-use roles_logic_sv2::extranonce::{ExtendedExtranonce, Extranonce};
 use stratum_apps::{
     stratum_core::{
+        binary_sv2::B032,
         bitcoin::Target,
         channels_sv2::{
             client::{extended::ExtendedChannel, group::GroupChannel},
-            extranonce_manager::ExtranoncePrefix,
+            extranonce_manager::{ExtranonceAllocator, ExtranoncePrefix},
         },
         handlers_sv2::{HandleMiningMessagesFromServerAsync, SupportedChannelTypes},
         mining_sv2::{
@@ -138,7 +138,6 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
                 self.extended_channels
                     .insert(AGGREGATED_CHANNEL_ID, extended_channel);
 
-                let upstream_extranonce_prefix: Extranonce = m.extranonce_prefix.clone().into();
                 let translator_proxy_extranonce_prefix_len = proxy_extranonce_prefix_len(
                     m.extranonce_size.into(),
                     downstream_extranonce_len,
@@ -154,31 +153,39 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
                     "\n\nrange_0: {:?}, range1: {:?}, range2: {:?}\n\n",
                     range_0, range1, range2
                 );
-                let extended_extranonce_factory = ExtendedExtranonce::from_upstream_extranonce(
-                    upstream_extranonce_prefix,
-                    range_0,
-                    range1,
-                    range2,
+                // Build an ExtranonceAllocator that sub-allocates the upstream-assigned extranonce
+                // space. local_prefix_bytes absorbs slack between the upstream prefix and the
+                // local_index (1 byte, supports up to 256 concurrent downstream channels).
+                let local_prefix_len = translator_proxy_extranonce_prefix_len.saturating_sub(1);
+                let local_prefix_bytes = vec![0u8; local_prefix_len];
+                let allocator = ExtranonceAllocator::from_upstream_prefix(
+                    extranonce_prefix.clone(),
+                    local_prefix_bytes,
+                    range2.end as u8,
+                    256,
                 )
-                .expect("Failed to create ExtendedExtranonce from upstream extranonce");
+                .expect("Failed to create ExtranonceAllocator from upstream extranonce");
                 self.extranonce_factories
-                    .insert(AGGREGATED_CHANNEL_ID, extended_extranonce_factory);
+                    .insert(AGGREGATED_CHANNEL_ID, allocator);
 
                 let mut factory = self
                     .extranonce_factories
                     .get_mut(&AGGREGATED_CHANNEL_ID)
                     .expect("extranonce_prefix_factory should be set after creation");
-                let new_extranonce_size = factory.get_range2_len() as u16;
-                let new_extranonce_prefix = factory
-                    .next_prefix_extended(new_extranonce_size as usize)
-                    .expect("next_prefix_extended should return a value for valid input")
-                    .into_b032();
+                let new_extranonce_size = factory.rollable_extranonce_size() as u16;
+                let prefix_bytes = factory
+                    .allocate_extended(new_extranonce_size as usize)
+                    .expect("allocate_extended should succeed for valid extranonce size")
+                    .as_bytes()
+                    .to_vec();
+                let new_extranonce_prefix: B032<'static> = prefix_bytes
+                    .clone()
+                    .try_into()
+                    .expect("extranonce prefix fits in 32 bytes");
                 let new_downstream_extended_channel = ExtendedChannel::new(
                     m.channel_id,
                     user_identity.clone(),
-                    ExtranoncePrefix::from_wire(
-                        new_extranonce_prefix.clone().into_static().to_vec(),
-                    )
+                    ExtranoncePrefix::from_wire(prefix_bytes)
                     .map_err(|e| {
                         TproxyError::shutdown(TproxyErrorKind::General(format!(
                             "invalid extranonce prefix: {e:?}"
@@ -207,8 +214,6 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
             } else {
                 // Non-aggregated mode: check if we need to adjust extranonce size
                 if m.extranonce_size as usize != downstream_extranonce_len {
-                    // We need to create an extranonce factory to ensure proper extranonce2_size
-                    let upstream_extranonce_prefix: Extranonce = m.extranonce_prefix.clone().into();
                     let translator_proxy_extranonce_prefix_len = proxy_extranonce_prefix_len(
                         m.extranonce_size.into(),
                         downstream_extranonce_len,
@@ -224,27 +229,31 @@ impl HandleMiningMessagesFromServerAsync for ChannelManager {
                         "\n\nrange_0: {:?}, range1: {:?}, range2: {:?}\n\n",
                         range_0, range1, range2
                     );
-                    // Create the factory - this should succeed if configuration is valid
-                    let extended_extranonce_factory = ExtendedExtranonce::from_upstream_extranonce(
-                            upstream_extranonce_prefix,
-                            range_0,
-                            range1,
-                            range2,
-                        )
-                        .expect("Failed to create ExtendedExtranonce factory - likely extranonce size configuration issue");
-                    // Store the factory for this specific channel
-                    let mut factory = extended_extranonce_factory;
-                    let new_extranonce_prefix = factory
-                        .next_prefix_extended(downstream_extranonce_len)
+                    // Build an ExtranonceAllocator that sub-allocates the upstream-assigned
+                    // extranonce space.
+                    let local_prefix_len = translator_proxy_extranonce_prefix_len.saturating_sub(1);
+                    let local_prefix_bytes = vec![0u8; local_prefix_len];
+                    let mut factory = ExtranonceAllocator::from_upstream_prefix(
+                        extranonce_prefix.clone(),
+                        local_prefix_bytes,
+                        range2.end as u8,
+                        256,
+                    )
+                    .expect("Failed to create ExtranonceAllocator - likely extranonce size configuration issue");
+                    let prefix_bytes = factory
+                        .allocate_extended(downstream_extranonce_len)
                         .expect("Failed to generate extranonce prefix")
-                        .into_b032();
+                        .as_bytes()
+                        .to_vec();
+                    let new_extranonce_prefix: B032<'static> = prefix_bytes
+                        .clone()
+                        .try_into()
+                        .expect("extranonce prefix fits in 32 bytes");
                     // Create channel with the configured extranonce size
                     let new_downstream_extended_channel = ExtendedChannel::new(
                         m.channel_id,
                         user_identity.clone(),
-                        ExtranoncePrefix::from_wire(
-                            new_extranonce_prefix.clone().into_static().to_vec(),
-                        )
+                        ExtranoncePrefix::from_wire(prefix_bytes)
                         .map_err(|e| {
                             TproxyError::shutdown(TproxyErrorKind::General(format!(
                                 "invalid extranonce prefix: {e:?}"

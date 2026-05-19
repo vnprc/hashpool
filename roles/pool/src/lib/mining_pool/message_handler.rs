@@ -29,7 +29,6 @@ use stratum_common::roles_logic_sv2::{
         standard::StandardChannel,
     },
     errors::Error,
-    extranonce::MAX_EXTRANONCE_LEN,
     handlers::mining::{ParseMiningMessagesFromDownstream, SendTo, SupportedChannelTypes},
     mining_sv2::*,
     parsers_sv2::Mining,
@@ -38,6 +37,8 @@ use stratum_common::roles_logic_sv2::{
     Vardiff, VardiffState,
 };
 use tracing::{debug, error, info, warn};
+
+const MAX_EXTRANONCE_LEN: usize = 32;
 
 /// Attempts to dispatch a quote for an accepted share to the mint service.
 ///

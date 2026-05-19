@@ -8,15 +8,15 @@ use crate::{
 };
 use async_channel::{Receiver, Sender};
 use dashmap::DashMap;
-use roles_logic_sv2::extranonce::ExtendedExtranonce;
 use std::sync::Arc;
 use stratum_apps::{
     custom_mutex::Mutex,
     fallback_coordinator::FallbackCoordinator,
     stratum_core::{
+        binary_sv2::B032,
         channels_sv2::{
             client::{extended::ExtendedChannel, group::GroupChannel},
-            extranonce_manager::ExtranoncePrefix,
+            extranonce_manager::{ExtranonceAllocator, ExtranoncePrefix},
         },
         codec_sv2::StandardSv2Frame,
         extensions_sv2::{EXTENSION_TYPE_WORKER_HASHRATE_TRACKING, TLV_FIELD_TYPE_USER_IDENTITY},
@@ -93,7 +93,7 @@ pub struct ChannelManager {
     /// Extensions that have been successfully negotiated with the upstream server
     pub negotiated_extensions: Arc<Mutex<Vec<u16>>>,
     /// Extranonce factories containing per channel extranonces
-    pub extranonce_factories: Arc<DashMap<ChannelId, ExtendedExtranonce>>,
+    pub extranonce_factories: Arc<DashMap<ChannelId, ExtranonceAllocator>>,
     /// Tracks whether the single upstream channel in aggregated mode is absent,
     /// being established, or connected.
     pub aggregated_channel_state: AtomicAggregatedState,
@@ -441,7 +441,7 @@ impl ChannelManager {
                             .extranonce_factories
                             .get(&AGGREGATED_CHANNEL_ID)
                             .unwrap()
-                            .get_range0_len();
+                            .upstream_prefix_len() as usize;
                         if let Some(downstream_extranonce_prefix) = downstream_extranonce_prefix {
                             // Skip the upstream prefix (range0) and take the remaining
                             // bytes (translator proxy prefix)
@@ -472,7 +472,7 @@ impl ChannelManager {
                                 .extended_channels
                                 .get(&m.channel_id)
                                 .map(|channel| channel.get_extranonce_prefix().to_vec());
-                            let range0_len = factory.get_range0_len();
+                            let range0_len = factory.upstream_prefix_len() as usize;
                             if let Some(downstream_extranonce_prefix) = downstream_extranonce_prefix
                             {
                                 // Skip the upstream prefix (range0) and take the remaining
@@ -662,18 +662,19 @@ impl ChannelManager {
             .get(&AGGREGATED_CHANNEL_ID)
             .map(|ch| *ch.get_target())
             .unwrap();
-        let new_extranonce_prefix = self
-            .extranonce_factories
-            .get_mut(&AGGREGATED_CHANNEL_ID)
-            .unwrap()
-            .next_prefix_extended(min_extranonce_size)
-            .ok();
         let new_extranonce_size = self
             .extranonce_factories
+            .get(&AGGREGATED_CHANNEL_ID)
+            .unwrap()
+            .rollable_extranonce_size() as usize;
+        let new_extranonce_prefix_bytes = self
+            .extranonce_factories
             .get_mut(&AGGREGATED_CHANNEL_ID)
             .unwrap()
-            .get_range2_len();
-        if let Some(new_extranonce_prefix) = new_extranonce_prefix {
+            .allocate_extended(min_extranonce_size)
+            .ok()
+            .map(|allocated| allocated.as_bytes().to_vec());
+        if let Some(prefix_bytes) = new_extranonce_prefix_bytes {
             if new_extranonce_size >= min_extranonce_size {
                 // Find max channel ID, excluding AGGREGATED_CHANNEL_ID
                 // (u32::MAX) which would cause overflow when adding 1
@@ -683,16 +684,14 @@ impl ChannelManager {
                     .filter(|x| *x.key() != AGGREGATED_CHANNEL_ID)
                     .fold(0, |acc, x| std::cmp::max(acc, *x.key()));
                 let next_channel_id = channel_id + 1;
+                let new_extranonce_prefix: B032<'static> = prefix_bytes
+                    .clone()
+                    .try_into()
+                    .expect("extranonce prefix fits in 32 bytes");
                 let new_downstream_extended_channel = ExtendedChannel::new(
                     next_channel_id,
                     user_identity.clone(),
-                    ExtranoncePrefix::from_wire(
-                        new_extranonce_prefix
-                            .clone()
-                            .into_b032()
-                            .into_static()
-                            .to_vec(),
-                    )
+                    ExtranoncePrefix::from_wire(prefix_bytes)
                     .map_err(|e| {
                         TproxyError::shutdown(TproxyErrorKind::General(format!(
                             "invalid extranonce prefix: {e:?}"
@@ -711,7 +710,7 @@ impl ChannelManager {
                         channel_id: next_channel_id,
                         target: target.to_le_bytes().into(),
                         extranonce_size: new_extranonce_size as u16,
-                        extranonce_prefix: new_extranonce_prefix.clone().into(),
+                        extranonce_prefix: new_extranonce_prefix,
                         group_channel_id: 0, /* use a dummy value, this
                                               * shouldn't
                                               * matter for the Sv1 server */
