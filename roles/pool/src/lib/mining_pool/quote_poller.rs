@@ -10,11 +10,11 @@
 //! - Correlates quotes to channels for proper message routing
 
 use super::Downstream;
+use binary_sv2::Str0255;
 use mint_pool_messaging::MintPoolMessageHub;
+use mint_quote_sv2::MintQuoteNotification;
 use reqwest::{self, StatusCode, Url};
 use std::{collections::HashMap, sync::Arc, time::Instant};
-use mint_quote_sv2::MintQuoteNotification;
-use binary_sv2::Str0255;
 use stratum_common::roles_logic_sv2::{handlers::mining::SendTo, parsers_sv2::Mining};
 use tokio::time::{interval, sleep, Duration};
 use tracing::{debug, error, info, warn};
@@ -172,17 +172,16 @@ impl QuotePoller {
                 .collect();
 
             for (quote_id, quote_meta) in pending_snapshot {
-                let endpoint =
-                    match base_url.join(&format!("v1/mint/quote/ehash/{}", quote_id)) {
-                        Ok(url) => url,
-                        Err(e) => {
-                            error!(
-                                "Failed to build mint quote status URL for {}: {}",
-                                quote_id, e
-                            );
-                            continue;
-                        }
-                    };
+                let endpoint = match base_url.join(&format!("v1/mint/quote/ehash/{}", quote_id)) {
+                    Ok(url) => url,
+                    Err(e) => {
+                        error!(
+                            "Failed to build mint quote status URL for {}: {}",
+                            quote_id, e
+                        );
+                        continue;
+                    }
+                };
 
                 match client.get(endpoint.clone()).send().await {
                     Ok(response) => {
@@ -206,21 +205,18 @@ impl QuotePoller {
 
                         match response.json::<MintQuoteStatusResponse>().await {
                             Ok(payload) => {
-                                let state = payload.state.to_ascii_uppercase();
-                                let fully_issued = match (payload.amount, payload.amount_issued) {
-                                    (Some(expected), Some(issued)) => issued >= expected,
-                                    _ => false,
-                                };
+                                let status = payload.status();
 
                                 debug!(
-                                    "Mint quote {} status={}, issued={}, expected={:?}",
+                                    "Mint quote {} status={}, paid={}, issued={}, expected={:?}",
                                     quote_id,
-                                    state,
-                                    payload.amount_issued.unwrap_or_default(),
+                                    status.as_str(),
+                                    payload.amount_paid,
+                                    payload.amount_issued,
                                     payload.amount
                                 );
 
-                                if state == "PAID" {
+                                if status == MintQuoteStatus::Paid {
                                     let channel_id = quote_meta.channel_id;
                                     match self
                                         .send_notification_to_translator(
@@ -245,7 +241,7 @@ impl QuotePoller {
                                             );
                                         }
                                     }
-                                } else if state == "ISSUED" || fully_issued {
+                                } else if status == MintQuoteStatus::Issued {
                                     info!(
                                         "Quote {} already issued according to mint; removing from tracking",
                                         quote_id
@@ -370,14 +366,42 @@ impl QuotePoller {
     }
 }
 
-/// Minimal representation of the mint quote status response
+/// Minimal representation of CDK's custom mint quote status response.
 #[derive(Debug, serde::Deserialize)]
 struct MintQuoteStatusResponse {
     #[serde(default)]
     amount: Option<u64>,
-    #[serde(default)]
-    amount_issued: Option<u64>,
-    state: String,
+    amount_paid: u64,
+    amount_issued: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MintQuoteStatus {
+    Unpaid,
+    Paid,
+    Issued,
+}
+
+impl MintQuoteStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Unpaid => "UNPAID",
+            Self::Paid => "PAID",
+            Self::Issued => "ISSUED",
+        }
+    }
+}
+
+impl MintQuoteStatusResponse {
+    fn status(&self) -> MintQuoteStatus {
+        if self.amount_paid == 0 && self.amount_issued == 0 {
+            MintQuoteStatus::Unpaid
+        } else if self.amount_paid > self.amount_issued {
+            MintQuoteStatus::Paid
+        } else {
+            MintQuoteStatus::Issued
+        }
+    }
 }
 
 #[cfg(test)]
@@ -514,7 +538,6 @@ mod tests {
         assert_eq!(pending[0].0, "recent");
     }
 
-
     #[tokio::test]
     async fn test_cleanup_with_empty_pending_quotes() {
         let poller = QuotePoller::new(Some("http://localhost:34261".to_string()));
@@ -549,7 +572,6 @@ mod tests {
         assert_eq!(*stored_channel_id, channel_id);
         assert_eq!(*stored_amount, amount);
     }
-
 
     #[tokio::test]
     async fn test_quote_id_with_special_characters() {
@@ -689,53 +711,69 @@ mod tests {
     // ============================================================================
 
     #[test]
-    fn test_mint_quote_status_response_deserialize() {
+    fn test_mint_quote_status_response_paid_for_custom_response() {
         let json = r#"{
+            "quote": "quote1",
+            "request": "custom-request",
             "amount": 50000,
-            "amount_issued": 50000,
-            "state": "PAID"
+            "amount_paid": 50000,
+            "amount_issued": 0,
+            "unit": "hash"
         }"#;
 
         let response: MintQuoteStatusResponse = serde_json::from_str(json).unwrap();
         assert_eq!(response.amount, Some(50000));
-        assert_eq!(response.amount_issued, Some(50000));
-        assert_eq!(response.state, "PAID");
+        assert_eq!(response.amount_paid, 50000);
+        assert_eq!(response.amount_issued, 0);
+        assert_eq!(response.status(), MintQuoteStatus::Paid);
     }
 
     #[test]
-    fn test_mint_quote_status_response_missing_amounts() {
+    fn test_mint_quote_status_response_issued_for_custom_response() {
         let json = r#"{
-            "state": "PENDING"
+            "quote": "quote1",
+            "request": "custom-request",
+            "amount": 50000,
+            "amount_paid": 50000,
+            "amount_issued": 50000,
+            "unit": "hash"
         }"#;
 
         let response: MintQuoteStatusResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(response.amount, None);
-        assert_eq!(response.amount_issued, None);
-        assert_eq!(response.state, "PENDING");
+        assert_eq!(response.amount, Some(50000));
+        assert_eq!(response.amount_paid, 50000);
+        assert_eq!(response.amount_issued, 50000);
+        assert_eq!(response.status(), MintQuoteStatus::Issued);
     }
 
     #[test]
-    fn test_mint_quote_status_response_partial_amounts() {
+    fn test_mint_quote_status_response_unpaid_for_custom_response() {
         let json = r#"{
-            "amount": 100000,
-            "state": "ISSUED"
+            "quote": "quote1",
+            "request": "custom-request",
+            "amount": 50000,
+            "amount_paid": 0,
+            "amount_issued": 0,
+            "unit": "hash"
         }"#;
 
         let response: MintQuoteStatusResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(response.amount, Some(100000));
-        assert_eq!(response.amount_issued, None);
-        assert_eq!(response.state, "ISSUED");
+        assert_eq!(response.amount, Some(50000));
+        assert_eq!(response.amount_paid, 0);
+        assert_eq!(response.amount_issued, 0);
+        assert_eq!(response.status(), MintQuoteStatus::Unpaid);
     }
 
     #[test]
-    fn test_mint_quote_status_response_case_insensitive() {
-        let states = vec!["PAID", "paid", "Paid", "PENDING", "pending"];
+    fn test_mint_quote_status_response_requires_cdk_custom_counters() {
+        let json = r#"{
+            "quote": "quote1",
+            "request": "custom-request",
+            "amount": 50000,
+            "unit": "hash"
+        }"#;
 
-        for state_str in states {
-            let json = format!(r#"{{"state": "{}"}}"#, state_str);
-            let response: MintQuoteStatusResponse = serde_json::from_str(&json).unwrap();
-            assert!(!response.state.is_empty());
-        }
+        assert!(serde_json::from_str::<MintQuoteStatusResponse>(json).is_err());
     }
 
     // ============================================================================
