@@ -77,7 +77,7 @@ async fn main() -> Result<()> {
     let mint = setup_mint(mint_config.cdk_settings.clone(), db_path).await?;
 
     // Setup HTTP cache and router
-    let cache: HttpCache = mint_config.cdk_settings.info.http_cache.into();
+    let cache: HttpCache = HttpCache::from_config(mint_config.cdk_settings.info.http_cache).await?;
     let router = cdk_axum::create_mint_router_with_custom_cache(mint.clone(), cache, vec!["ehash".to_string()], true).await?;
 
     // Start SV2 connection to pool if enabled
