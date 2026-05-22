@@ -56,11 +56,10 @@ payouts. The codebase lives at `/home/vnprc/work/hashpool`. It has two cargo wor
 | Item | Status |
 |------|--------|
 | cdk version | 0.16.0 (latest release, no 0.17.x exists yet) |
-| Patched via | `[patch.crates-io]` pointing to `vnprc/cdk` fork @ rev `04c584e3` |
-| Fork branch | `send-p2pk-signing-keys` |
-| Fork changes | ~10 commits adding P2PK signing key auto-detection and proof filtering |
-| Upstream PR | cashubtc/cdk#1835 - **STILL OPEN, NOT MERGED** |
-| Upstream main | 87+ commits since v0.16.0 tag, no new release |
+| Patched via | `[patch.crates-io]` pointing to `cashubtc/cdk` upstream @ rev `1572941d` |
+| Fork | **No longer needed** — fork was dropped in M4 |
+| Upstream PR | cashubtc/cdk#1835 - **MERGED May 21, 2026** |
+| Upstream main | `1572941d69e0eaf65b9e46f090b148388e3e9fee` |
 
 ### Custom Hashpool Crates (NOT vendored from upstream)
 
@@ -74,7 +73,7 @@ payouts. The codebase lives at `/home/vnprc/work/hashpool`. It has two cargo wor
 | PR | Repo | Status | Impact |
 |----|------|--------|--------|
 | #2118 "channels_sv2: clamp target" | stratum-mining/stratum | **MERGED** Apr 22 | Can un-vendor channels_sv2 |
-| #1835 "P2PK signing keys" | cashubtc/cdk | **OPEN** | Cannot un-vendor cdk fork yet |
+| #1835 "P2PK signing keys" | cashubtc/cdk | **MERGED** May 21, 2026 | Fork dropped; using upstream `cashubtc/cdk` directly |
 
 ### Clarification: "Messages Crate"
 
@@ -344,56 +343,52 @@ stratum-core on crates.io is now at 0.3.0 (was 0.2.1).
 
 ---
 
-## Milestone 4: Update CDK Fork
+## Milestone 4: Update CDK Fork — COMPLETED
 
 **Branch:** `dep-bump/m4-cdk-update`
 **Worktree:** `/home/vnprc/work/hashpool-m4-cdk-update`
-**Risk:** MEDIUM-HIGH - 87+ upstream commits to integrate, P2PK changes are unreleased
-**Prereq:** Milestone 3 merged to master
+**Completed:** 2026-05-22
 
-### Context
+### What Was Done
 
-Hashpool uses cdk 0.16.0 from crates.io, patched via `[patch.crates-io]` to
-`vnprc/cdk` fork at rev `04c584e3`. The fork adds P2PK signing key enhancements
-(auto-detection, proof filtering). The upstream PR (cashubtc/cdk#1835) is still OPEN.
+PR #1835 ("P2PK signing keys") was merged into `cashubtc/cdk` main on May 21, 2026.
+The `vnprc/cdk` fork was no longer needed, so the approach switched from "rebase fork"
+to "drop fork entirely and point at upstream."
 
-Since there's no new cdk release (0.16.0 is still latest), the version number stays
-the same. But upstream main has 87+ commits with improvements we may want:
-- Async connection pooling (SQLite, PostgreSQL)
-- Enhanced melt operations
-- Various bug fixes
+**Changes made:**
 
-### Steps
+1. `roles/Cargo.toml` — all 9 `[patch.crates-io]` entries:
+   - `git = "https://github.com/vnprc/cdk"` → `git = "https://github.com/cashubtc/cdk"`
+   - `rev = "9523a003"` → `rev = "1572941d"`
 
-1. **Check PR #1835 status** before starting. If it was merged since this doc was
-   written, the approach changes significantly (can potentially remove the fork):
-   ```bash
-   gh pr view 1835 --repo cashubtc/cdk --json state
-   ```
+2. `protocols/Cargo.toml` — all 7 `[patch.crates-io]` entries: same change
 
-2. **If PR #1835 is STILL OPEN (likely):**
-   - Go to the vnprc/cdk fork repo
-   - Rebase the `send-p2pk-signing-keys` branch onto latest upstream main
-   - Resolve any conflicts (the P2PK changes touch wallet/send logic)
-   - Push the rebased branch
-   - Update the rev in hashpool's `[patch.crates-io]` sections:
-     - `roles/Cargo.toml` (lines 30-38)
-     - `protocols/Cargo.toml` (lines 18-24)
-   - Run `cargo update` to refresh Cargo.lock
+3. `devenv.nix` — CDK source references updated in both locations (variable definitions
+   on lines 21-22 and hardcoded strings in `build:cdk:cli` task on lines 112-113)
 
-3. **If PR #1835 WAS MERGED:**
-   - Check if a new cdk release includes it
-   - If yes: remove all cdk entries from `[patch.crates-io]`, bump cdk version
-   - If no release yet: point fork rev to upstream main (or a specific commit post-merge)
+4. `roles/mint/Cargo.toml` — bumped `cdk-ehash` rev from `b7edd52` to `c1a11ba`
+   (fix: add `onchain: None` field to `SettingsResponse` initializer; new field added
+   in upstream CDK `1572941d`)
 
-4. Fix any compilation errors from upstream cdk API changes.
+5. `roles/mint/src/main.rs` — updated `HttpCache` construction from sync `.into()` to
+   async `HttpCache::from_config(...).await?` (CDK removed the sync `From` impl)
 
-5. Run `cargo check` and `cargo test`.
+6. MSRV pins applied to Cargo.lock in both workspaces (devenv Rust 1.86.0):
+   - `serde_with 3.20.0 → 3.17.0`, `darling 0.23.0 → 0.21.3`
+   - `time 0.3.47 → 0.3.41`, `time-core 0.1.8 → 0.1.4`, `time-macros 0.2.27 → 0.2.22`
+   - `simple_asn1 0.6.4 → 0.6.3`
+   - `tonic 0.14.6 → 0.14.5`, `tonic-build 0.14.6 → 0.14.5`
+   - `tonic-prost 0.14.6 → 0.14.5`, `tonic-prost-build 0.14.6 → 0.14.5`
+   - `home 0.5.12 → 0.5.11`
 
-### Completion Criteria
-- CDK fork is rebased on latest upstream
-- [patch.crates-io] rev is updated
-- Both workspaces compile
+**cdk-ehash repo change:**
+- Branch `dep-bump/m4-cdk-update` on `forge.anarch.diy/vnprc/cdk-ehash`
+- Commit `c1a11ba`: added `onchain: None` to `SettingsResponse` initializer in `src/payment.rs`
+
+### Completion Criteria — ALL MET
+- `cargo check` passes in both workspaces (roles and protocols)
+- `[patch.crates-io]` points at `cashubtc/cdk @ 1572941d` (upstream, no fork)
+- cdk-ehash updated and pinned at `c1a11ba`
 
 ### Human Testing
 **ASK THE HUMAN TO:**
