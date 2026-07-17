@@ -230,7 +230,7 @@ in {
     sv2_tp = {
       exec = withLogging ''
         # In regtest: run setup (creates wallet + ensures ≥16 blocks) then mine one
-        # fresh block so bitcoin-node's chain tip is recent.  sv2-tp v1.0.6 waits for
+        # fresh block so bitcoin-node's chain tip is recent.  sv2-tp v1.1.1 waits for
         # IsInitialBlockDownload() to return false; a stale tip (>24 h old) keeps the
         # node in IBD indefinitely even though the chain is complete.
         if [ "${config.env.BITCOIND_NETWORK}" = "regtest" ]; then

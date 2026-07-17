@@ -4,7 +4,7 @@
   stdenv,
   ...
 }: let
-  version = "1.0.6";
+  version = "1.1.1";
 
   # Detect platform for selecting correct binary tarball
   platform =
@@ -22,7 +22,7 @@
 
   # Platform-specific hashes for the sv2-tp binary release
   hashes = {
-    "x86_64-linux-gnu" = "sha256-qTGAaWER2MlIQ27D3PdfDFQbeQAnAs6DqjZcOmR7Uk0=";
+    "x86_64-linux-gnu" = "sha256-QRFNPjN7YUfV+RcKFwn63XfYsOFro0QxUGT8VkN7SU8=";
     "aarch64-linux-gnu" = "sha256-TODO";
     "arm64-apple-darwin" = "sha256-TODO";
     "x86_64-apple-darwin" = "sha256-TODO";

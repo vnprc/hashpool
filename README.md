@@ -46,11 +46,11 @@ The development environment initializes a containerized system with the followin
    - talks to bitcoind pool side
    - negotiates work with downstream proxy
 
-5. `bitcoin-node` - **Bitcoin Core 30.2 (multiprocess)**
+5. `bitcoin-node` - **Bitcoin Core 31.1 (multiprocess)**
    - official Bitcoin Core node binary with IPC support
    - serves block data to sv2-tp via unix socket
 
-6. `sv2-tp` - **SV2 Template Provider (v1.0.6)**
+6. `sv2-tp` - **SV2 Template Provider (v1.1.1)**
    - connects to bitcoin-node via IPC socket
    - serves Stratum V2 block templates to the pool and jd-client
 

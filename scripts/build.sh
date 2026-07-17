@@ -247,11 +247,11 @@ REMOTE
       fi
 
       echo "Downloading bitcoin-core and sv2-tp on VPS..."
-      BITCOIN_VERSION="30.2"
+      BITCOIN_VERSION="31.1"
       BITCOIN_URL="https://bitcoincore.org/bin/bitcoin-core-${BITCOIN_VERSION}/bitcoin-${BITCOIN_VERSION}-x86_64-linux-gnu.tar.gz"
       BITCOIN_DIR="/tmp/bitcoin-${BITCOIN_VERSION}"
 
-      SV2_TP_VERSION="1.0.6"
+      SV2_TP_VERSION="1.1.1"
       SV2_TP_URL="https://github.com/stratum-mining/sv2-tp/releases/download/v${SV2_TP_VERSION}/sv2-tp-${SV2_TP_VERSION}-x86_64-linux-gnu.tar.gz"
       SV2_TP_DIR="/tmp/sv2-tp-${SV2_TP_VERSION}"
 

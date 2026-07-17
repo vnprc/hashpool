@@ -4,7 +4,7 @@
   stdenv,
   ...
 }: let
-  version = "30.2";
+  version = "31.1";
 
   # Detect platform for selecting correct binary tarball
   platform =
@@ -22,7 +22,7 @@
 
   # Platform-specific hashes for the official Bitcoin Core binary release
   hashes = {
-    "x86_64-linux-gnu" = "sha256-aqe7T+tpnExiYt0j5ABBkfbffzc7XVl4tbzdS7cvddg=";
+    "x86_64-linux-gnu" = "sha256-uA2cPgTaePtvBWloVnNBjPaG+tupBC2SbRP7h/9QP54=";
     "aarch64-linux-gnu" = "sha256-TODO";
     "x86_64-apple-darwin-unsigned" = "sha256-TODO";
     "arm64-apple-darwin-unsigned" = "sha256-TODO";
