@@ -11,6 +11,11 @@
     crane = {
       url = "github:ipetkov/crane";
     };
+    # Byte-verified Bitcoin Core multiprocess node. Pinned to the version branch
+    # (upstream models Core versions as branches). NEVER add inputs.nixpkgs.follows
+    # here — byte parity depends on gunix's exact pinned toolchain; a follows
+    # silently breaks the reproduction and fails the gate after a multi-hour build.
+    bitcoind-gunix.url = "github:0xB10C/bitcoind-gunix/v31.1";
   };
 
   outputs = inputs @ {
@@ -19,9 +24,10 @@
     flake-utils,
     rust-overlay,
     crane,
+    bitcoind-gunix,
     ...
   }:
-    # Per-system packages and apps
+  # Per-system packages and apps
     (flake-utils.lib.eachDefaultSystem (system: let
       # Pin Rust version to ensure reproducible builds.
       # Note: home@0.5.12 and time@0.3.47 require Rust >=1.88. Since this pins 1.87,
@@ -137,10 +143,19 @@
 
       # --- Infrastructure packages (pre-built binaries) ---
 
-      bitcoinNodePackage = import ./bitcoin-node.nix {
-        inherit pkgs lib;
-        stdenv = pkgs.stdenv;
-      };
+      # Byte-verified Bitcoin Core node sourced from the bitcoind-gunix flake.
+      # Returns { tarball, release, patched }. Only defined where gunix publishes
+      # packages for this build system (x86_64/aarch64-linux); on other systems
+      # the node attrs below are simply absent (eval-clean, equally unsupported
+      # as the old sha256-TODO darwin path).
+      gunixNode =
+        if bitcoind-gunix.packages ? ${system}
+        then
+          import ./bitcoin-node-gunix.nix {
+            inherit pkgs lib;
+            gunix = bitcoind-gunix.packages.${system};
+          }
+        else null;
 
       sv2TpPackage = import ./sv2-tp.nix {
         inherit pkgs lib;
@@ -148,37 +163,46 @@
       };
     in {
       # Packages
-      packages = {
-        default = poolPackage;
+      packages =
+        {
+          default = poolPackage;
 
-        # Hashpool roles
-        pool = poolPackage;
-        mint = mintPackage;
-        translator = translatorPackage;
-        jd-server = jdServerPackage;
-        jd-client = jdClientPackage;
+          # Hashpool roles
+          pool = poolPackage;
+          mint = mintPackage;
+          translator = translatorPackage;
+          jd-server = jdServerPackage;
+          jd-client = jdClientPackage;
 
-        # Infrastructure binaries
-        bitcoin-node = bitcoinNodePackage;
-        sv2-tp = sv2TpPackage;
+          # Infrastructure binaries
+          sv2-tp = sv2TpPackage;
 
-        # CI / quality targets
-        clippy = craneLib.cargoClippy (commonArgs
-          // {
-            inherit cargoArtifacts;
-            cargoClippyExtraArgs = "--all-targets -- --deny warnings";
-          });
+          # CI / quality targets
+          clippy = craneLib.cargoClippy (commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoClippyExtraArgs = "--all-targets -- --deny warnings";
+            });
 
-        doc = craneLib.cargoDoc (commonArgs
-          // {
-            inherit cargoArtifacts;
-          });
+          doc = craneLib.cargoDoc (commonArgs
+            // {
+              inherit cargoArtifacts;
+            });
 
-        test = craneLib.cargoTest (commonArgs
-          // {
-            inherit cargoArtifacts;
-          });
-      };
+          test = craneLib.cargoTest (commonArgs
+            // {
+              inherit cargoArtifacts;
+            });
+        }
+        # Node attrs derived from the gunix tarball: bitcoin-node (patched, dev/PATH),
+        # bitcoin-node-release (unpacked FHS binaries for deploy staging),
+        # bitcoin-node-tarball (the gate-verified archive). Present only where gunix
+        # builds for this system; omitted (not sha256-TODO) elsewhere.
+        // lib.optionalAttrs (bitcoind-gunix.packages ? ${system}) {
+          bitcoin-node = gunixNode.patched;
+          bitcoin-node-release = gunixNode.release;
+          bitcoin-node-tarball = gunixNode.tarball;
+        };
 
       # Development apps
       apps = {
@@ -209,5 +233,5 @@
       };
     }))
     # System-independent outputs
-    // { };
+    // {};
 }

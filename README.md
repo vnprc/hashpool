@@ -47,7 +47,7 @@ The development environment initializes a containerized system with the followin
    - negotiates work with downstream proxy
 
 5. `bitcoin-node` - **Bitcoin Core 31.1 (multiprocess)**
-   - official Bitcoin Core node binary with IPC support
+   - official Bitcoin Core node binary with IPC support, byte-verified via the bitcoind-gunix flake
    - serves block data to sv2-tp via unix socket
 
 6. `sv2-tp` - **SV2 Template Provider (v1.1.1)**

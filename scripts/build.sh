@@ -74,6 +74,20 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Local preflight helper (the VPS heredoc defines its own require_cmd for
+# VPS-side tools; this one guards tools needed locally, before the ssh).
+require_cmd() {
+  local cmd="$1"
+  local hint="$2"
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "Missing required tool: $cmd"
+    if [ -n "$hint" ]; then
+      echo "Install hint: $hint"
+    fi
+    exit 1
+  fi
+}
+
 echo "Starting hashpool build-in-place deployment..."
 
 case "${SUBCOMMAND:-}" in
@@ -181,34 +195,53 @@ REMOTE
     ;;
 
   "")
-    # Default: sync source, build on VPS, install
-    if [ "$DRY_RUN" -eq 0 ]; then
-      echo "Syncing source to VPS..."
-      rsync -avz --progress --partial --bwlimit=5000 --compress-level=9 --timeout=300 \
-        --exclude .git \
-        --exclude .devenv \
-        --exclude .direnv \
-        --exclude .github \
-        --exclude .idea \
-        --exclude .vscode \
-        --include 'test/' \
-        --include 'test/integration-tests/' \
-        --include 'test/integration-tests/***' \
-        --exclude 'test/**' \
-        --exclude target \
-        --exclude result \
-        --exclude logs \
-        --exclude docs \
-        --exclude examples \
-        --exclude benches \
-        --exclude nix \
-        --exclude '**/node_modules' \
-        --exclude '**/.pytest_cache' \
-        --exclude '**/.mypy_cache' \
-        "$LOCAL_DIR/" "$VPS_USER@$VPS_HOST:$REMOTE_SRC/"
-    else
-      echo "Dry run: skipping rsync and build/install steps."
+    # Default: build the node locally (gunix), sync source + node binaries to the
+    # VPS, build the rust roles on the VPS, install. The bitcoin-node binaries are
+    # built here from the byte-verified bitcoind-gunix flake (the VPS keeps its
+    # zero-nix requirement) and rsynced to the /tmp handoff names the remote
+    # staging consumes. sv2-tp is still downloaded on the VPS (out of scope).
+
+    # Local preflight: only the node build needs a tool here (nix); every other
+    # build tool runs on the VPS inside the heredoc. On --dry-run, preflight and
+    # return before the ssh so this is runnable with no VPS.
+    require_cmd nix "Install Nix (https://nixos.org/download) — needed to build the byte-verified bitcoin-node"
+
+    if [ "$DRY_RUN" -eq 1 ]; then
+      echo "Local preflight checks passed (dry run). Skipping VPS sync/build/install."
+      exit 0
     fi
+
+    echo "Building byte-verified bitcoin-node from the bitcoind-gunix flake..."
+    BITCOIN_NODE_RELEASE="$(nix build "$LOCAL_DIR#bitcoin-node-release" --no-link --print-out-paths)"
+
+    echo "Syncing source to VPS..."
+    rsync -avz --progress --partial --bwlimit=5000 --compress-level=9 --timeout=300 \
+      --exclude .git \
+      --exclude .devenv \
+      --exclude .direnv \
+      --exclude .github \
+      --exclude .idea \
+      --exclude .vscode \
+      --include 'test/' \
+      --include 'test/integration-tests/' \
+      --include 'test/integration-tests/***' \
+      --exclude 'test/**' \
+      --exclude target \
+      --exclude result \
+      --exclude logs \
+      --exclude docs \
+      --exclude examples \
+      --exclude benches \
+      --exclude nix \
+      --exclude '**/node_modules' \
+      --exclude '**/.pytest_cache' \
+      --exclude '**/.mypy_cache' \
+      "$LOCAL_DIR/" "$VPS_USER@$VPS_HOST:$REMOTE_SRC/"
+
+    echo "Staging bitcoin-node binaries to VPS (always overwriting)..."
+    rsync -az --timeout=300 --chmod=0755 "$BITCOIN_NODE_RELEASE/bin/bitcoin"          "$VPS_USER@$VPS_HOST:/tmp/bitcoin"
+    rsync -az --timeout=300 --chmod=0755 "$BITCOIN_NODE_RELEASE/bin/bitcoin-cli"      "$VPS_USER@$VPS_HOST:/tmp/bitcoin-cli"
+    rsync -az --timeout=300 --chmod=0755 "$BITCOIN_NODE_RELEASE/libexec/bitcoin-node" "$VPS_USER@$VPS_HOST:/tmp/bitcoin-node"
 
     ssh "$VPS_USER@$VPS_HOST" "DRY_RUN=$DRY_RUN CLEAN_BUILD=$CLEAN_BUILD NO_RESTART=$NO_RESTART bash -s" << 'REMOTE'
       set -euo pipefail
@@ -246,24 +279,13 @@ REMOTE
         exit 0
       fi
 
-      echo "Downloading bitcoin-core and sv2-tp on VPS..."
-      BITCOIN_VERSION="31.1"
-      BITCOIN_URL="https://bitcoincore.org/bin/bitcoin-core-${BITCOIN_VERSION}/bitcoin-${BITCOIN_VERSION}-x86_64-linux-gnu.tar.gz"
-      BITCOIN_DIR="/tmp/bitcoin-${BITCOIN_VERSION}"
-
+      echo "Downloading sv2-tp on VPS..."
+      # The bitcoin-node binaries were built locally from the bitcoind-gunix flake
+      # and rsynced to /tmp/{bitcoin,bitcoin-cli,bitcoin-node} before this ssh; the
+      # staging below consumes them. Only sv2-tp is fetched on the VPS.
       SV2_TP_VERSION="1.1.1"
       SV2_TP_URL="https://github.com/stratum-mining/sv2-tp/releases/download/v${SV2_TP_VERSION}/sv2-tp-${SV2_TP_VERSION}-x86_64-linux-gnu.tar.gz"
       SV2_TP_DIR="/tmp/sv2-tp-${SV2_TP_VERSION}"
-
-      if [ ! -f "/tmp/bitcoin" ] || [ ! -f "/tmp/bitcoin-cli" ] || [ ! -f "/tmp/bitcoin-node" ]; then
-        curl -L "$BITCOIN_URL" -o "/tmp/bitcoin.tar.gz"
-        mkdir -p "$BITCOIN_DIR"
-        tar -xzf "/tmp/bitcoin.tar.gz" -C "$BITCOIN_DIR" --strip-components=1
-        cp "$BITCOIN_DIR/bin/bitcoin" /tmp/bitcoin
-        cp "$BITCOIN_DIR/bin/bitcoin-cli" /tmp/bitcoin-cli
-        cp "$BITCOIN_DIR/libexec/bitcoin-node" /tmp/bitcoin-node
-        rm -rf "$BITCOIN_DIR" /tmp/bitcoin.tar.gz
-      fi
 
       if [ ! -f "/tmp/sv2-tp" ]; then
         curl -L "$SV2_TP_URL" -o "/tmp/sv2-tp.tar.gz"

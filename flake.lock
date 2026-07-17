@@ -1,5 +1,25 @@
 {
   "nodes": {
+    "bitcoind-gunix": {
+      "inputs": {
+        "nixpkgs": "nixpkgs",
+        "nixpkgs2405": "nixpkgs2405"
+      },
+      "locked": {
+        "lastModified": 1783428182,
+        "narHash": "sha256-KBgTGdtif81MTgvT4adjLu/sSUyAvkc1ZAMO6gQDNSM=",
+        "owner": "0xB10C",
+        "repo": "bitcoind-gunix",
+        "rev": "4599977e9723e45ce4a16dd076b43f2d8b02b042",
+        "type": "github"
+      },
+      "original": {
+        "owner": "0xB10C",
+        "ref": "v31.1",
+        "repo": "bitcoind-gunix",
+        "type": "github"
+      }
+    },
     "crane": {
       "locked": {
         "lastModified": 1772560058,
@@ -35,6 +55,38 @@
     },
     "nixpkgs": {
       "locked": {
+        "lastModified": 1780453794,
+        "narHash": "sha256-bXMRa9VTsHSPXL4Cw8R6JJLQeY3Y/IP4+YJCYVmQ7FY=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "6b316287bae2ee04c9b93c8c858d930fd07d7338",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-26.05",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs2405": {
+      "locked": {
+        "lastModified": 1735563628,
+        "narHash": "sha256-OnSAY7XDSx7CtDoqNh8jwVwh4xNL/2HaJxGjryLWzX8=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "b134951a4c9f3c995fd7be05f3243f8ecd65d798",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-24.05",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_2": {
+      "locked": {
         "lastModified": 1772773019,
         "narHash": "sha256-E1bxHxNKfDoQUuvriG71+f+s/NT0qWkImXsYZNFFfCs=",
         "owner": "NixOS",
@@ -51,9 +103,10 @@
     },
     "root": {
       "inputs": {
+        "bitcoind-gunix": "bitcoind-gunix",
         "crane": "crane",
         "flake-utils": "flake-utils",
-        "nixpkgs": "nixpkgs",
+        "nixpkgs": "nixpkgs_2",
         "rust-overlay": "rust-overlay"
       }
     },

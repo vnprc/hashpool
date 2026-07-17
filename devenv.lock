@@ -1,5 +1,24 @@
 {
   "nodes": {
+    "bitcoind-gunix": {
+      "inputs": {
+        "nixpkgs": "nixpkgs",
+        "nixpkgs2405": "nixpkgs2405"
+      },
+      "locked": {
+        "lastModified": 1783428182,
+        "owner": "0xB10C",
+        "repo": "bitcoind-gunix",
+        "rev": "4599977e9723e45ce4a16dd076b43f2d8b02b042",
+        "type": "github"
+      },
+      "original": {
+        "owner": "0xB10C",
+        "ref": "v31.1",
+        "repo": "bitcoind-gunix",
+        "type": "github"
+      }
+    },
     "devenv": {
       "locked": {
         "dir": "src/modules",
@@ -74,6 +93,36 @@
     },
     "nixpkgs": {
       "locked": {
+        "lastModified": 1784160687,
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "4382ed2b7a6839d4280a9b386db49cbc5907414d",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-26.05",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs2405": {
+      "locked": {
+        "lastModified": 1735563628,
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "b134951a4c9f3c995fd7be05f3243f8ecd65d798",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-24.05",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_2": {
+      "locked": {
         "lastModified": 1746807397,
         "owner": "cachix",
         "repo": "devenv-nixpkgs",
@@ -89,9 +138,10 @@
     },
     "root": {
       "inputs": {
+        "bitcoind-gunix": "bitcoind-gunix",
         "devenv": "devenv",
         "git-hooks": "git-hooks",
-        "nixpkgs": "nixpkgs",
+        "nixpkgs": "nixpkgs_2",
         "pre-commit-hooks": [
           "git-hooks"
         ],
