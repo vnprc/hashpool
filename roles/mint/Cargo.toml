@@ -20,11 +20,11 @@ bitcoin = { version= "0.32.2" }
 uuid = { version = "1.7", features = ["v4"] }
 hex = "0.4"
 
-cdk        = "0.16.0"
-cdk-axum   = "0.16.0"
-cdk-ehash  = { git = "https://forge.anarch.diy/vnprc/cdk-ehash.git", rev = "40fdebe" }
-cdk-mintd  = "0.16.0"
-cdk-sqlite = "0.16.0"
+cdk        = "0.17.0"
+cdk-axum   = "0.17.0"
+cdk-ehash  = { git = "https://forge.anarch.diy/vnprc/cdk-ehash.git", rev = "1328180" }
+cdk-mintd  = "0.17.0"
+cdk-sqlite = "0.17.0"
 toml = "0.8.22"
 
 shared_config = { path = "../roles-utils/config" }

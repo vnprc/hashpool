@@ -23,7 +23,7 @@ for file in roles/Cargo.toml protocols/Cargo.toml; do
     continue
   fi
 
-  if ! grep -qE 'cashubtc/cdk' "$file"; then
+  if ! grep -qE 'github.com/(cashubtc|vnprc)/cdk"' "$file"; then
     continue
   fi
 
@@ -31,7 +31,7 @@ for file in roles/Cargo.toml protocols/Cargo.toml; do
   cp "$file" "$file.bak"
 
   awk -v cdk_path="$CDK_PATH" '
-    /cashubtc\/cdk/ {
+    /github.com\/(cashubtc|vnprc)\/cdk"/ {
       match($0, /^([[:space:]]*)([a-z][a-z0-9_-]*)/, m)
       crate = m[2]
       printf "%s%s = { path = \"%s/crates/%s\" }\n", m[1], crate, cdk_path, crate

@@ -104,7 +104,7 @@ impl ParsedMintQuoteRequest {
             .map_err(|e| QuoteConversionError::InvalidLockingKey(e.to_string()))?;
 
         Ok(MintQuoteCustomRequest {
-            amount,
+            amount: Some(amount),
             unit,
             description: None,
             pubkey: Some(pubkey),
@@ -257,7 +257,7 @@ mod tests {
         assert_eq!(parsed.request.amount, 10);
 
         let cdk_request = parsed.to_cdk_request().expect("convert to cdk");
-        assert_eq!(cdk_request.amount, Amount::from(10_u64));
+        assert_eq!(cdk_request.amount, Some(Amount::from(10_u64)));
         assert_eq!(cdk_request.unit, CurrencyUnit::Custom("hash".to_string()));
         assert_eq!(cdk_request.pubkey, Some(expected_pubkey));
         assert_eq!(cdk_request.extra["header_hash"], hex::encode(&hash));
