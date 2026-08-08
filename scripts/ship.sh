@@ -149,8 +149,6 @@ check_build_tools() {
   require_cmd gcc "apt-get install -y build-essential"
   require_cmd make "apt-get install -y build-essential"
   require_cmd pkg-config "apt-get install -y pkg-config"
-  # The bitcoin-node binaries are built from the bitcoind-gunix flake.
-  require_cmd nix "Install Nix (https://nixos.org/download) — needed to build the byte-verified bitcoin-node"
   if ! command -v readelf >/dev/null 2>&1 && ! command -v strings >/dev/null 2>&1; then
     echo "Missing required tool: readelf or strings (for ABI check)"
     echo "Install hint: apt-get install -y binutils"
@@ -210,28 +208,31 @@ stage_binaries() {
   cp "$LOCAL_DIR/roles/target/debug/jd_client_sv2" "$STAGING_DIR/bin/"
   cp "$LOCAL_DIR/roles/target/debug/web_pool" "$STAGING_DIR/bin/"
   cp "$LOCAL_DIR/roles/target/debug/web_proxy" "$STAGING_DIR/bin/"
-  # Node binaries from the gunix build result. Store files are 0555 read-only,
-  # so install -m755 gives the staged copies proper (writable) mode.
-  install -m755 "$BITCOIN_NODE_RELEASE/bin/bitcoin" "$STAGING_DIR/bin/bitcoin"
-  install -m755 "$BITCOIN_NODE_RELEASE/bin/bitcoin-cli" "$STAGING_DIR/bin/bitcoin-cli"
-  install -m755 "$BITCOIN_NODE_RELEASE/libexec/bitcoin-node" "$STAGING_DIR/libexec/bitcoin-node"
+  cp /tmp/bitcoin "$STAGING_DIR/bin/"
+  cp /tmp/bitcoin-cli "$STAGING_DIR/bin/"
+  cp /tmp/bitcoin-node "$STAGING_DIR/libexec/"
   cp /tmp/sv2-tp "$STAGING_DIR/bin/"
 }
 
 download_deps() {
-  # The node binaries come from the byte-verified bitcoind-gunix flake (built
-  # locally, staged from the store). nix is required even on --skip-build, since
-  # that path skips build_binaries/check_build_tools but still runs download_deps.
-  require_cmd nix "Install Nix (https://nixos.org/download) — needed to build the byte-verified bitcoin-node"
-  echo "Building bitcoin-node (bitcoind-gunix) and downloading sv2-tp..."
-
-  # Unpatched (FHS-interpreter) node binaries: keep /lib64/ld-linux so they pass
-  # check_nix_abi. BITCOIN_NODE_RELEASE is consumed by stage_binaries.
-  BITCOIN_NODE_RELEASE="$(nix build "$LOCAL_DIR#bitcoin-node-release" --no-link --print-out-paths)"
+  echo "Downloading bitcoin-core and sv2-tp..."
+  BITCOIN_VERSION="31.1"
+  BITCOIN_URL="https://bitcoincore.org/bin/bitcoin-core-${BITCOIN_VERSION}/bitcoin-${BITCOIN_VERSION}-x86_64-linux-gnu.tar.gz"
+  BITCOIN_DIR="/tmp/bitcoin-${BITCOIN_VERSION}"
 
   SV2_TP_VERSION="1.1.1"
   SV2_TP_URL="https://github.com/stratum-mining/sv2-tp/releases/download/v${SV2_TP_VERSION}/sv2-tp-${SV2_TP_VERSION}-x86_64-linux-gnu.tar.gz"
   SV2_TP_DIR="/tmp/sv2-tp-${SV2_TP_VERSION}"
+
+  if [ ! -f "/tmp/bitcoin" ] || [ ! -f "/tmp/bitcoin-cli" ] || [ ! -f "/tmp/bitcoin-node" ]; then
+    curl -L "$BITCOIN_URL" -o "/tmp/bitcoin.tar.gz"
+    mkdir -p "$BITCOIN_DIR"
+    tar -xzf "/tmp/bitcoin.tar.gz" -C "$BITCOIN_DIR" --strip-components=1
+    cp "$BITCOIN_DIR/bin/bitcoin" /tmp/bitcoin
+    cp "$BITCOIN_DIR/bin/bitcoin-cli" /tmp/bitcoin-cli
+    cp "$BITCOIN_DIR/libexec/bitcoin-node" /tmp/bitcoin-node
+    rm -rf "$BITCOIN_DIR" /tmp/bitcoin.tar.gz
+  fi
 
   if [ ! -f "/tmp/sv2-tp" ]; then
     curl -L "$SV2_TP_URL" -o "/tmp/sv2-tp.tar.gz"
