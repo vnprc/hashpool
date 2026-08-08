@@ -5,21 +5,11 @@
   inputs ? null,
   ...
 }: let
-  # gunix = bitcoind-gunix.packages.<system> from devenv's own lock (devenv.lock,
-  # via the devenv.yaml input). The `if inputs == null` / `or null` guard is
-  # load-bearing: it hands the adapter an actual null when the input is absent,
-  # so the adapter emits its "add bitcoind-gunix to devenv.yaml" message instead
-  # of Nix throwing a raw "attribute 'bitcoind-gunix' missing" at this call site.
-  gunix =
-    if inputs == null
-    then null
-    else (inputs.bitcoind-gunix.packages.${pkgs.stdenv.hostPlatform.system} or null);
-
-  bitcoinNode =
-    (import ./bitcoin-node-gunix.nix {
-      inherit pkgs lib gunix;
-    })
-    .patched;
+  bitcoinNode = import ./bitcoin-node.nix {
+    pkgs = pkgs;
+    lib = lib;
+    stdenv = pkgs.stdenv;
+  };
 
   sv2tp = import ./sv2-tp.nix {
     pkgs = pkgs;

@@ -4,8 +4,3 @@ inputs:
     inputs:
       nixpkgs:
         follows: nixpkgs
-  # Byte-verified Bitcoin Core multiprocess node. Ref string must stay identical
-  # to flake.nix; do NOT add a nixpkgs follows (byte parity needs gunix's own
-  # pinned toolchain). devenv.lock and flake.lock must pin the same rev.
-  bitcoind-gunix:
-    url: github:0xB10C/bitcoind-gunix/v31.1
