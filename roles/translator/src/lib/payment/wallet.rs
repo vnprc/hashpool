@@ -29,7 +29,7 @@ pub async fn create_wallet(mint_url: &str, mnemonic: &str, db_path: &str) -> Res
 
     let wallet = Wallet::new(
         mint_url,
-        CurrencyUnit::Custom("hash".to_string()),
+        CurrencyUnit::Custom("hash".to_string().into()),
         Arc::new(localstore),
         seed,
         None,

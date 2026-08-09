@@ -21,7 +21,7 @@ pub async fn setup_mint(mint_settings: config::Settings, db_path: String) -> Res
         .map_err(|e| anyhow::anyhow!("Invalid mnemonic in mint config: {}", e))?;
     let seed = mnemonic.to_seed("");
 
-    let hash_currency_unit = CurrencyUnit::Custom("hash".to_string());
+    let hash_currency_unit = CurrencyUnit::Custom("hash".to_string().into());
 
     let amounts: Vec<u64> = (0..NUM_KEYS as u32).map(|i| 2_u64.pow(i)).collect();
 

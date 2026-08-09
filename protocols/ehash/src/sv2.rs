@@ -230,7 +230,7 @@ mod tests {
 
         let keyset = KeySet {
             id,
-            unit: CurrencyUnit::Custom("hash".to_string()),
+            unit: CurrencyUnit::Custom("hash".to_string().into()),
             active: None,
             keys,
             input_fee_ppk: 0,
