@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+// NUT-XX: PaymentMethod is only referenced from the disabled fetch call below;
+// kept imported (rather than removed) so re-enabling it is a one-line uncomment.
+#[allow(unused_imports)]
 use cdk::{nuts::PaymentMethod, wallet::Wallet};
 use mint_quote_sv2::{from_bytes, MintQuoteFailure, MintQuoteNotification};
 use tracing::{info, warn};
@@ -8,6 +11,9 @@ use tracing::{info, warn};
 use super::custom_handler::CustomMiningMessageHandler;
 
 pub struct CdkQuoteNotificationHandler {
+    // NUT-XX: unused while the quote-id fetch below is disabled; retained so the
+    // handler still owns the wallet it's constructed with. See handle_custom_message.
+    #[allow(dead_code)]
     wallet: Arc<Wallet>,
 }
 
@@ -44,13 +50,15 @@ impl CustomMiningMessageHandler for CdkQuoteNotificationHandler {
                     "Received MintQuoteNotification: quote_id={}, amount={}",
                     quote_id, amount
                 );
-                self.wallet
-                    .fetch_mint_quote(
-                        &quote_id,
-                        Some(PaymentMethod::Custom("ehash".to_string())),
-                    )
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Failed to fetch mint quote: {e}"))?;
+                // NUT-XX: discovery now via Wallet::mint_quotes_by_pubkey in the sweeper;
+                // SV2 quote-id fetch retained but disabled until the NUT/CDK lands upstream.
+                // self.wallet
+                //     .fetch_mint_quote(
+                //         &quote_id,
+                //         Some(PaymentMethod::Custom("ehash".to_string())),
+                //     )
+                //     .await
+                //     .map_err(|e| anyhow::anyhow!("Failed to fetch mint quote: {e}"))?;
             }
             mint_quote_sv2::MESSAGE_TYPE_MINT_QUOTE_FAILURE => {
                 let mut payload_buf = payload.to_vec();
