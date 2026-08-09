@@ -53,17 +53,16 @@ pub fn spawn_quote_sweeper(wallet: Arc<Wallet>, locking_privkey: Option<String>)
 /// `Wallet::fetch_mint_quotes_by_pubkey`), so there is no per-quote
 /// known-locally check or fetch loop to do here anymore.
 ///
-/// Note: until NUT-XX grows a state/since filter, the mint-side cost of this
-/// lookup is O(full quote history) for the key on every call, not just the
-/// quotes that are new to us - see the discussion on
-/// <https://github.com/cashubtc/nuts/pull/341>. Accepted for now; revisit if
-/// the NUT grows a cheaper filter.
+/// Note: the lookup passes `only_mintable: true`, so the mint bounds its response to quotes
+/// still mintable for this key instead of the key's full quote history. This is an
+/// implementation-side filter, not yet part of the NUT itself - see the spec discussion at
+/// <https://github.com/cashubtc/nuts/pull/341>.
 ///
 /// Resilient by design: a failed lookup is logged and skipped rather than
 /// aborting the sweep pass.
 async fn reconcile_quotes_by_pubkey(wallet: &Arc<Wallet>, secret_key: &SecretKey) {
     match wallet
-        .fetch_mint_quotes_by_pubkey(&[secret_key.clone()])
+        .fetch_mint_quotes_by_pubkey(&[secret_key.clone()], true)
         .await
     {
         Ok(quotes) => {
