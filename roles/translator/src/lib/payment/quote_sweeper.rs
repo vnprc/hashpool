@@ -43,24 +43,70 @@ pub fn spawn_quote_sweeper(wallet: Arc<Wallet>, locking_privkey: Option<String>)
     });
 }
 
+/// Reconciles mint quotes discovered via NUT-XX pubkey lookup into the wallet's
+/// local store.
+///
+/// The mint may hold quotes locked to our key that never arrived through the
+/// SV2 notification path (dropped message, translator restart, etc). This
+/// queries the mint for every quote locked to `secret_key` and, for any quote
+/// not already known locally, fetches and stores it the same way the
+/// notification handler used to: via `Wallet::fetch_mint_quote`, which upserts
+/// through cdk's own accounting logic rather than hand-constructing a record.
+///
+/// Resilient by design: a failed lookup or a single bad quote is logged and
+/// skipped rather than aborting the sweep pass.
+async fn reconcile_quotes_by_pubkey(wallet: &Arc<Wallet>, secret_key: &SecretKey) {
+    let quotes = match wallet.mint_quotes_by_pubkey(&[secret_key.clone()]).await {
+        Ok(quotes) => quotes,
+        Err(e) => {
+            warn!("Pubkey mint quote lookup failed: {}", e);
+            return;
+        }
+    };
+
+    let mut reconciled = 0u32;
+    for quote in quotes {
+        let already_known = match wallet.localstore.get_mint_quote(quote.quote()).await {
+            Ok(existing) => existing.is_some(),
+            Err(e) => {
+                warn!(
+                    "Failed to check localstore for quote {} during pubkey reconcile: {}",
+                    quote.quote(),
+                    e
+                );
+                continue;
+            }
+        };
+
+        if already_known {
+            continue;
+        }
+
+        match wallet
+            .fetch_mint_quote(quote.quote(), Some(quote.method()))
+            .await
+        {
+            Ok(_) => reconciled += 1,
+            Err(e) => warn!(
+                "Failed to reconcile mint quote {} from pubkey lookup: {}",
+                quote.quote(),
+                e
+            ),
+        }
+    }
+
+    if reconciled > 0 {
+        info!(
+            "Reconciled {} new mint quote(s) via pubkey lookup",
+            reconciled
+        );
+    }
+}
+
 pub async fn process_stored_quotes(
     wallet: &Arc<Wallet>,
     locking_privkey: Option<&str>,
 ) -> anyhow::Result<u64> {
-    let pending_quotes = match wallet.get_unissued_mint_quotes().await {
-        Ok(quotes) => quotes,
-        Err(e) => {
-            error!("Failed to fetch pending quotes from wallet: {}", e);
-            return Ok(0);
-        }
-    };
-
-    info!("Found {} pending quotes", pending_quotes.len());
-
-    if pending_quotes.is_empty() {
-        return Ok(0);
-    }
-
     let secret_key = match locking_privkey {
         Some(privkey_hex) => match hex::decode(privkey_hex) {
             Ok(privkey_bytes) => match SecretKey::from_slice(&privkey_bytes) {
@@ -80,6 +126,25 @@ pub async fn process_stored_quotes(
             return Ok(0);
         }
     };
+
+    // NUT-XX: discover quotes locked to our pubkey that we don't have locally
+    // yet (e.g. a missed SV2 notification) before checking what's pending, so
+    // this pass's get_unissued_mint_quotes() below sees them too.
+    reconcile_quotes_by_pubkey(wallet, &secret_key).await;
+
+    let pending_quotes = match wallet.get_unissued_mint_quotes().await {
+        Ok(quotes) => quotes,
+        Err(e) => {
+            error!("Failed to fetch pending quotes from wallet: {}", e);
+            return Ok(0);
+        }
+    };
+
+    info!("Found {} pending quotes", pending_quotes.len());
+
+    if pending_quotes.is_empty() {
+        return Ok(0);
+    }
 
     let pubkey = secret_key.public_key();
     let spending_conditions = SpendingConditions::new_p2pk(pubkey, None);
