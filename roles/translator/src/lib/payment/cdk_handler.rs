@@ -50,7 +50,7 @@ impl CustomMiningMessageHandler for CdkQuoteNotificationHandler {
                     "Received MintQuoteNotification: quote_id={}, amount={}",
                     quote_id, amount
                 );
-                // NUT-XX: discovery now via Wallet::mint_quotes_by_pubkey in the sweeper;
+                // NUT-XX: discovery now via Wallet::fetch_mint_quotes_by_pubkey in the sweeper;
                 // SV2 quote-id fetch retained but disabled until the NUT/CDK lands upstream.
                 // self.wallet
                 //     .fetch_mint_quote(

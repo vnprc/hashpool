@@ -48,58 +48,30 @@ pub fn spawn_quote_sweeper(wallet: Arc<Wallet>, locking_privkey: Option<String>)
 ///
 /// The mint may hold quotes locked to our key that never arrived through the
 /// SV2 notification path (dropped message, translator restart, etc). This
-/// queries the mint for every quote locked to `secret_key` and, for any quote
-/// not already known locally, fetches and stores it the same way the
-/// notification handler used to: via `Wallet::fetch_mint_quote`, which upserts
-/// through cdk's own accounting logic rather than hand-constructing a record.
+/// queries the mint for every quote locked to `secret_key`; `cdk` now does the
+/// pubkey validation, accounting, and change-guarded local storage itself (see
+/// `Wallet::fetch_mint_quotes_by_pubkey`), so there is no per-quote
+/// known-locally check or fetch loop to do here anymore.
 ///
-/// Resilient by design: a failed lookup or a single bad quote is logged and
-/// skipped rather than aborting the sweep pass.
+/// Note: until NUT-XX grows a state/since filter, the mint-side cost of this
+/// lookup is O(full quote history) for the key on every call, not just the
+/// quotes that are new to us - see the discussion on
+/// <https://github.com/cashubtc/nuts/pull/341>. Accepted for now; revisit if
+/// the NUT grows a cheaper filter.
+///
+/// Resilient by design: a failed lookup is logged and skipped rather than
+/// aborting the sweep pass.
 async fn reconcile_quotes_by_pubkey(wallet: &Arc<Wallet>, secret_key: &SecretKey) {
-    let quotes = match wallet.mint_quotes_by_pubkey(&[secret_key.clone()]).await {
-        Ok(quotes) => quotes,
+    match wallet
+        .fetch_mint_quotes_by_pubkey(&[secret_key.clone()])
+        .await
+    {
+        Ok(quotes) => {
+            debug!("Pubkey lookup reconciled {} mint quote(s)", quotes.len());
+        }
         Err(e) => {
             warn!("Pubkey mint quote lookup failed: {}", e);
-            return;
         }
-    };
-
-    let mut reconciled = 0u32;
-    for quote in quotes {
-        let already_known = match wallet.localstore.get_mint_quote(quote.quote()).await {
-            Ok(existing) => existing.is_some(),
-            Err(e) => {
-                warn!(
-                    "Failed to check localstore for quote {} during pubkey reconcile: {}",
-                    quote.quote(),
-                    e
-                );
-                continue;
-            }
-        };
-
-        if already_known {
-            continue;
-        }
-
-        match wallet
-            .fetch_mint_quote(quote.quote(), Some(quote.method()))
-            .await
-        {
-            Ok(_) => reconciled += 1,
-            Err(e) => warn!(
-                "Failed to reconcile mint quote {} from pubkey lookup: {}",
-                quote.quote(),
-                e
-            ),
-        }
-    }
-
-    if reconciled > 0 {
-        info!(
-            "Reconciled {} new mint quote(s) via pubkey lookup",
-            reconciled
-        );
     }
 }
 
@@ -151,6 +123,9 @@ pub async fn process_stored_quotes(
 
     // Store signing key in each quote's local DB record so batch_mint includes
     // NUT-20 signatures (the mint requires them because quotes are created with pubkey set).
+    // Quotes reconciled via pubkey lookup above already arrive pre-stamped by
+    // fetch_mint_quotes_by_pubkey; this loop still covers quotes discovered by other means
+    // (e.g. the SV2 notification path / pre-existing DB rows).
     for mut quote in pending_quotes.iter().cloned() {
         quote.secret_key = Some(secret_key.clone());
         if let Err(e) = wallet.localstore.add_mint_quote(quote).await {
