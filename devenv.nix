@@ -19,7 +19,7 @@
 
   # CDK configuration (vnprc/cdk fix/nutxx-lookup: upstream main + NUT-XX quote lookup)
   cdkRepo = "https://github.com/vnprc/cdk.git";
-  cdkCommit = "500629058b94e977b51018caca1b94bf0689173a";
+  cdkCommit = "46390b5a0aa96e11874c47440b4dabb073e388bd";
 
   bitcoindDataDir = "${config.devenv.root}/.devenv/state/bitcoind";
   translatorWalletDb = "${config.devenv.root}/.devenv/state/translator/wallet.sqlite";
