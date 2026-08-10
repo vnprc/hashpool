@@ -26,15 +26,15 @@ members = [
 ]
 
 [patch.crates-io]
-cashu           = { git = "https://github.com/vnprc/cdk", rev = "2d29fd16" }
-cdk             = { git = "https://github.com/vnprc/cdk", rev = "2d29fd16" }
-cdk-common      = { git = "https://github.com/vnprc/cdk", rev = "2d29fd16" }
-cdk-axum        = { git = "https://github.com/vnprc/cdk", rev = "2d29fd16" }
-cdk-mintd       = { git = "https://github.com/vnprc/cdk", rev = "2d29fd16" }
-cdk-http-client = { git = "https://github.com/vnprc/cdk", rev = "2d29fd16" }
-cdk-signatory   = { git = "https://github.com/vnprc/cdk", rev = "2d29fd16" }
-cdk-sql-common  = { git = "https://github.com/vnprc/cdk", rev = "2d29fd16" }
-cdk-sqlite      = { git = "https://github.com/vnprc/cdk", rev = "2d29fd16" }
+cashu           = { git = "https://github.com/vnprc/cdk", rev = "cba8469b" }
+cdk             = { git = "https://github.com/vnprc/cdk", rev = "cba8469b" }
+cdk-common      = { git = "https://github.com/vnprc/cdk", rev = "cba8469b" }
+cdk-axum        = { git = "https://github.com/vnprc/cdk", rev = "cba8469b" }
+cdk-mintd       = { git = "https://github.com/vnprc/cdk", rev = "cba8469b" }
+cdk-http-client = { git = "https://github.com/vnprc/cdk", rev = "cba8469b" }
+cdk-signatory   = { git = "https://github.com/vnprc/cdk", rev = "cba8469b" }
+cdk-sql-common  = { git = "https://github.com/vnprc/cdk", rev = "cba8469b" }
+cdk-sqlite      = { git = "https://github.com/vnprc/cdk", rev = "cba8469b" }
 
 [profile.dev]
 # Required by super_safe_lock
