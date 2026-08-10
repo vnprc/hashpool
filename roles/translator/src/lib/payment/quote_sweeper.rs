@@ -66,7 +66,14 @@ async fn reconcile_quotes_by_pubkey(wallet: &Arc<Wallet>, secret_key: &SecretKey
         .await
     {
         Ok(quotes) => {
-            debug!("Pubkey lookup reconciled {} mint quote(s)", quotes.len());
+            // info! when the lookup returned quotes so the discovery path is visible at the
+            // stack's default RUST_LOG=info (a validation run showed the debug-only line made
+            // "is reconcile working" unanswerable from logs); quiet passes stay at debug.
+            if quotes.is_empty() {
+                debug!("Pubkey lookup reconciled 0 mint quotes");
+            } else {
+                info!("Pubkey lookup reconciled {} mint quote(s)", quotes.len());
+            }
         }
         Err(e) => {
             warn!("Pubkey mint quote lookup failed: {}", e);
