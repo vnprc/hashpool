@@ -8,12 +8,20 @@ defines the settlement architecture: how miners choose between on-chain coinbase
 ecash redemption, how keyset rotation works at epoch boundaries, and the quote-based mechanism
 that ties it all together.
 
+> **Design update (2026-08):** epoch mechanics now have their own canonical document,
+> `EPOCH_DESIGN.md`, which supersedes two decisions here: block-reward detection moved from a
+> pool-sent `BlockFound` message to mint-side chain observation, and epoch (unit + keyset)
+> creation moved from pool-requested to mint-owned. Superseded passages below are marked in
+> place; the settlement mechanism itself (melt quotes, coinbase construction, payouts) is
+> unchanged and remains future work.
+
 ## Core Concepts
 
 ### Mining Epoch
 
 An epoch is the period between consecutive blocks found by the pool. Each epoch has:
-- A unique ehash currency unit (e.g., `HASH_epoch_42`)
+- A unique ehash currency unit, named by the block height that opened the epoch
+  (`hash_<height>` — naming superseded here by `EPOCH_DESIGN.md`)
 - A corresponding CDK keyset that issues tokens for that epoch
 - A set of accumulating melt quotes from miners who opted into on-chain payouts
 
@@ -55,6 +63,11 @@ everything else in this design.
 
 ### Authenticated Asset Creation
 
+> **Superseded (2026-08):** the mint owns epoch creation — it opens each epoch's unit and
+> keyset itself when it detects the block reward on-chain (`EPOCH_DESIGN.md`). No pool
+> request exists, so there is nothing to authenticate on this path. Per-pool namespacing
+> remains a future multi-pool concern.
+
 When a new mining epoch begins, the pool must create a new ehash currency unit and
 corresponding keyset at the mint. Only an authorized pool should be able to do this.
 
@@ -84,6 +97,12 @@ receive ehash tokens. Only authorized pools should be able to create these quote
 ### Interaction with Keyset Rotation
 
 At epoch close (block found):
+
+> **Superseded (2026-08):** steps 1–2 no longer exist — the mint detects the reward and
+> rotates on its own; the pool keeps sending unit-agnostic quote requests and the mint stamps
+> the current epoch's unit. Boundary confirmation semantics (provisional epochs, quotes
+> unpaid until the boundary confirms) are defined in `EPOCH_DESIGN.md`.
+
 1. Pool stops creating quotes for the closing epoch's currency unit
 2. Pool sends authenticated request to create a new asset for the next epoch
 3. Mint creates new keyset, begins accepting quotes for the new currency unit
@@ -143,6 +162,10 @@ CREATED --> ACCUMULATING --> PAID                (address in coinbase, verified 
 
 When the pool finds a block:
 
+> **Superseded (2026-08):** steps 1–2 — the mint detects the reward by watching the chain
+> (`EPOCH_DESIGN.md`); a pool-sent `BlockFound` is demoted to a possible future
+> announce-then-verify optimization, not the trigger.
+
 1. Pool sends `BlockFound` to mint (via SV2 connection)
 2. Mint rotates keyset: closes current epoch's keyset, opens new one
 3. Mint checks blockchain: which payout addresses appeared in the coinbase?
@@ -201,7 +224,8 @@ balances, constructs block templates and coinbase transactions, mines blocks, no
 when blocks are found. The pool is a mining coordinator.
 
 **Protocol between them** (extends existing SV2 mint-quote subprotocol):
-- Pool → Mint: `BlockFound` (block hash, keyset ID, coinbase tx)
+- Pool → Mint: `BlockFound` (block hash, keyset ID, coinbase tx) — *future optimization
+  only; the mint's chain watcher is the trigger (see `EPOCH_DESIGN.md`)*
 - Mint → Pool: Accumulated balances per payout address (for coinbase construction)
 - Existing: Pool → Mint: `MintQuoteRequest` (for ehash token issuance per share)
 
