@@ -16,9 +16,14 @@ address. Each epoch has its own currency unit and its own keyset. Shares mined d
 become quotes stamped with that epoch's unit; quotes sweep into ehash tokens under that
 epoch's keyset. When the next reward lands, the epoch closes and a new one opens.
 
-- **Naming:** the unit is `hash_<height>`, where `<height>` is the height of the block whose
-  coinbase paid the mint and thereby opened the epoch. Height is human-readable, sortable,
-  on-chain verifiable, and unambiguous under the one-epoch-per-height rule below.
+- **Naming:** the unit is `hash_<pool>_<height>` — `<pool>` is the pool's compressed public
+  key as lowercase hex, `<height>` the height of the block whose coinbase paid the mint and
+  thereby opened the epoch. The pool key namespaces epochs so one mint can serve several
+  pools and traders can compare ehash across pools; a pubkey rather than a name keeps the
+  anonymity set maximal and becomes self-authenticating when authenticated asset creation
+  arrives. The full key is used — a truncated prefix could be ground into a collision exactly
+  where assets are named. Height stays the human-readable tail: sortable, on-chain
+  verifiable, and unambiguous under the one-epoch-per-height rule below.
 - **The mint owns epoch identity.** The pool is oblivious: it keeps sending quote requests
   naming `HASH`, and the mint stamps the current epoch's unit at quote creation. Nothing
   pool-side changes when an epoch rolls. (In a future proxy-pool deployment where the reward
@@ -27,9 +32,9 @@ epoch's keyset. When the next reward lands, the epoch closes and a new one opens
 - **Genesis:** on first boot the mint records the current chain height and opens the first
   epoch at it, with no backing reward. The genesis epoch is final immediately. Restarts reuse
   the persisted current epoch; genesis never re-runs.
-- **One epoch per height, ever.** A duplicate reward at an already-used height (see Reorgs)
-  updates the existing epoch's record; it never opens a second epoch. Epochs are never
-  reopened once final.
+- **One epoch per (pool, height), ever.** A duplicate reward at an already-used height (see
+  Reorgs) updates the existing epoch's record; it never opens a second epoch. Epochs are
+  never reopened once final.
 
 ## Quote states are the safety mechanism
 
@@ -177,15 +182,16 @@ Facts verified at the pinned revision that this design relies on:
 - HTTP routes are method-scoped, not unit-scoped — the `ehash` method is already mounted, so
   new units need no router changes.
 - Unit names hash into a 31-bit derivation-index space with a collision check at creation.
-  Collisions are vanishingly rare at production epoch cadence but the unit name is
-  height-determined, so on `UnitStringCollision` the mint appends a deterministic suffix
-  (`hash_<height>_1`, `_2`, …) rather than failing.
+  Collisions are vanishingly rare at production epoch cadence but the unit name is fixed by
+  pool and height, so on `UnitStringCollision` the mint appends a deterministic suffix
+  (`hash_<pool>_<height>_1`, `_2`, …) rather than failing.
 
 ## Configuration
 
 | knob | meaning | dev default | production guidance |
 |---|---|---|---|
 | mint receive script | coinbase script the watcher matches | address from the regtest harness wallet | operator-supplied; custody design arrives with settlement |
+| pool identity | compressed pubkey namespacing the unit (`hash_<pool>_<height>`); paired with the receive script in config — over lightning the payer will supply it | generated dev keypair (not the miner locking key) | the pool's published identity key |
 | confirmation depth D | boundary finality | 1–3 (tests force reorgs) | 6+ |
 | poll interval | watcher RPC cadence | seconds | seconds; epochs are hours-days |
 | ehash quote TTL | must comfortably exceed D | days | days |

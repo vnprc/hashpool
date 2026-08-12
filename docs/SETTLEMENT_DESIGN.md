@@ -20,8 +20,8 @@ that ties it all together.
 ### Mining Epoch
 
 An epoch is the period between consecutive blocks found by the pool. Each epoch has:
-- A unique ehash currency unit, named by the block height that opened the epoch
-  (`hash_<height>` — naming superseded here by `EPOCH_DESIGN.md`)
+- A unique ehash currency unit, named by the pool's pubkey and the block height that opened
+  the epoch (`hash_<pool>_<height>` — naming superseded here by `EPOCH_DESIGN.md`)
 - A corresponding CDK keyset that issues tokens for that epoch
 - A set of accumulating melt quotes from miners who opted into on-chain payouts
 
@@ -65,8 +65,9 @@ everything else in this design.
 
 > **Superseded (2026-08):** the mint owns epoch creation — it opens each epoch's unit and
 > keyset itself when it detects the block reward on-chain (`EPOCH_DESIGN.md`). No pool
-> request exists, so there is nothing to authenticate on this path. Per-pool namespacing
-> remains a future multi-pool concern.
+> request exists, so there is nothing to authenticate on this path. Per-pool namespacing now
+> lives in the unit name (`hash_<pool>_<height>`, pool = compressed pubkey — see
+> `EPOCH_DESIGN.md`); multi-pool authorization remains future work.
 
 When a new mining epoch begins, the pool must create a new ehash currency unit and
 corresponding keyset at the mint. Only an authorized pool should be able to do this.
