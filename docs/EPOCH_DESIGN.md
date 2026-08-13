@@ -4,7 +4,8 @@ Hashpool issues ehash for mining shares, and the value of that ehash is scoped t
 epoch: the period between block rewards landing at the mint. This document is the canonical
 design for epoch mechanics — how epochs are named, opened, and closed, how the mint detects a
 block reward, how quotes and tokens behave across an epoch boundary, and how blockchain reorgs
-are resolved correctly. It supersedes two decisions in `SETTLEMENT_DESIGN.md` (marked there):
+are resolved correctly. It supersedes two decisions in
+[`SETTLEMENT_DESIGN.md`](SETTLEMENT_DESIGN.md) (marked there):
 reward detection moves from a pool-sent message to mint-side chain observation, and epoch
 creation moves from pool-requested to mint-owned. Settlement itself — redeeming old-epoch
 ehash for bitcoin — is a later milestone and is unchanged by this document.
@@ -173,8 +174,8 @@ Opening a unit at runtime needs one upstream change: registering (and retiring) 
 processors on a running mint. Today the processor map, the per-processor payment-event
 consumer tasks, and the stored mint-info settings that gate quote creation are all fixed at
 construction. The proposed API and implementation sketch live in
-`docs/pr/cdk-dynamic-payment-processors.md` and will be filed upstream; hashpool runs the
-fork commit until it merges.
+[`docs/pr/cdk-dynamic-payment-processors.md`](pr/cdk-dynamic-payment-processors.md) and will
+be filed upstream; hashpool runs the fork commit until it merges.
 
 Facts verified at the pinned revision that this design relies on:
 
