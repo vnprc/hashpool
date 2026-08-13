@@ -3,63 +3,33 @@ use std::{path::PathBuf, str::FromStr, sync::Arc};
 use anyhow::Result;
 use bip39::Mnemonic;
 use cdk::{
-    cdk_payment::MintPayment,
-    mint::{Mint, MintBuilder, MintMeltLimits, UnitConfig},
-    nuts::{CurrencyUnit, Nut29Settings, PaymentMethod},
+    mint::{Mint, MintBuilder},
+    nuts::Nut29Settings,
     types::QuoteTTL,
 };
-use cdk_ehash::EhashPaymentProcessor;
 use cdk_mintd::config;
 use cdk_sqlite::MintSqliteDatabase;
 
-/// Setup and initialize the mint with all required components
+/// Setup and initialize the mint.
+///
+/// No currency unit is configured here: every unit is a mining epoch, opened at
+/// runtime by the `EpochManager` — genesis on first boot, then one per block
+/// reward. See docs/EPOCH_DESIGN.md.
 pub async fn setup_mint(mint_settings: config::Settings, db_path: String) -> Result<Arc<Mint>> {
-    // TODO add to config
-    const NUM_KEYS: u8 = 64;
-
     let mnemonic = Mnemonic::from_str(&mint_settings.info.mnemonic.unwrap())
         .map_err(|e| anyhow::anyhow!("Invalid mnemonic in mint config: {}", e))?;
     let seed = mnemonic.to_seed("");
-
-    let hash_currency_unit = CurrencyUnit::Custom("hash".to_string().into());
-
-    let amounts: Vec<u64> = (0..NUM_KEYS as u32).map(|i| 2_u64.pow(i)).collect();
 
     // Database setup
     let mint_db_path = resolve_and_prepare_db_path(&db_path);
 
     let db = Arc::new(MintSqliteDatabase::new(mint_db_path).await?);
 
-    let ehash_processor = Arc::new(EhashPaymentProcessor::new(hash_currency_unit.clone()));
-
-    let mut builder = MintBuilder::new(db.clone())
+    let builder = MintBuilder::new(db.clone())
         .with_name(mint_settings.mint_info.name.clone())
         .with_description(mint_settings.mint_info.description.clone())
         .with_urls(vec![mint_settings.info.url.clone()])
         .with_batch_minting(None, Some(vec!["ehash".to_string()]));
-
-    builder
-        .configure_unit(
-            hash_currency_unit.clone(),
-            UnitConfig {
-                amounts,
-                input_fee_ppk: 0,
-            },
-        )
-        .map_err(|e| anyhow::anyhow!("Failed to configure unit: {}", e))?;
-
-    builder
-        .add_payment_processor(
-            hash_currency_unit.clone(),
-            PaymentMethod::Custom("ehash".to_string()),
-            MintMeltLimits::new(1, u64::MAX),
-            ehash_processor as Arc<dyn MintPayment<Err = cdk::cdk_payment::Error> + Send + Sync>,
-        )
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to add payment processor: {}", e))?;
-
-    // Save current NUT-04 config before building (for DB migration below)
-    let current_nut04 = builder.current_mint_info().nuts.nut04.clone();
 
     let mint = Arc::new(
         builder
@@ -68,18 +38,18 @@ pub async fn setup_mint(mint_settings: config::Settings, db_path: String) -> Res
             .map_err(|e| anyhow::anyhow!("Failed to build mint: {}", e))?,
     );
 
-    // Ensure NUT-04 and NUT-29 settings reflect the current code configuration.
-    // Mint::new merges only pubkey/nut21/nut22 from the provided mint_info when a
-    // stored config already exists, so these settings may be stale after an upgrade.
+    // Keep NUT-29 method settings fresh across upgrades. NUT-04/05 entries are
+    // runtime state owned by epoch registration — never overwrite them here, or
+    // a restart would strand the resumed epoch's quote creation.
     {
         let mut stored_info = mint.mint_info().await?;
-        stored_info.nuts.nut04 = current_nut04;
-        stored_info.nuts.nut29 =
-            Nut29Settings::new(None, Some(vec!["ehash".to_string()]));
+        stored_info.nuts.nut29 = Nut29Settings::new(None, Some(vec!["ehash".to_string()]));
         mint.set_mint_info(stored_info).await?;
     }
 
-    mint.set_quote_ttl(QuoteTTL::new(10_000, 10_000)).await?;
+    // Quotes must comfortably outlive the epoch-boundary confirmation window
+    // (docs/EPOCH_DESIGN.md): 7 days, generous against any sane depth D.
+    mint.set_quote_ttl(QuoteTTL::new(604_800, 604_800)).await?;
 
     // Start background tasks for invoice monitoring
     mint.start().await?;

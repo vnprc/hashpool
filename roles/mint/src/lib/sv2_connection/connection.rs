@@ -12,12 +12,16 @@ use tokio::net::TcpStream;
 use tracing::info;
 
 use super::{
-    message_handler::handle_sv2_connection, setup_connection::build_mint_setup_connection,
-    state_machine::ConnectionStateMachine,
+    super::epoch::EpochManager, message_handler::handle_sv2_connection,
+    setup_connection::build_mint_setup_connection, state_machine::ConnectionStateMachine,
 };
 
 /// Connect to pool via SV2 with Noise encryption
-pub async fn connect_to_pool_sv2(mint: Arc<Mint>, sv2_config: Sv2MessagingConfig) {
+pub async fn connect_to_pool_sv2(
+    mint: Arc<Mint>,
+    epochs: Arc<EpochManager>,
+    sv2_config: Sv2MessagingConfig,
+) {
     info!(
         "Connecting to pool SV2 endpoint: {}",
         sv2_config.mint_listen_address
@@ -41,7 +45,9 @@ pub async fn connect_to_pool_sv2(mint: Arc<Mint>, sv2_config: Sv2MessagingConfig
 
                 match establish_sv2_connection(stream, &mut state_machine, &sv2_config).await {
                     Ok((receiver, sender)) => {
-                        if let Err(e) = handle_sv2_connection(mint.clone(), receiver, sender).await
+                        if let Err(e) =
+                            handle_sv2_connection(mint.clone(), epochs.clone(), receiver, sender)
+                                .await
                         {
                             tracing::error!("SV2 connection error: {}", e);
                             state_machine.error(format!("Connection error: {}", e));

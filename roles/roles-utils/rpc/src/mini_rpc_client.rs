@@ -78,6 +78,20 @@ impl MiniRpcClient {
         }
     }
 
+    pub async fn get_block_count(&self) -> Result<u64, RpcError> {
+        let response = self.send_json_rpc_request("getblockcount", json!([])).await;
+        match response {
+            Ok(raw) => {
+                let result_deserialized: JsonRpcResult<u64> = serde_json::from_str(&raw)
+                    .map_err(|e| RpcError::Deserialization(e.to_string()))?;
+                result_deserialized
+                    .result
+                    .ok_or_else(|| RpcError::Other("Result not found".to_string()))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     pub async fn submit_block(&self, block_hex: String) -> Result<(), RpcError> {
         let response = self
             .send_json_rpc_request("submitblock", json!([block_hex]))

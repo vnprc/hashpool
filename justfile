@@ -67,6 +67,11 @@ generate-blocks COUNT="1":
     @echo "Generating {{COUNT}} blocks in regtest..."
     @bitcoin-cli -datadir=.devenv/state/bitcoind -conf=$(pwd)/config/bitcoin.conf -rpcuser=username -rpcpassword=password -regtest -rpcwallet=regtest -generate {{COUNT}}
 
+# rotate the mining epoch by hand (manual lever on the mint's admin listener)
+rotate-epoch:
+    @curl -sf -X POST http://127.0.0.1:3339/rotate-epoch || (echo "rotate-epoch failed — is the mint running?" && exit 1)
+    @echo ""
+
 # Open sqlite terminal client for various databases
 # Usage: just db [wallet|mint|all]
 db TYPE="":

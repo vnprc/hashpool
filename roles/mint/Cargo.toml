@@ -28,6 +28,7 @@ cdk-sqlite = "0.17.0"
 toml = "0.8.22"
 
 shared_config = { path = "../roles-utils/config" }
+rpc_sv2 = { path = "../roles-utils/rpc" }
 mint_pool_messaging = { path = "../roles-utils/mint-pool-messaging" }
 network_helpers_sv2 = { path = "../roles-utils/network-helpers" }
 roles_logic_sv2 = { path = "../../protocols/v2/roles-logic-sv2" }

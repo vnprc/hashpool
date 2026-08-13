@@ -22,8 +22,24 @@ struct MintConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct HashpoolMintConfig {
     db_path: Option<String>,
+    /// Pool identity: compressed secp256k1 pubkey (hex) namespacing epoch
+    /// units (`hash_<pool>_<height>`). Required.
+    pool_pubkey: Option<String>,
+    /// Epoch record store; defaults to `epochs.json` beside the mint database.
+    epoch_store_path: Option<String>,
+    /// Loopback listener for the manual rotation lever. Default 127.0.0.1:3339.
+    admin_listen: Option<String>,
+    bitcoin_rpc: Option<BitcoinRpcConfig>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BitcoinRpcConfig {
+    url: String,
+    user: String,
+    pass: String,
+}
+
+use lib::epoch::{admin_router, EpochManager, EpochSettings};
 use lib::{connect_to_pool_sv2, setup_mint};
 
 #[tokio::main]
@@ -74,7 +90,51 @@ async fn main() -> Result<()> {
         ))?;
 
     tracing::info!("Using database path: {}", db_path);
-    let mint = setup_mint(mint_config.cdk_settings.clone(), db_path).await?;
+    let mint = setup_mint(mint_config.cdk_settings.clone(), db_path.clone()).await?;
+
+    // Epoch mechanics: load the persisted current epoch or open genesis at the
+    // current chain height. Fails loud if the pool identity or bitcoind RPC
+    // config is missing. See docs/EPOCH_DESIGN.md.
+    let hashpool_cfg = mint_config.hashpool_mint.clone().ok_or_else(|| {
+        anyhow::anyhow!("[hashpool_mint] config section is required for epoch mechanics")
+    })?;
+    let rpc_cfg = hashpool_cfg.bitcoin_rpc.clone().ok_or_else(|| {
+        anyhow::anyhow!("[hashpool_mint.bitcoin_rpc] url/user/pass are required (epoch genesis and rotation read the chain height)")
+    })?;
+    let epoch_settings = EpochSettings {
+        pool_pubkey: hashpool_cfg.pool_pubkey.clone().ok_or_else(|| {
+            anyhow::anyhow!("[hashpool_mint] pool_pubkey is required (namespaces epoch units)")
+        })?,
+        store_path: hashpool_cfg
+            .epoch_store_path
+            .clone()
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                lib::resolve_and_prepare_db_path(&db_path)
+                    .parent()
+                    .expect("db path has a parent")
+                    .join("epochs.json")
+            }),
+        rpc_url: rpc_cfg.url,
+        rpc_user: rpc_cfg.user,
+        rpc_pass: rpc_cfg.pass,
+        admin_listen: hashpool_cfg
+            .admin_listen
+            .clone()
+            .unwrap_or_else(|| "127.0.0.1:3339".to_string()),
+    };
+    let admin_listen = epoch_settings.admin_listen.clone();
+    let epochs = EpochManager::load_or_genesis(mint.clone(), epoch_settings).await?;
+
+    // Manual rotation lever on a loopback-only listener.
+    let admin = admin_router(epochs.clone());
+    let admin_listener = TcpListener::bind(&admin_listen).await?;
+    info!("Epoch admin listening on {}", admin_listen);
+    tokio::spawn(async move {
+        if let Err(e) = axum::serve(admin_listener, admin).await {
+            tracing::error!("epoch admin server exited: {e}");
+        }
+    });
 
     // Setup HTTP cache and router
     let cache: HttpCache = HttpCache::from_config(mint_config.cdk_settings.info.http_cache).await?;
@@ -83,7 +143,11 @@ async fn main() -> Result<()> {
     // Start SV2 connection to pool if enabled
     if let Some(ref sv2_config) = global_config.sv2_messaging {
         if sv2_config.enabled {
-            tokio::spawn(connect_to_pool_sv2(mint.clone(), sv2_config.clone()));
+            tokio::spawn(connect_to_pool_sv2(
+                mint.clone(),
+                epochs.clone(),
+                sv2_config.clone(),
+            ));
         }
     }
 

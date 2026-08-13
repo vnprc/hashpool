@@ -1,3 +1,4 @@
+pub mod epoch;
 pub mod error;
 pub mod message_types;
 pub mod mint_manager;
