@@ -67,9 +67,8 @@ Quote expiry is advisory at the pinned CDK revision (set at creation, not enforc
 mint time), but the ehash quote TTL should still be configured well past the confirmation
 window in case upstream starts enforcing it.
 
-This deferred-pay hook is also where block template validation will plug in later — the
-quote-pending-until-template-validated plan, tracked as issue 65 on the GitHub fallback
-clone: pay = epoch boundary final AND template valid. One lever, two gates, no rework.
+This deferred-pay hook is also where block template validation will plug in later (issue
+#20): pay = epoch boundary final AND template valid. One lever, two gates, no rework.
 
 ## Reward detection: the mint watches the chain
 
@@ -202,8 +201,8 @@ Facts verified at the pinned revision that this design relies on:
 Settlement and redemption of old-epoch ehash; old-unit end-of-life and redemption windows;
 epoch-aware wallet and UI treatment; authenticated quote and asset creation; the pool→mint
 `BlockFound` announcement; embedding the keyset id in the coinbase; block template validation
-(issue 65 on the GitHub fallback clone — its result will gate the same pay-at-finality hook
-built here). Old units simply sit,
+(issue #20 — its result will gate the same pay-at-finality hook built here). Old units
+simply sit,
 mintable for their outstanding quotes and swappable within their own unit, until settlement
 arrives.
 
