@@ -67,6 +67,16 @@ generate-blocks COUNT="1":
     @echo "Generating {{COUNT}} blocks in regtest..."
     @bitcoin-cli -datadir=.devenv/state/bitcoind -conf=$(pwd)/config/bitcoin.conf -rpcuser=username -rpcpassword=password -regtest -rpcwallet=regtest -generate {{COUNT}}
 
+# mine COUNT blocks whose coinbase pays ADDR (reward-delivery knob for epoch tests)
+generate-to ADDR COUNT="1":
+    @echo "Generating {{COUNT}} block(s) paying {{ADDR}}..."
+    @bitcoin-cli -datadir=.devenv/state/bitcoind -conf=$(pwd)/config/bitcoin.conf -rpcuser=username -rpcpassword=password -regtest generatetoaddress {{COUNT}} {{ADDR}}
+
+# run the CPU miner for a bounded window (use with HASHPOOL_MINER=off devenv up)
+mine DURATION="30":
+    @echo "Mining for {{DURATION}}s..."
+    @cd roles/test-utils/mining-device-sv1 && timeout {{DURATION}} cargo run || true
+
 # Open sqlite terminal client for various databases
 # Usage: just db [wallet|mint|all]
 db TYPE="":
