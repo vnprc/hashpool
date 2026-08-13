@@ -7,7 +7,10 @@ listen_address = "0.0.0.0:34254"
 
 # Coinbase reward script (specified as a descriptor)
 # For more info on descriptors see: https://github.com/bitcoin/bips/blob/master/bip-0380.mediawiki#appendix-b-index-of-script-expressions
-coinbase_reward_script = "addr(tb1qs5kpecpax8uv4vn5uqfyycmmmma7jhunmce0z4)"
+# Dev default: throwaway regtest burn script, deliberately NOT the mint's receive address —
+# epochs react only to rewards on the mint's script, so the always-on dev miner stays
+# epoch-silent. Point this at the mint address for full-stack epoch smoke tests.
+coinbase_reward_script = "raw(00140000000000000000000000000000000000000000)"
 
 # Pool signature (string to be included in coinbase tx)
 pool_signature = "Stratum v2 SRI Pool"

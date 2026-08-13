@@ -265,6 +265,10 @@ in {
 
     miner = {
       exec = withLogging ''
+        if [ "''${HASHPOOL_MINER:-on}" = "off" ]; then
+          echo "miner disabled (HASHPOOL_MINER=off); run 'just mine' for a bounded window"
+          sleep infinity
+        fi
         ${waitForPort minerConfig.proxy.port "Proxy"}
         cd roles/test-utils/mining-device-sv1
         while true; do
