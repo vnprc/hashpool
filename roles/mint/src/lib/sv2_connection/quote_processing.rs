@@ -59,8 +59,10 @@ pub async fn process_mint_quote_message(
                 .map_err(|e| anyhow::anyhow!("Failed to convert MintQuoteRequest: {e}"))?;
 
             // Stamp the current mining epoch's unit; the wire request's unit
-            // string is legacy and ignored (the mint owns epoch identity).
-            let epoch_unit = epochs.current_unit();
+            // string is legacy and ignored (the mint owns epoch identity). One
+            // snapshot read so a rotation between quote creation and the pay
+            // decision cannot strand a final-epoch quote unpaid.
+            let (epoch_unit, epoch_final) = epochs.current_snapshot();
             cdk_custom_request.unit = epoch_unit.clone();
 
             let mint_quote_request = MintQuoteRequest::Custom {
@@ -92,7 +94,7 @@ pub async fn process_mint_quote_message(
                     // unmintable — until the boundary confirms and the bulk-pay
                     // runs. See docs/EPOCH_DESIGN.md.
                     let header_hash_hex = hex::encode(share_hash.as_bytes());
-                    if epochs.current_is_final() {
+                    if epoch_final {
                         let amount_with_unit = Amount::new(amount, epoch_unit.clone());
                         mint.pay_mint_quote_for_request_id(WaitPaymentResponse {
                             payment_identifier: PaymentIdentifier::CustomId(header_hash_hex.clone()),

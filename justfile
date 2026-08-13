@@ -136,7 +136,9 @@ clean TYPE="":
               .devenv/state/translator/wallet.sqlite-wal \
               .devenv/state/mint/mint.sqlite \
               .devenv/state/mint/mint.sqlite-shm \
-              .devenv/state/mint/mint.sqlite-wal; \
+              .devenv/state/mint/mint.sqlite-wal \
+              .devenv/state/mint/epochs.json \
+              .devenv/state/mint/epochs.json.tmp; \
         echo "all sqlite data deleted"; \
     elif [ "{{TYPE}}" = "regtest" ]; then \
         echo "deleting regtest data..."; \

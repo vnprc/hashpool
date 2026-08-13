@@ -61,19 +61,25 @@ impl EpochManager {
         let amounts: Vec<u64> = (0..NUM_KEYS).map(|i| 2_u64.pow(i)).collect();
 
         if let Some(current) = store.current().cloned() {
+            let manager = Arc::new(Self {
+                mint,
+                store: tokio::sync::Mutex::new(store),
+                current: RwLock::new(current.clone()),
+                pool_pubkey,
+                amounts,
+                rpc,
+            });
+            // The processor map is in-memory only: a restart must re-register
+            // the resumed epoch's quote-creation entry or every share is
+            // rejected until the next rotation.
+            let unit = CurrencyUnit::Custom(current.unit.clone().into());
+            manager.register_unit(&unit).await?;
             info!(
                 unit = %current.unit,
                 height = current.height,
                 "resuming persisted epoch"
             );
-            return Ok(Arc::new(Self {
-                mint,
-                store: tokio::sync::Mutex::new(store),
-                current: RwLock::new(current),
-                pool_pubkey,
-                amounts,
-                rpc,
-            }));
+            return Ok(manager);
         }
 
         let height = block_count_with_retry(&rpc, 30, std::time::Duration::from_secs(2))
@@ -105,24 +111,43 @@ impl EpochManager {
         Ok(manager)
     }
 
-    /// The unit new quotes are stamped with.
-    pub fn current_unit(&self) -> CurrencyUnit {
-        let unit = self.current.read().expect("epoch lock poisoned").unit.clone();
-        CurrencyUnit::Custom(unit.into())
-    }
-
-    /// Whether the current epoch's boundary is final (quotes pay at creation).
-    /// Genesis and manual epochs are always final; provisional epochs arrive
-    /// with the reward trigger.
-    pub fn current_is_final(&self) -> bool {
-        self.current.read().expect("epoch lock poisoned").state == EpochState::Final
+    /// Single-read snapshot for the quote path: the unit new quotes are
+    /// stamped with, and whether that epoch's boundary is final (final →
+    /// quotes pay at creation; provisional → they wait for finality). One
+    /// read, so a rotation between "which unit" and "pay now?" cannot tear.
+    pub fn current_snapshot(&self) -> (CurrencyUnit, bool) {
+        let current = self.current.read().expect("epoch lock poisoned");
+        (
+            CurrencyUnit::Custom(current.unit.clone().into()),
+            current.state == EpochState::Final,
+        )
     }
 
     pub async fn chain_height(&self) -> Result<u64> {
-        self.rpc
-            .get_block_count()
+        rpc_block_count(&self.rpc).await
+    }
+
+    /// Idempotent quote-creation registration for a unit: an already-present
+    /// (unit, method) pair is success (restart resume and retry paths).
+    async fn register_unit(&self, unit: &CurrencyUnit) -> Result<()> {
+        if self
+            .mint
+            .get_payment_processor(unit.clone(), ehash_method())
+            .is_ok()
+        {
+            return Ok(());
+        }
+        let processor = Arc::new(EhashPaymentProcessor::new(unit.clone()))
+            as Arc<dyn MintPayment<Err = cdk::cdk_payment::Error> + Send + Sync>;
+        self.mint
+            .register_payment_processor(
+                unit.clone(),
+                ehash_method(),
+                MintMeltLimits::new(1, u64::MAX),
+                processor,
+            )
             .await
-            .map_err(|e| anyhow!("getblockcount failed: {e:?}"))
+            .map_err(|e| anyhow!("registering {unit} for quoting failed: {e}"))
     }
 
     /// Close the current epoch and open a new one. Genesis/manual epochs open
@@ -135,11 +160,20 @@ impl EpochManager {
         reward_sats: Option<u64>,
         source: EpochSource,
     ) -> Result<EpochRecord> {
+        const MAX_NAME_ATTEMPTS: u32 = 32;
+
         let mut store = self.store.lock().await;
         let previous = store.current().cloned();
         let mut suffix = store.count_at_height(height);
+        let mut attempts = 0u32;
 
         let (unit, keyset_id) = loop {
+            attempts += 1;
+            if attempts > MAX_NAME_ATTEMPTS {
+                return Err(anyhow!(
+                    "no usable unit name for height {height} after {MAX_NAME_ATTEMPTS} attempts"
+                ));
+            }
             let name = naming::unit_name(&self.pool_pubkey, height, suffix);
             if store.unit_taken(&name) {
                 suffix += 1;
@@ -152,43 +186,20 @@ impl EpochManager {
                 .await
             {
                 Ok(keyset_info) => break (unit, keyset_info.id.to_string()),
-                Err(e) => {
-                    let msg = e.to_string();
-                    if msg.to_lowercase().contains("collision") {
-                        warn!(unit = %name, "unit derivation collision; trying suffix {}", suffix + 1);
-                        suffix += 1;
-                        continue;
-                    }
-                    return Err(anyhow!("keyset creation for {name} failed: {e}"));
+                Err(cdk::Error::UnitStringCollision(_)) => {
+                    warn!(unit = %name, "unit derivation collision; trying suffix {}", suffix + 1);
+                    suffix += 1;
+                    continue;
                 }
+                Err(e) => return Err(anyhow!("keyset creation for {name} failed: {e}")),
             }
         };
 
-        let processor = Arc::new(EhashPaymentProcessor::new(unit.clone()))
-            as Arc<dyn MintPayment<Err = cdk::cdk_payment::Error> + Send + Sync>;
-        self.mint
-            .register_payment_processor(
-                unit.clone(),
-                ehash_method(),
-                MintMeltLimits::new(1, u64::MAX),
-                processor,
-            )
-            .await
-            .map_err(|e| anyhow!("registering {unit} for quoting failed: {e}"))?;
+        self.register_unit(&unit).await?;
 
-        // Retire the previous epoch's quote-creation entry. Failure is loud but
-        // non-fatal: a lingering entry is benign, a failed rotation is not.
-        if let Some(prev) = &previous {
-            let prev_unit = CurrencyUnit::Custom(prev.unit.clone().into());
-            if let Err(e) = self
-                .mint
-                .deregister_payment_processor(prev_unit, ehash_method())
-                .await
-            {
-                warn!(unit = %prev.unit, "failed to retire previous epoch entry: {e}");
-            }
-        }
-
+        // Persist and swap the current epoch BEFORE retiring the previous one:
+        // the quote path must never observe a deregistered unit as current, and
+        // a persist failure must not leave the mint without a quotable unit.
         let record = EpochRecord {
             height,
             unit: unit.to_string(),
@@ -201,9 +212,33 @@ impl EpochManager {
         };
         store.append(record.clone())?;
         *self.current.write().expect("epoch lock poisoned") = record.clone();
+
+        // Retire the previous epoch's quote-creation entry last. Failure is
+        // loud but non-fatal: a lingering entry is benign, a failed rotation
+        // is not.
+        if let Some(prev) = &previous {
+            let prev_unit = CurrencyUnit::Custom(prev.unit.clone().into());
+            if let Err(e) = self
+                .mint
+                .deregister_payment_processor(prev_unit, ehash_method())
+                .await
+            {
+                warn!(unit = %prev.unit, "failed to retire previous epoch entry: {e}");
+            }
+        }
+
         info!(unit = %record.unit, height, ?source, "epoch opened");
         Ok(record)
     }
+}
+
+/// One getblockcount attempt with a hard timeout, so a hung (not refusing)
+/// RPC endpoint cannot block mint startup forever.
+async fn rpc_block_count(rpc: &MiniRpcClient) -> Result<u64> {
+    tokio::time::timeout(std::time::Duration::from_secs(10), rpc.get_block_count())
+        .await
+        .map_err(|_| anyhow!("getblockcount timed out after 10s"))?
+        .map_err(|e| anyhow!("getblockcount failed: {e:?}"))
 }
 
 async fn block_count_with_retry(
@@ -213,10 +248,10 @@ async fn block_count_with_retry(
 ) -> Result<u64> {
     let mut last_err = None;
     for _ in 0..attempts {
-        match rpc.get_block_count().await {
+        match rpc_block_count(rpc).await {
             Ok(h) => return Ok(h),
             Err(e) => {
-                last_err = Some(format!("{e:?}"));
+                last_err = Some(e.to_string());
                 tokio::time::sleep(delay).await;
             }
         }

@@ -81,7 +81,13 @@ impl EpochStore {
 
     pub fn append(&mut self, record: EpochRecord) -> Result<()> {
         self.records.push(record);
-        self.persist()
+        if let Err(e) = self.persist() {
+            // Keep memory and disk agreeing: a failed persist must not leave a
+            // phantom record that a later successful append would resurrect.
+            self.records.pop();
+            return Err(e);
+        }
+        Ok(())
     }
 
     fn persist(&self) -> Result<()> {
