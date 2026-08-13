@@ -38,7 +38,7 @@ use crate::{
     payment::{
         cdk_handler::CdkQuoteNotificationHandler,
         custom_handler::{CustomMiningMessageHandler, NoopCustomMiningMessageHandler},
-        wallet::create_wallet,
+        wallet::{create_wallet, WalletFactory},
     },
     status::{State, Status},
     sv1::sv1_server::sv1_server::Sv1Server,
@@ -115,9 +115,12 @@ impl TranslatorSv2 {
 
         debug!("All inter-subsystem channels initialized");
 
-        // Initialize CDK wallet and payment handler
-        let (wallet_opt, custom_handler): (
-            Option<Arc<cdk::wallet::Wallet>>,
+        // Initialize CDK wallet and payment handler. The factory owns the
+        // shared wallet resources; the sweeper derives per-unit wallets from
+        // it, while the faucet and the notification handler keep using the
+        // base (`hash` unit) wallet.
+        let (wallet_factory_opt, custom_handler): (
+            Option<Arc<WalletFactory>>,
             Arc<dyn CustomMiningMessageHandler>,
         ) = if let Some(mint_config) = &self.config.mint {
             match create_wallet(
@@ -127,10 +130,10 @@ impl TranslatorSv2 {
             )
             .await
             {
-                Ok(w) => {
+                Ok(factory) => {
                     let handler: Arc<dyn CustomMiningMessageHandler> =
-                        Arc::new(CdkQuoteNotificationHandler::new(w.clone()));
-                    (Some(w), handler)
+                        Arc::new(CdkQuoteNotificationHandler::new(factory.base_wallet()));
+                    (Some(Arc::new(factory)), handler)
                 }
                 Err(e) => {
                     error!(
@@ -143,17 +146,23 @@ impl TranslatorSv2 {
             (None, Arc::new(NoopCustomMiningMessageHandler))
         };
 
-        if let Some(ref w) = wallet_opt {
+        if let Some(ref factory) = wallet_factory_opt {
             payment::quote_sweeper::spawn_quote_sweeper(
-                w.clone(),
+                factory.clone(),
                 self.config.wallet.locking_privkey.clone(),
             );
-            let faucet_wallet = w.clone();
+            let faucet_wallet = factory.base_wallet();
             let faucet_port = self.config.faucet_port;
             let faucet_timeout = self.config.faucet_timeout;
             let faucet_privkey = self.config.wallet.locking_privkey.clone();
             tokio::spawn(async move {
-                faucet_api::run_faucet_api(faucet_port, faucet_wallet, faucet_timeout, faucet_privkey).await;
+                faucet_api::run_faucet_api(
+                    faucet_port,
+                    faucet_wallet,
+                    faucet_timeout,
+                    faucet_privkey,
+                )
+                .await;
             });
         }
 
