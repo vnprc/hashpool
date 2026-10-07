@@ -4,3 +4,11 @@ inputs:
     inputs:
       nixpkgs:
         follows: nixpkgs
+  # Pinned: devenv 2.x no longer injects this input implicitly, and the devenv
+  # modules rev pinned in devenv.lock throws without it. HEAD needs cspell,
+  # absent from the pinned nixpkgs, so this must stay at the lock's old rev.
+  git-hooks:
+    url: github:cachix/git-hooks.nix/80479b6ec16fefd9c1db3ea13aeb038c60530f46
+    inputs:
+      nixpkgs:
+        follows: nixpkgs

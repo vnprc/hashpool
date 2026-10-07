@@ -89,14 +89,6 @@ in {
       mkdir -p ${prometheusPoolDataDir}
       mkdir -p ${prometheusProxyDataDir}
     '';
-    before = [
-      "devenv:processes:proxy"
-      "devenv:processes:pool"
-      "devenv:processes:prometheus_pool"
-      "devenv:processes:prometheus_proxy"
-      "devenv:processes:web_pool"
-      "devenv:processes:web_proxy"
-    ];
   };
 
   # Build CDK CLI from remote repo using same CDK version as hashpool
@@ -122,7 +114,6 @@ in {
 
       echo "✅ CDK CLI ready"
     '';
-    before = ["devenv:processes:proxy" "devenv:processes:pool"];
   };
 
   # https://devenv.sh/packages/
