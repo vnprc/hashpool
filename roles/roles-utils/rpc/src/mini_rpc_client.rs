@@ -92,6 +92,62 @@ impl MiniRpcClient {
         }
     }
 
+    pub async fn get_block_hash(&self, height: u64) -> Result<String, RpcError> {
+        let response = self
+            .send_json_rpc_request("getblockhash", json!([height]))
+            .await;
+        match response {
+            Ok(raw) => {
+                let result_deserialized: JsonRpcResult<String> = serde_json::from_str(&raw)
+                    .map_err(|e| RpcError::Deserialization(e.to_string()))?;
+                result_deserialized
+                    .result
+                    .ok_or_else(|| RpcError::Other("Result not found".to_string()))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// `getblock <hash> 1`: verbosity 1 (hashes, not full tx objects).
+    pub async fn get_block_info(&self, hash: &str) -> Result<BlockInfo, RpcError> {
+        let response = self
+            .send_json_rpc_request("getblock", json!([hash, 1]))
+            .await;
+        match response {
+            Ok(raw) => {
+                let result_deserialized: JsonRpcResult<BlockInfo> = serde_json::from_str(&raw)
+                    .map_err(|e| RpcError::Deserialization(e.to_string()))?;
+                result_deserialized
+                    .result
+                    .ok_or_else(|| RpcError::Other("Result not found".to_string()))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Unlike `get_raw_transaction`, takes the block hash as plain hex: the
+    /// crate's `BlockHash` newtype serializes as a byte array, not hex, which
+    /// `getrawtransaction` rejects.
+    pub async fn get_raw_transaction_hex(
+        &self,
+        txid: &str,
+        block_hash: &str,
+    ) -> Result<String, RpcError> {
+        let response = self
+            .send_json_rpc_request("getrawtransaction", json!([txid, false, block_hash]))
+            .await;
+        match response {
+            Ok(raw) => {
+                let result_deserialized: JsonRpcResult<String> = serde_json::from_str(&raw)
+                    .map_err(|e| RpcError::Deserialization(e.to_string()))?;
+                result_deserialized
+                    .result
+                    .ok_or_else(|| RpcError::Other("Result not found".to_string()))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     pub async fn submit_block(&self, block_hex: String) -> Result<(), RpcError> {
         let response = self
             .send_json_rpc_request("submitblock", json!([block_hex]))
@@ -213,6 +269,17 @@ pub struct JsonRpcError {
     pub message: String,
 }
 
+/// Subset of `getblock` verbosity-1 fields the epoch watcher needs; unknown
+/// fields are ignored.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BlockInfo {
+    pub hash: String,
+    pub height: u64,
+    #[serde(default)]
+    pub previousblockhash: Option<String>,
+    pub tx: Vec<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub enum RpcError {
     // TODO this type is slightly incorrect, as the JsonRpcError evaluates a generic that is meant
@@ -227,5 +294,49 @@ pub enum RpcError {
 impl From<JsonRpcResult<JsonRpcError>> for RpcError {
     fn from(error: JsonRpcResult<JsonRpcError>) -> Self {
         Self::JsonRpc(error)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn block_info_deserializes_a_representative_getblock_verbosity_1_object() {
+        let json = r#"{
+            "hash": "00000000000000000008a3e1f...",
+            "confirmations": 12,
+            "height": 905123,
+            "version": 536870912,
+            "versionHex": "20000000",
+            "merkleroot": "abcd1234",
+            "time": 1700000000,
+            "mediantime": 1699999000,
+            "nonce": 123456,
+            "bits": "170b2b45",
+            "difficulty": 1.0,
+            "chainwork": "00",
+            "nTx": 2,
+            "previousblockhash": "0000000000000000000prevhash",
+            "strippedsize": 1000,
+            "size": 1200,
+            "weight": 4000,
+            "tx": ["coinbasetxid", "othertxid"]
+        }"#;
+
+        let info: BlockInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(info.height, 905123);
+        assert_eq!(
+            info.previousblockhash,
+            Some("0000000000000000000prevhash".to_string())
+        );
+        assert_eq!(info.tx, vec!["coinbasetxid".to_string(), "othertxid".to_string()]);
+    }
+
+    #[test]
+    fn block_info_genesis_has_no_previousblockhash() {
+        let json = r#"{"hash":"genesis","height":0,"tx":["coinbasetxid"]}"#;
+        let info: BlockInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(info.previousblockhash, None);
     }
 }
