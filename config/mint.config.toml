@@ -40,6 +40,12 @@ db_path = ".devenv/state/mint/mint.sqlite"
 pool_pubkey = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
 # Manual epoch-rotation lever (`just rotate-epoch`); loopback only.
 admin_listen = "127.0.0.1:3339"
+# Dev placeholder: the P2WPKH regtest address of the secp256k1 generator
+# point above. No wallet controls it.
+# Regtest scenarios mine rewards to it with `just generate-to`.
+receive_address = "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080"
+confirmation_depth = 3
+poll_interval_secs = 1
 
 [hashpool_mint.bitcoin_rpc]
 url = "http://127.0.0.1:18443"

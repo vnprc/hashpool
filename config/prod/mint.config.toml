@@ -37,6 +37,12 @@ db_path = "/var/lib/hashpool/mint/mint.sqlite"
 # placeholder (the secp256k1 generator point) namespaces epoch units.
 pool_pubkey = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
 admin_listen = "127.0.0.1:3339"
+# TODO(operator): set the mint's real receive address before deploying.
+# Left unset on purpose: an unedited config fails at startup rather than
+# silently naming epochs after a sentinel.
+# receive_address = "bc1q..."
+confirmation_depth = 6
+poll_interval_secs = 10
 
 [hashpool_mint.bitcoin_rpc]
 # TODO(operator): point at the deployment's bitcoind RPC.

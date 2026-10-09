@@ -190,12 +190,12 @@ Facts verified at the pinned revision that this design relies on:
 
 ## Configuration
 
-| knob | meaning | dev default | production guidance |
+| knob (`[hashpool_mint]` key) | meaning | dev default | production guidance |
 |---|---|---|---|
-| mint receive script | coinbase script the watcher matches | address from the regtest harness wallet | operator-supplied; custody design arrives with settlement |
-| pool identity | compressed pubkey namespacing the unit (`hash_<pool>_<height>`); paired with the receive script in config — over lightning the payer will supply it | generated dev keypair (not the miner locking key) | the pool's published identity key |
-| confirmation depth D | boundary finality | 1–3 (tests force reorgs) | 6+ |
-| poll interval | watcher RPC cadence | seconds | seconds; epochs are hours-days |
+| `receive_address` | coinbase address the watcher matches; compared as a script, never as this string | `bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080` (the P2WPKH regtest address of the secp256k1 generator point; no wallet controls it) | operator-supplied; unset by default so the mint refuses to start on an unedited config; custody design arrives with settlement |
+| `pool_pubkey` | compressed pubkey namespacing the unit (`hash_<pool>_<height>`); paired with the receive address — over lightning the payer will supply it | the secp256k1 generator point (not the miner locking key) | the pool's published identity key |
+| `confirmation_depth` | boundary finality (`tip - height + 1 >= D`) | `3` (tests force reorgs) | `6` or more |
+| `poll_interval_secs` | watcher RPC cadence | `1` | `10`; epochs are hours-days |
 | ehash quote TTL | must comfortably exceed D | days | days |
 
 ## Out of scope (this milestone)

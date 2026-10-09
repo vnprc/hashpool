@@ -221,3 +221,35 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    /// The dev config's `receive_address` is a placeholder no wallet
+    /// controls: the P2WPKH regtest address of the secp256k1 generator
+    /// point. Pins the derivation against the committed config so the two
+    /// cannot silently drift apart.
+    #[test]
+    fn dev_config_receive_address_is_the_generator_point_p2wpkh_address() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../config/mint.config.toml");
+        let contents = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+        let config: MintConfig = toml::from_str(&contents).unwrap();
+        let configured = config
+            .hashpool_mint
+            .expect("[hashpool_mint] section must be present")
+            .receive_address
+            .expect("receive_address must be present");
+
+        let generator_point =
+            "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+        let pubkey = bitcoin::secp256k1::PublicKey::from_str(generator_point).unwrap();
+        let compressed = bitcoin::CompressedPublicKey(pubkey);
+        let expected = bitcoin::Address::p2wpkh(&compressed, bitcoin::Network::Regtest).to_string();
+
+        assert_eq!(configured, expected);
+    }
+}
