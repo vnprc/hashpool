@@ -10,7 +10,9 @@ use cdk::{
     cdk_payment::{MintPayment, WaitPaymentResponse},
     mint::{Mint, MintMeltLimits},
     nuts::{CurrencyUnit, PaymentMethod},
+    Amount,
 };
+use cdk_common::database::DynMintDatabase;
 use cdk_ehash::EhashPaymentProcessor;
 use rpc_sv2::mini_rpc_client::{Auth, BlockInfo, MiniRpcClient};
 use std::collections::HashSet;
@@ -18,7 +20,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{EpochRecord, EpochSource, EpochState, EpochStore, ScannedBlock};
+use store::{EpochRecord, EpochSource, EpochState, EpochStore, ScannedBlock, Tx};
 use tokio::sync::{RwLock, RwLockReadGuard};
 use tracing::{info, warn};
 
@@ -70,7 +72,6 @@ pub struct EpochSettings {
     /// Pool identity: compressed secp256k1 pubkey, lowercase hex. Namespaces
     /// every epoch unit (`hash_<pool>_<height>`).
     pub pool_pubkey: String,
-    pub store_path: PathBuf,
     pub rpc_url: String,
     pub rpc_user: String,
     pub rpc_pass: String,
@@ -118,10 +119,15 @@ impl EpochManager {
             .parse()
             .with_context(|| format!("invalid bitcoin_rpc url {}", settings.rpc_url))?;
         let rpc = MiniRpcClient::new(uri, Auth::new(settings.rpc_user, settings.rpc_pass));
-        let store = EpochStore::load(&settings.store_path)?;
+        let db: DynMintDatabase = mint.localstore();
+        let store_opt = EpochStore::load(&db).await?;
         let amounts: Vec<u64> = (0..NUM_KEYS).map(|i| 2_u64.pow(i)).collect();
 
-        if let Some(current) = store.current().cloned() {
+        if let Some(store) = store_opt {
+            let current = store
+                .current()
+                .cloned()
+                .ok_or_else(|| anyhow!("epoch store has records but no current (non-dissolved) one"))?;
             let non_dissolved = store.non_dissolved();
             let outstanding = outstanding_quote_units(&mint).await?;
 
@@ -179,6 +185,22 @@ impl EpochManager {
             return Ok(manager);
         }
 
+        // Migration guard: the epoch store used to be a JSON file beside the
+        // mint database. An old file there holds records this mint cannot
+        // import into the KV store, so refuse rather than silently starting
+        // a fresh genesis next to history the operator may still need.
+        if let Some(dir) = settings.mint_db_path.parent() {
+            let legacy = dir.join("epochs.json");
+            if legacy.exists() {
+                return Err(anyhow!(
+                    "{} exists from an older version; the epoch store now lives in the mint \
+                     database and this file's records cannot be imported. Run `just clean \
+                     cashu` for a clean slate, or move the file elsewhere for reference.",
+                    legacy.display()
+                ));
+            }
+        }
+
         let height = block_count_with_retry(&rpc, 30, Duration::from_secs(2))
             .await
             .context("genesis needs the chain height; is bitcoind reachable?")?;
@@ -197,7 +219,7 @@ impl EpochManager {
         };
         let manager = Arc::new(Self {
             mint,
-            store: tokio::sync::Mutex::new(store),
+            store: tokio::sync::Mutex::new(EpochStore::new_empty()),
             current: RwLock::new(placeholder),
             pool_pubkey,
             amounts,
@@ -209,27 +231,45 @@ impl EpochManager {
             #[cfg(test)]
             pay_hook: std::sync::Mutex::new(None),
         });
+        // Genesis writes its record and the watermark in one transaction.
+        let watermark = ScannedBlock {
+            height,
+            hash: genesis_hash,
+        };
         let record = manager
-            .open_epoch(
+            .open_epoch_inner(
                 height,
                 None,
                 None,
                 EpochSource::Genesis,
                 EpochState::Final,
+                Some(watermark),
             )
             .await?;
-        {
-            let mut store = manager.store.lock().await;
-            store.set_watermark(
-                ScannedBlock {
-                    height,
-                    hash: genesis_hash,
-                },
-                manager.recent_cap(),
-            )?;
-        }
         info!(unit = %record.unit, height, "genesis epoch opened");
         Ok(manager)
+    }
+
+    /// Locks the store, clones it, runs `f` with the clone and a fresh
+    /// transaction (`f` must call `tx.commit()` itself before returning),
+    /// and only on success assigns the clone back. A failed commit, or any
+    /// other error `f` returns, leaves the locked store exactly as it was.
+    async fn with_store_tx<F, Fut, T>(&self, f: F) -> Result<T>
+    where
+        F: FnOnce(EpochStore, Tx) -> Fut,
+        Fut: std::future::Future<Output = Result<(EpochStore, T)>>,
+    {
+        let mut guard = self.store.lock().await;
+        let clone = guard.clone();
+        let tx = self
+            .mint
+            .localstore()
+            .begin_transaction()
+            .await
+            .map_err(|e| anyhow!("begin_transaction: {e}"))?;
+        let (new_store, value) = f(clone, tx).await?;
+        *guard = new_store;
+        Ok(value)
     }
 
     /// Contract: hold the returned guard across both "which unit" and "pay
@@ -339,22 +379,32 @@ impl EpochManager {
         source: EpochSource,
         state: EpochState,
     ) -> Result<EpochRecord> {
+        self.open_epoch_inner(height, block_hash, reward_sats, source, state, None)
+            .await
+    }
+
+    /// `watermark`, when given, is written in the same transaction as the
+    /// new record (genesis only; see `load_or_genesis`).
+    async fn open_epoch_inner(
+        &self,
+        height: u64,
+        block_hash: Option<String>,
+        reward_sats: Option<u64>,
+        source: EpochSource,
+        state: EpochState,
+        watermark: Option<ScannedBlock>,
+    ) -> Result<EpochRecord> {
         const MAX_NAME_ATTEMPTS: u32 = 32;
 
-        let mut store = self.store.lock().await;
-        let previous = store.current().cloned();
-
-        if state == EpochState::Final {
-            if let Some(prev) = &previous {
-                if prev.state == EpochState::Provisional {
-                    return Err(anyhow::Error::new(ProvisionalCurrent));
-                }
-            }
-        }
-
-        let mut suffix = store.count_at_height(height);
+        // Keyset creation is cdk's own transaction, not ours, and happens
+        // before we touch the store: an orphan keyset left behind by a
+        // losing race or a crash here is inert, and the next attempt simply
+        // picks the next free suffix and re-opens cleanly.
+        let mut suffix = {
+            let store = self.store.lock().await;
+            store.count_at_height(height)
+        };
         let mut attempts = 0u32;
-
         let (unit, keyset_id) = loop {
             attempts += 1;
             if attempts > MAX_NAME_ATTEMPTS {
@@ -363,7 +413,11 @@ impl EpochManager {
                 ));
             }
             let name = naming::unit_name(&self.pool_pubkey, height, suffix);
-            if store.unit_taken(&name) {
+            let taken = {
+                let store = self.store.lock().await;
+                store.unit_taken(&name)
+            };
+            if taken {
                 suffix += 1;
                 continue;
             }
@@ -385,9 +439,6 @@ impl EpochManager {
 
         self.register_unit(&unit).await?;
 
-        // Persist and swap the current epoch BEFORE retiring the previous one:
-        // the quote path must never observe a deregistered unit as current, and
-        // a persist failure must not leave the mint without a quotable unit.
         let record = EpochRecord {
             height,
             unit: unit.to_string(),
@@ -398,7 +449,36 @@ impl EpochManager {
             source,
             opened_at: store::unix_now(),
         };
-        store.append(record.clone())?;
+        let cap = self.recent_cap();
+
+        let previous = self
+            .with_store_tx(|mut store, mut tx| {
+                let record = record.clone();
+                let watermark = watermark.clone();
+                async move {
+                    // Re-checked here, under the lock this transaction holds,
+                    // right before appending: the manual lever's own earlier
+                    // (dropped) pre-check could otherwise race a reward.
+                    let previous = store.current().cloned();
+                    if state == EpochState::Final {
+                        if let Some(prev) = &previous {
+                            if prev.state == EpochState::Provisional {
+                                return Err(anyhow::Error::new(ProvisionalCurrent));
+                            }
+                        }
+                    }
+
+                    store.append(&mut tx, record).await?;
+                    if let Some(w) = watermark {
+                        store.set_watermark(&mut tx, w, cap).await?;
+                    }
+                    tx.commit().await.map_err(|e| anyhow!("commit: {e}"))?;
+
+                    Ok((store, previous))
+                }
+            })
+            .await?;
+
         *self.current.write().await = record.clone();
 
         // Retire (not deregister) the previous epoch's quote-creation entry
@@ -458,16 +538,26 @@ impl EpochManager {
     /// from the current tip (rewards below it will never be scanned). Only
     /// fires for old stores — genesis sets its own watermark.
     async fn init_watermark_if_absent(&self) -> Result<()> {
-        let store = self.store.lock().await;
-        if store.watermark().is_some() {
+        let has_watermark = {
+            let store = self.store.lock().await;
+            store.watermark().is_some()
+        };
+        if has_watermark {
             return Ok(());
         }
-        drop(store);
         let tip = rpc_block_count(&self.rpc).await?;
         let hash = self.get_block_hash(tip).await?;
         warn!(height = tip, "epoch store has no watermark; starting scan at the current tip");
-        let mut store = self.store.lock().await;
-        store.set_watermark(ScannedBlock { height: tip, hash }, self.recent_cap())
+        let cap = self.recent_cap();
+        self.with_store_tx(|mut store, mut tx| {
+            let hash = hash.clone();
+            async move {
+                store.set_watermark(&mut tx, ScannedBlock { height: tip, hash }, cap).await?;
+                tx.commit().await.map_err(|e| anyhow!("commit: {e}"))?;
+                Ok((store, ()))
+            }
+        })
+        .await
     }
 
     /// Rolls the watermark back to the newest retained entry the node still
@@ -501,8 +591,15 @@ impl EpochManager {
                         to = point.height,
                         "watermark rollback"
                     );
-                    let mut store = self.store.lock().await;
-                    store.rollback_to(point.height)?;
+                    self.with_store_tx(|mut store, mut tx| {
+                        let height = point.height;
+                        async move {
+                            store.rollback_to(&mut tx, height).await?;
+                            tx.commit().await.map_err(|e| anyhow!("commit: {e}"))?;
+                            Ok((store, ()))
+                        }
+                    })
+                    .await?;
                 }
                 Ok(())
             }
@@ -513,9 +610,17 @@ impl EpochManager {
                 // oldest retained height" can itself still be above it.
                 let height = oldest.height.saturating_sub(1).min(tip);
                 let hash = self.get_block_hash(height).await?;
-                let mut store = self.store.lock().await;
-                store.rollback_to(height)?;
-                store.set_watermark(ScannedBlock { height, hash }, self.recent_cap())?;
+                let cap = self.recent_cap();
+                self.with_store_tx(|mut store, mut tx| {
+                    let hash = hash.clone();
+                    async move {
+                        store.rollback_to(&mut tx, height).await?;
+                        store.set_watermark(&mut tx, ScannedBlock { height, hash }, cap).await?;
+                        tx.commit().await.map_err(|e| anyhow!("commit: {e}"))?;
+                        Ok((store, ()))
+                    }
+                })
+                .await?;
                 Ok(())
             }
         }
@@ -544,8 +649,16 @@ impl EpochManager {
             let reward_sats = self.coinbase_reward(&info, &hash).await?;
             self.process_block(height, hash.clone(), reward_sats).await?;
             tracing::debug!(height, hash = %hash, "watermark advancing");
-            let mut store = self.store.lock().await;
-            store.set_watermark(ScannedBlock { height, hash }, self.recent_cap())?;
+            let cap = self.recent_cap();
+            self.with_store_tx(|mut store, mut tx| {
+                let hash = hash.clone();
+                async move {
+                    store.set_watermark(&mut tx, ScannedBlock { height, hash }, cap).await?;
+                    tx.commit().await.map_err(|e| anyhow!("commit: {e}"))?;
+                    Ok((store, ()))
+                }
+            })
+            .await?;
         }
     }
 
@@ -564,17 +677,27 @@ impl EpochManager {
                     .iter()
                     .find(|r| r.unit == unit)
                     .and_then(|r| r.block_hash.clone());
-                let mut store = self.store.lock().await;
-                let mut current = self.current.write().await;
-                store.update_record(&unit, |r| {
-                    r.block_hash = Some(hash.clone());
-                    r.reward_sats = Some(reward_sats);
-                })?;
-                if current.unit == unit {
-                    if let Some(updated) = store.record(&unit) {
-                        *current = updated;
+                self.with_store_tx(|mut store, mut tx| {
+                    let unit = unit.clone();
+                    let hash = hash.clone();
+                    async move {
+                        let mut current = self.current.write().await;
+                        store
+                            .update_record(&mut tx, &unit, |r| {
+                                r.block_hash = Some(hash.clone());
+                                r.reward_sats = Some(reward_sats);
+                            })
+                            .await?;
+                        tx.commit().await.map_err(|e| anyhow!("commit: {e}"))?;
+                        if current.unit == unit {
+                            if let Some(updated) = store.record(&unit) {
+                                *current = updated;
+                            }
+                        }
+                        Ok((store, ()))
                     }
-                }
+                })
+                .await?;
                 info!(unit = %unit, height, old_hash = ?old_hash, new_hash = %hash, "epoch re-mined at same height");
             }
             BlockAction::Dissolve { unit } => {
@@ -635,25 +758,73 @@ impl EpochManager {
     /// Marks `unit` final, bulk-pays its quotes, and retires the previous
     /// epoch's quote-creation entry (old quotes still mint; no new ones).
     ///
-    /// Contract: persist `Final` only after `pay_unpaid_quotes` succeeds;
-    /// on error nothing is persisted and the next finality pass retries.
+    /// Contract: persist `Final` only after the pay step commits; a failing
+    /// pay leaves nothing persisted and the next finality pass retries.
+    ///
+    /// Does not use `with_store_tx`: `mint.mint_quotes()` needs its own
+    /// connection from the same pool/file our own transaction holds, so the
+    /// listing must happen before that transaction opens (same reason
+    /// `dissolve` orders its pre-transaction reads the way it does).
     async fn finalize(&self, unit: &str) -> Result<()> {
-        let mut store = self.store.lock().await;
+        let unit = unit.to_string();
+        let mut store_guard = self.store.lock().await;
         let mut current = self.current.write().await;
 
-        let paid = self.pay_unpaid_quotes(unit).await?;
+        let target = CurrencyUnit::Custom(unit.clone().into());
+        let candidates: Vec<_> = self
+            .mint
+            .mint_quotes()
+            .await
+            .map_err(|e| anyhow!("mint_quotes: {e}"))?
+            .into_iter()
+            .filter(|q| q.unit == target && q.amount_paid().value() == 0)
+            .collect();
 
-        store.update_record(unit, |r| r.state = EpochState::Final)?;
+        let mut store = store_guard.clone();
+        let mut tx = self
+            .mint
+            .localstore()
+            .begin_transaction()
+            .await
+            .map_err(|e| anyhow!("begin_transaction: {e}"))?;
+
+        // On any error below, roll back explicitly and await it: dropping
+        // `tx` unrolled-back only schedules the rollback as a background
+        // task (cdk's `Drop` impl), which can still be mid-flight when the
+        // next caller (a finality-pass retry, say) opens a competing
+        // transaction and gets "database is locked".
+        let work = async {
+            let notify = self.pay_unpaid_quotes_in_tx(&mut tx, candidates).await?;
+            store.update_record(&mut tx, &unit, |r| r.state = EpochState::Final).await?;
+            Ok::<_, anyhow::Error>(notify)
+        }
+        .await;
+        let notify = match work {
+            Ok(notify) => notify,
+            Err(e) => {
+                let _ = tx.rollback().await;
+                return Err(e);
+            }
+        };
         let updated = store
-            .record(unit)
+            .record(&unit)
             .expect("just updated, must still be present");
+        let prev = store.previous_non_dissolved(&unit);
+
+        tx.commit().await.map_err(|e| anyhow!("commit: {e}"))?;
+
+        *store_guard = store;
         if current.unit == unit {
             *current = updated.clone();
         }
-        let prev = store.previous_non_dissolved(unit);
-
         drop(current);
-        drop(store);
+        drop(store_guard);
+
+        let (height, block_hash) = (updated.height, updated.block_hash.clone());
+
+        for (quote, amount) in &notify {
+            self.mint.pubsub_manager().mint_quote_payment(quote, amount.clone());
+        }
 
         if let Some(prev) = &prev {
             let prev_unit = CurrencyUnit::Custom(prev.unit.clone().into());
@@ -668,9 +839,9 @@ impl EpochManager {
 
         info!(
             unit = %unit,
-            height = updated.height,
-            block_hash = ?updated.block_hash,
-            quotes_paid = paid,
+            height,
+            block_hash = ?block_hash,
+            quotes_paid = notify.len(),
             retired_unit = ?prev.as_ref().map(|r| r.unit.clone()),
             "epoch finalized"
         );
@@ -684,14 +855,25 @@ impl EpochManager {
     ///
     /// Contract: same as `finalize` — pay before persisting the flip; a
     /// retry after a failed pay re-stamps 0 rows and just pays `prev`.
+    ///
+    /// Does not use `with_store_tx`: the raw-SQL re-stamp and the
+    /// pre-transaction invariant reads (`total_issued`, `mint_quotes`) each
+    /// need their own connection, and sqlite allows only one writer at a
+    /// time — opening our own KV transaction before they run would have
+    /// them contend with it for that single writer (seen as "database is
+    /// locked" / pool-timeout errors when this was tried the other way).
+    /// Running them first, while still holding `store` and `current`, keeps
+    /// the same race-closing guarantee `with_store_tx` gives its callers
+    /// without the contention.
     async fn dissolve(&self, unit: &str) -> Result<()> {
-        let mut store = self.store.lock().await;
+        let unit = unit.to_string();
+        let mut store_guard = self.store.lock().await;
         let mut current = self.current.write().await;
 
-        let record = store
-            .record(unit)
+        let record = store_guard
+            .record(&unit)
             .ok_or_else(|| anyhow!("no epoch record for unit {unit}"))?;
-        let prev = store.previous_non_dissolved(unit).ok_or_else(|| {
+        let prev = store_guard.previous_non_dissolved(&unit).ok_or_else(|| {
             self.invariant_error(format!(
                 "dissolve {unit}: no previous non-dissolved epoch to resume into"
             ))
@@ -712,7 +894,7 @@ impl EpochManager {
             )));
         }
 
-        let target_unit = CurrencyUnit::Custom(unit.to_string().into());
+        let target_unit = CurrencyUnit::Custom(unit.clone().into());
         let quotes = self
             .mint
             .mint_quotes()
@@ -729,27 +911,68 @@ impl EpochManager {
         }
         let expected = owing.len();
 
-        let affected = self.restamp_quotes(unit, &prev.unit).await?;
+        let affected = self.restamp_quotes(&unit, &prev.unit).await?;
         if affected != expected {
             return Err(self.invariant_error(format!(
                 "dissolve {unit}: re-stamp affected {affected} row(s), expected {expected}"
             )));
         }
 
-        let mut paid = 0usize;
-        if prev.state == EpochState::Final {
-            paid = self.pay_unpaid_quotes(&prev.unit).await?;
-        }
+        let prev_currency = CurrencyUnit::Custom(prev.unit.clone().into());
+        let pay_candidates = if prev.state == EpochState::Final {
+            self.mint
+                .mint_quotes()
+                .await
+                .map_err(|e| anyhow!("mint_quotes: {e}"))?
+                .into_iter()
+                .filter(|q| q.unit == prev_currency && q.amount_paid().value() == 0)
+                .collect()
+        } else {
+            Vec::new()
+        };
 
-        store.update_record(unit, |r| r.state = EpochState::Dissolved)?;
-        if current.unit == unit {
+        let mut store = store_guard.clone();
+        let mut tx = self
+            .mint
+            .localstore()
+            .begin_transaction()
+            .await
+            .map_err(|e| anyhow!("begin_transaction: {e}"))?;
+
+        // See the comment on the equivalent step in `finalize`: an explicit,
+        // awaited rollback here (rather than relying on `tx`'s `Drop`) keeps
+        // the write lock from outliving this function on an error path.
+        let work = async {
+            let notify = self.pay_unpaid_quotes_in_tx(&mut tx, pay_candidates).await?;
+            store.update_record(&mut tx, &unit, |r| r.state = EpochState::Dissolved).await?;
+            Ok::<_, anyhow::Error>(notify)
+        }
+        .await;
+        let notify = match work {
+            Ok(notify) => notify,
+            Err(e) => {
+                let _ = tx.rollback().await;
+                return Err(e);
+            }
+        };
+        let was_current = current.unit == unit;
+
+        tx.commit().await.map_err(|e| anyhow!("commit: {e}"))?;
+
+        *store_guard = store;
+        if was_current {
             *current = prev.clone();
         }
-
         drop(current);
-        drop(store);
+        drop(store_guard);
 
-        let dissolved_unit = CurrencyUnit::Custom(unit.to_string().into());
+        let (height, old_hash, restamped) = (record.height, record.block_hash.clone(), affected);
+
+        for (quote, amount) in &notify {
+            self.mint.pubsub_manager().mint_quote_payment(quote, amount.clone());
+        }
+
+        let dissolved_unit = CurrencyUnit::Custom(unit.clone().into());
         if let Err(e) = self
             .mint
             .retire_payment_processor(dissolved_unit, ehash_method())
@@ -760,10 +983,10 @@ impl EpochManager {
 
         info!(
             unit = %unit,
-            height = record.height,
-            old_hash = ?record.block_hash,
-            quotes_restamped = affected,
-            quotes_paid_in_target = paid,
+            height,
+            old_hash = ?old_hash,
+            quotes_restamped = restamped,
+            quotes_paid_in_target = notify.len(),
             target_unit = %prev.unit,
             "epoch dissolved"
         );
@@ -801,48 +1024,57 @@ impl EpochManager {
         Ok(affected)
     }
 
-    /// Pays every unpaid quote in `unit`. Safe only because the HTTP route
-    /// that creates ehash quotes is closed (main.rs); otherwise this would
-    /// mint for free at finality. `DuplicatePaymentId` is a crash-retry, not
-    /// a failure.
-    async fn pay_unpaid_quotes(&self, unit: &str) -> Result<usize> {
+    /// Pays `candidates` inside `tx`, re-locking each row with
+    /// `get_mint_quote_by_request_lookup_id` before paying it (`candidates`
+    /// is listed by the caller before `tx` opens — see `finalize` and
+    /// `dissolve`). Returns the quotes that newly became paid so the
+    /// caller can publish their pubsub notification after `tx` commits
+    /// (notifying before commit would announce a payment that might still
+    /// roll back). Safe only because the HTTP route that creates ehash
+    /// quotes is closed (main.rs); otherwise this would mint for free at
+    /// finality.
+    async fn pay_unpaid_quotes_in_tx(
+        &self,
+        tx: &mut Tx,
+        candidates: Vec<cdk::mint::MintQuote>,
+    ) -> Result<Vec<(cdk::mint::MintQuote, Amount<CurrencyUnit>)>> {
         #[cfg(test)]
         if let Some(hook) = self.pay_hook.lock().expect("pay_hook lock poisoned").as_ref() {
             hook()?;
         }
-        let target = CurrencyUnit::Custom(unit.to_string().into());
-        let quotes = self
-            .mint
-            .mint_quotes()
-            .await
-            .map_err(|e| anyhow!("listing mint quotes: {e}"))?;
-        let mut paid = 0usize;
-        for quote in quotes
-            .into_iter()
-            .filter(|q| q.unit == target && q.amount_paid().value() == 0)
-        {
-            let amount = quote
+        let mut notify = Vec::new();
+        for quote in candidates {
+            let acquired = tx
+                .get_mint_quote_by_request_lookup_id(&quote.request_lookup_id)
+                .await
+                .map_err(|e| anyhow!("get_mint_quote_by_request_lookup_id: {e}"))?;
+            let mut acquired = match acquired {
+                Some(a) => a,
+                None => continue,
+            };
+            let amount = acquired
                 .amount
-                .ok_or_else(|| anyhow!("quote {} has no amount", quote.id))?;
-            let payment_id = match &quote.request_lookup_id {
+                .clone()
+                .ok_or_else(|| anyhow!("quote {} has no amount", acquired.id))?;
+            let payment_id = match &acquired.request_lookup_id {
                 cdk::cdk_payment::PaymentIdentifier::CustomId(s) => s.clone(),
                 other => other.to_string(),
             };
-            match self
+            let response = WaitPaymentResponse {
+                payment_identifier: acquired.request_lookup_id.clone(),
+                payment_amount: amount,
+                payment_id,
+            };
+            let notified = self
                 .mint
-                .pay_mint_quote_for_request_id(WaitPaymentResponse {
-                    payment_identifier: quote.request_lookup_id.clone(),
-                    payment_amount: amount,
-                    payment_id,
-                })
+                .pay_mint_quote(tx, &mut acquired, response)
                 .await
-            {
-                Ok(()) => paid += 1,
-                Err(cdk::Error::DuplicatePaymentId) => paid += 1,
-                Err(e) => return Err(anyhow!("paying quote {}: {e}", quote.id)),
+                .map_err(|e| anyhow!("paying quote {}: {e}", acquired.id))?;
+            if notified {
+                notify.push(((*acquired).clone(), acquired.amount_paid()));
             }
         }
-        Ok(paid)
+        Ok(notify)
     }
 }
 
@@ -1098,14 +1330,6 @@ mod tests {
 
     static TEST_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-    fn temp_store_path(label: &str) -> std::path::PathBuf {
-        let n = TEST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        std::env::temp_dir().join(format!(
-            "epoch-manager-test-{}-{label}-{n}.json",
-            std::process::id()
-        ))
-    }
-
     fn temp_db_path(label: &str) -> std::path::PathBuf {
         let n = TEST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         std::env::temp_dir().join(format!(
@@ -1134,14 +1358,32 @@ mod tests {
         }
     }
 
-    /// Pre-populates a store with a genesis-shaped record and watermark, so
-    /// `load_or_genesis` takes the resume path and never calls bitcoind.
-    fn seed_genesis_store(path: &std::path::Path, unit: &str) {
-        let mut store = EpochStore::load(path).unwrap();
-        store.append(record(1, unit, EpochState::Final)).unwrap();
+    /// Writes one record and a matching watermark into `db`'s KV store, in
+    /// one committed transaction, so `load_or_genesis` takes the resume path
+    /// and never calls bitcoind.
+    async fn seed_genesis_store(db: &DynMintDatabase, unit: &str) {
+        let mut store = EpochStore::new_empty();
+        let mut tx = db.begin_transaction().await.unwrap();
         store
-            .set_watermark(block(1, "genesis_hash"), 16)
+            .append(&mut tx, record(1, unit, EpochState::Final))
+            .await
             .unwrap();
+        store
+            .set_watermark(&mut tx, block(1, "genesis_hash"), 16)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+    }
+
+    /// Writes `records` into `db`'s KV store (no watermark), in one
+    /// committed transaction.
+    async fn seed_records(db: &DynMintDatabase, records: Vec<EpochRecord>) {
+        let mut store = EpochStore::new_empty();
+        let mut tx = db.begin_transaction().await.unwrap();
+        for record in records {
+            store.append(&mut tx, record).await.unwrap();
+        }
+        tx.commit().await.unwrap();
     }
 
     async fn test_mint() -> Arc<Mint> {
@@ -1168,10 +1410,9 @@ mod tests {
         mint
     }
 
-    fn test_settings(store_path: std::path::PathBuf) -> EpochSettings {
+    fn test_settings() -> EpochSettings {
         EpochSettings {
             pool_pubkey: POOL_PUBKEY.to_string(),
-            store_path,
             // Resume never calls bitcoind; this just needs to parse.
             rpc_url: "http://127.0.0.1:0".to_string(),
             rpc_user: "user".to_string(),
@@ -1293,29 +1534,22 @@ mod tests {
 
     #[tokio::test]
     async fn resume_restores_current_and_owing_but_not_settled_closed_epochs() {
-        let store_path = temp_store_path("resume");
-        let _ = std::fs::remove_file(&store_path);
-
-        let mut store = EpochStore::load(&store_path).unwrap();
-        store
-            .append(record(100, "hash_test_100_dissolved", EpochState::Dissolved))
-            .unwrap();
-        store
-            .append(record(150, "hash_test_150_settled", EpochState::Final))
-            .unwrap();
-        store
-            .append(record(200, "hash_test_200_owing", EpochState::Final))
-            .unwrap();
-        store
-            .append(record(300, "hash_test_300_current", EpochState::Final))
-            .unwrap();
-        drop(store);
-
         let mint = test_mint().await;
+        seed_records(
+            &mint.localstore(),
+            vec![
+                record(100, "hash_test_100_dissolved", EpochState::Dissolved),
+                record(150, "hash_test_150_settled", EpochState::Final),
+                record(200, "hash_test_200_owing", EpochState::Final),
+                record(300, "hash_test_300_current", EpochState::Final),
+            ],
+        )
+        .await;
+
         let owing_unit = CurrencyUnit::Custom("hash_test_200_owing".to_string().into());
         seed_paid_quote(&mint, &owing_unit, 10).await;
 
-        let settings = test_settings(store_path.clone());
+        let settings = test_settings();
         let manager = EpochManager::load_or_genesis(mint.clone(), settings)
             .await
             .expect("resume must succeed");
@@ -1360,26 +1594,22 @@ mod tests {
             "a dissolved epoch must never get a processor map entry"
         );
 
-        let _ = std::fs::remove_file(&store_path);
         drop(manager);
     }
 
     #[tokio::test]
     async fn resume_keeps_the_epoch_before_a_provisional_current_quotable() {
-        let store_path = temp_store_path("provisional");
-        let _ = std::fs::remove_file(&store_path);
-
-        let mut store = EpochStore::load(&store_path).unwrap();
-        store
-            .append(record(100, "hash_test_100_prev", EpochState::Final))
-            .unwrap();
-        store
-            .append(record(200, "hash_test_200_provisional", EpochState::Provisional))
-            .unwrap();
-        drop(store);
-
         let mint = test_mint().await;
-        let settings = test_settings(store_path.clone());
+        seed_records(
+            &mint.localstore(),
+            vec![
+                record(100, "hash_test_100_prev", EpochState::Final),
+                record(200, "hash_test_200_provisional", EpochState::Provisional),
+            ],
+        )
+        .await;
+
+        let settings = test_settings();
         let manager = EpochManager::load_or_genesis(mint.clone(), settings)
             .await
             .expect("resume must succeed");
@@ -1405,29 +1635,23 @@ mod tests {
             "the provisional current epoch must itself be quotable"
         );
 
-        let _ = std::fs::remove_file(&store_path);
         drop(manager);
     }
 
     #[tokio::test]
     async fn resume_keeps_the_whole_resumable_chain_quotable() {
-        let store_path = temp_store_path("chain");
-        let _ = std::fs::remove_file(&store_path);
-
-        let mut store = EpochStore::load(&store_path).unwrap();
-        store
-            .append(record(100, "hash_test_100_final", EpochState::Final))
-            .unwrap();
-        store
-            .append(record(200, "hash_test_200_provisional", EpochState::Provisional))
-            .unwrap();
-        store
-            .append(record(300, "hash_test_300_provisional", EpochState::Provisional))
-            .unwrap();
-        drop(store);
-
         let mint = test_mint().await;
-        let settings = test_settings(store_path.clone());
+        seed_records(
+            &mint.localstore(),
+            vec![
+                record(100, "hash_test_100_final", EpochState::Final),
+                record(200, "hash_test_200_provisional", EpochState::Provisional),
+                record(300, "hash_test_300_provisional", EpochState::Provisional),
+            ],
+        )
+        .await;
+
+        let settings = test_settings();
         let manager = EpochManager::load_or_genesis(mint.clone(), settings)
             .await
             .expect("resume must succeed");
@@ -1449,25 +1673,21 @@ mod tests {
             );
         }
 
-        let _ = std::fs::remove_file(&store_path);
         drop(manager);
     }
 
     #[tokio::test]
     async fn resume_retires_an_epoch_excluded_from_the_register_set() {
-        let store_path = temp_store_path("excluded-retire");
-        let _ = std::fs::remove_file(&store_path);
-
-        let mut store = EpochStore::load(&store_path).unwrap();
-        store
-            .append(record(100, "hash_test_100_stale", EpochState::Final))
-            .unwrap();
-        store
-            .append(record(200, "hash_test_200_current", EpochState::Final))
-            .unwrap();
-        drop(store);
-
         let mint = test_mint().await;
+        seed_records(
+            &mint.localstore(),
+            vec![
+                record(100, "hash_test_100_stale", EpochState::Final),
+                record(200, "hash_test_200_current", EpochState::Final),
+            ],
+        )
+        .await;
+
         let stale_unit = CurrencyUnit::Custom("hash_test_100_stale".to_string().into());
 
         // Stand in for a quote-creation gate an earlier process opened and
@@ -1483,7 +1703,7 @@ mod tests {
         .await
         .unwrap();
 
-        let settings = test_settings(store_path.clone());
+        let settings = test_settings();
         let manager = EpochManager::load_or_genesis(mint.clone(), settings)
             .await
             .expect("resume must succeed");
@@ -1498,7 +1718,6 @@ mod tests {
             "an epoch excluded from the register set must still be retired"
         );
 
-        let _ = std::fs::remove_file(&store_path);
         drop(manager);
     }
 
@@ -1694,16 +1913,84 @@ mod tests {
         assert_eq!(point, Some(block(15, "h15")), "the newest canonical entry at or below the tip");
     }
 
+    // --- EpochStore / with_store_tx: transactional persistence ---
+
+    #[tokio::test]
+    async fn with_store_tx_leaves_the_store_unchanged_when_the_closure_errors() {
+        let mint = test_mint().await;
+        seed_genesis_store(&mint.localstore(), "hash_test_genesis_with_store_tx").await;
+        let settings = test_settings();
+        let manager = EpochManager::load_or_genesis(mint.clone(), settings)
+            .await
+            .unwrap();
+
+        let before = {
+            let store = manager.store.lock().await;
+            store.non_dissolved().len()
+        };
+
+        let result: Result<()> = manager
+            .with_store_tx(|mut store, mut tx| async move {
+                store
+                    .append(&mut tx, record(999, "hash_test_should_not_persist", EpochState::Final))
+                    .await?;
+                // Never commits: the closure errors before `tx.commit()`.
+                Err(anyhow!("simulated failure before commit"))
+            })
+            .await;
+        assert!(result.is_err(), "a failing closure must propagate its error");
+
+        let after_count = {
+            let store = manager.store.lock().await;
+            store.non_dissolved().len()
+        };
+        assert_eq!(before, after_count, "the locked store must be unchanged");
+        assert!(
+            !manager.store.lock().await.unit_taken("hash_test_should_not_persist"),
+            "the appended record must not be visible in memory"
+        );
+
+        let reloaded = EpochStore::load(&mint.localstore()).await.unwrap().unwrap();
+        assert!(
+            !reloaded.unit_taken("hash_test_should_not_persist"),
+            "an uncommitted write must not be visible to a fresh load either"
+        );
+    }
+
+    #[tokio::test]
+    async fn load_or_genesis_refuses_when_a_legacy_epochs_json_file_exists() {
+        let db_path = temp_db_path("migration-guard");
+        let _ = std::fs::remove_file(&db_path);
+        let legacy = db_path.parent().unwrap().join("epochs.json");
+        std::fs::write(&legacy, "{}").unwrap();
+
+        let mint = test_mint_file(&db_path).await;
+        let mut settings = test_settings();
+        settings.mint_db_path = db_path.clone();
+
+        let result = EpochManager::load_or_genesis(mint, settings).await;
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("genesis must refuse to run while a legacy epochs.json file exists"),
+        };
+        let message = err.to_string();
+        assert!(
+            message.contains("epochs.json"),
+            "the error must name the offending file: {message}"
+        );
+
+        let _ = std::fs::remove_file(&legacy);
+        let _ = std::fs::remove_file(&db_path);
+    }
+
     // --- EpochManager: open_epoch refusal ---
 
     #[tokio::test]
     async fn open_epoch_refuses_a_final_open_while_current_is_provisional() {
-        let store_path = temp_store_path("provisional-refuse");
-        let _ = std::fs::remove_file(&store_path);
-        seed_genesis_store(&store_path, "hash_test_genesis_provisional_refuse");
-
         let mint = test_mint().await;
-        let settings = test_settings(store_path.clone());
+        seed_genesis_store(&mint.localstore(), "hash_test_genesis_provisional_refuse").await;
+
+        let settings = test_settings();
         let manager = EpochManager::load_or_genesis(mint.clone(), settings)
             .await
             .unwrap();
@@ -1747,20 +2034,16 @@ mod tests {
             record_count_before, record_count_after,
             "a refused open must create no record"
         );
-
-        let _ = std::fs::remove_file(&store_path);
     }
 
     // --- EpochManager: finalize / dissolve ---
 
     #[tokio::test]
     async fn finalize_flips_state_pays_seeded_quote_and_retires_previous_unit() {
-        let store_path = temp_store_path("finalize");
-        let _ = std::fs::remove_file(&store_path);
-        seed_genesis_store(&store_path, "hash_test_genesis_finalize");
-
         let mint = test_mint().await;
-        let settings = test_settings(store_path.clone());
+        seed_genesis_store(&mint.localstore(), "hash_test_genesis_finalize").await;
+
+        let settings = test_settings();
         let manager = EpochManager::load_or_genesis(mint.clone(), settings)
             .await
             .unwrap();
@@ -1788,6 +2071,13 @@ mod tests {
 
         assert_eq!(manager.current_epoch().await.state, EpochState::Final);
 
+        let reloaded = EpochStore::load(&mint.localstore()).await.unwrap().unwrap();
+        assert_eq!(
+            reloaded.record(&record.unit).unwrap().state,
+            EpochState::Final,
+            "the Final flip must be visible from a fresh load, not just in memory"
+        );
+
         let mint_info = mint.mint_info().await.unwrap();
         let genesis_currency = CurrencyUnit::Custom(genesis_unit.into());
         assert!(
@@ -1802,18 +2092,14 @@ mod tests {
             mint.get_payment_processor(genesis_currency, ehash_method()).is_ok(),
             "the previous unit's processor-map entry must remain (retire, not deregister)"
         );
-
-        let _ = std::fs::remove_file(&store_path);
     }
 
     #[tokio::test]
     async fn finalize_leaves_the_record_provisional_and_unpaid_when_pay_fails() {
-        let store_path = temp_store_path("finalize-retry");
-        let _ = std::fs::remove_file(&store_path);
-        seed_genesis_store(&store_path, "hash_test_genesis_finalize_retry");
-
         let mint = test_mint().await;
-        let settings = test_settings(store_path.clone());
+        seed_genesis_store(&mint.localstore(), "hash_test_genesis_finalize_retry").await;
+
+        let settings = test_settings();
         let manager = EpochManager::load_or_genesis(mint.clone(), settings)
             .await
             .unwrap();
@@ -1836,12 +2122,12 @@ mod tests {
         let result = manager.finalize(&record.unit).await;
         assert!(result.is_err(), "a failing pay must fail finalize");
 
-        let state_after = {
-            let store = manager.store.lock().await;
-            store.record(&record.unit).unwrap().state
-        };
+        // Asserted via a fresh load from the database, not from the
+        // manager's in-memory store: the point of pay-before-persist is
+        // that the database itself never saw the flip.
+        let reloaded = EpochStore::load(&mint.localstore()).await.unwrap().unwrap();
         assert_eq!(
-            state_after,
+            reloaded.record(&record.unit).unwrap().state,
             EpochState::Provisional,
             "a failed pay must leave the record provisional for the next tick to retry"
         );
@@ -1851,19 +2137,16 @@ mod tests {
         assert_eq!(seeded.amount_paid().value(), 0, "the quote must remain unpaid");
 
         manager.clear_pay_hook();
-        let _ = std::fs::remove_file(&store_path);
     }
 
     #[tokio::test]
     async fn dissolve_restamps_and_pays_an_unpaid_quote_onto_the_previous_unit() {
-        let store_path = temp_store_path("dissolve");
         let db_path = temp_db_path("dissolve");
-        let _ = std::fs::remove_file(&store_path);
         let _ = std::fs::remove_file(&db_path);
-        seed_genesis_store(&store_path, "hash_test_genesis_dissolve");
-
         let mint = test_mint_file(&db_path).await;
-        let mut settings = test_settings(store_path.clone());
+        seed_genesis_store(&mint.localstore(), "hash_test_genesis_dissolve").await;
+
+        let mut settings = test_settings();
         settings.mint_db_path = db_path.clone();
         let manager = EpochManager::load_or_genesis(mint.clone(), settings)
             .await
@@ -1912,20 +2195,17 @@ mod tests {
             "the previous unit must still have nut04 settings after dissolve"
         );
 
-        let _ = std::fs::remove_file(&store_path);
         let _ = std::fs::remove_file(&db_path);
     }
 
     #[tokio::test]
     async fn dissolve_refuses_and_mutates_nothing_when_a_quote_is_already_paid() {
-        let store_path = temp_store_path("dissolve-invariant");
         let db_path = temp_db_path("dissolve-invariant");
-        let _ = std::fs::remove_file(&store_path);
         let _ = std::fs::remove_file(&db_path);
-        seed_genesis_store(&store_path, "hash_test_genesis_dissolve_invariant");
-
         let mint = test_mint_file(&db_path).await;
-        let mut settings = test_settings(store_path.clone());
+        seed_genesis_store(&mint.localstore(), "hash_test_genesis_dissolve_invariant").await;
+
+        let mut settings = test_settings();
         settings.mint_db_path = db_path.clone();
         let manager = EpochManager::load_or_genesis(mint.clone(), settings)
             .await
@@ -1964,20 +2244,17 @@ mod tests {
             "the paid quote must be untouched"
         );
 
-        let _ = std::fs::remove_file(&store_path);
         let _ = std::fs::remove_file(&db_path);
     }
 
     #[tokio::test]
     async fn dissolve_retries_cleanly_after_a_failed_pay_leaves_the_record_provisional() {
-        let store_path = temp_store_path("dissolve-retry");
         let db_path = temp_db_path("dissolve-retry");
-        let _ = std::fs::remove_file(&store_path);
         let _ = std::fs::remove_file(&db_path);
-        seed_genesis_store(&store_path, "hash_test_genesis_dissolve_retry");
-
         let mint = test_mint_file(&db_path).await;
-        let mut settings = test_settings(store_path.clone());
+        seed_genesis_store(&mint.localstore(), "hash_test_genesis_dissolve_retry").await;
+
+        let mut settings = test_settings();
         settings.mint_db_path = db_path.clone();
         let manager = EpochManager::load_or_genesis(mint.clone(), settings)
             .await
@@ -2031,7 +2308,6 @@ mod tests {
         assert_eq!(moved.unit.to_string(), prev_unit, "the quote must have moved to the previous unit");
         assert_eq!(moved.amount_paid().value(), 10, "the quote must be paid after the retry");
 
-        let _ = std::fs::remove_file(&store_path);
         let _ = std::fs::remove_file(&db_path);
     }
 }
