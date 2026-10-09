@@ -418,9 +418,15 @@ impl EpochManager {
 
     async fn tick(&self) -> Result<()> {
         self.init_watermark_if_absent().await?;
-        self.resync().await?;
-        self.walk_forward().await?;
-        self.run_finality_pass().await?;
+        // One tip for the whole tick: resync, the forward walk, and the
+        // finality pass all reason about the same chain-height snapshot, and
+        // nothing below asks the node for a height above it (a transient
+        // shortening, e.g. a reorg to a shorter tip, must never turn into a
+        // "Result not found" tick error).
+        let tip = rpc_block_count(&self.rpc).await?;
+        self.resync(tip).await?;
+        self.walk_forward(tip).await?;
+        self.run_finality_pass(tip).await?;
         Ok(())
     }
 
@@ -440,11 +446,20 @@ impl EpochManager {
         store.set_watermark(ScannedBlock { height: tip, hash }, self.recent_cap())
     }
 
-    /// Walks `recent` newest to oldest for the first entry the node still
-    /// agrees with, and rolls the watermark back to it. If none agree, the
-    /// retained window itself is behind a reorg; fall back to the node's
-    /// hash one below the oldest retained height.
-    async fn resync(&self) -> Result<()> {
+    /// Walks `recent` newest to oldest (the watermark is `recent`'s last
+    /// entry, so it is checked first) for the first entry the node still
+    /// agrees with, and rolls the watermark back to it. Stops at the first
+    /// canonical entry instead of checking every one — at depth 60 that is
+    /// one RPC call per tick in the steady state, not sixty. An entry above
+    /// `tip` cannot exist on the node yet (a transient shortening of the
+    /// chain, not necessarily a reorg of our boundary) and is skipped
+    /// without an RPC call; `getblockhash` for a pruned-away height returns
+    /// "Result not found", which must never become a tick error. If no
+    /// retained entry at or below `tip` agrees, the retained window itself
+    /// is behind a reorg; fall back to the node's hash one below the oldest
+    /// retained height. Mirrors `rollback_point`, which pins the same
+    /// tip-bounded, newest-first semantics as a pure, tested function.
+    async fn resync(&self, tip: u64) -> Result<()> {
         let recent = {
             let store = self.store.lock().await;
             store.recent().to_vec()
@@ -457,14 +472,18 @@ impl EpochManager {
             store.watermark().cloned()
         };
 
-        let mut canonical = std::collections::HashMap::new();
-        for b in &recent {
+        let mut found: Option<ScannedBlock> = None;
+        for b in recent.iter().rev() {
+            if b.height > tip {
+                tracing::debug!(height = b.height, tip, "retained entry above the tip; skipping");
+                continue;
+            }
             let hash = self.get_block_hash(b.height).await?;
-            canonical.insert(b.height, hash == b.hash);
+            if hash == b.hash {
+                found = Some(b.clone());
+                break;
+            }
         }
-        let found = rollback_point(&recent, |b| {
-            canonical.get(&b.height).copied().unwrap_or(false)
-        });
 
         match found {
             Some(point) => {
@@ -482,7 +501,9 @@ impl EpochManager {
             None => {
                 tracing::error!("reorg deeper than the retained window");
                 let oldest = recent.first().expect("checked non-empty above");
-                let height = oldest.height.saturating_sub(1);
+                // Clamp to `tip`: if the chain also shrank, "one below the
+                // oldest retained height" can itself still be above it.
+                let height = oldest.height.saturating_sub(1).min(tip);
                 let hash = self.get_block_hash(height).await?;
                 let mut store = self.store.lock().await;
                 store.rollback_to(height)?;
@@ -492,8 +513,7 @@ impl EpochManager {
         }
     }
 
-    async fn walk_forward(&self) -> Result<()> {
-        let tip = rpc_block_count(&self.rpc).await?;
+    async fn walk_forward(&self, tip: u64) -> Result<()> {
         loop {
             let watermark = {
                 let store = self.store.lock().await;
@@ -576,14 +596,20 @@ impl EpochManager {
 
     /// For each provisional record whose boundary is still canonical and has
     /// reached `confirmation_depth` confirmations, oldest first: finalize it.
-    async fn run_finality_pass(&self) -> Result<()> {
-        let tip = rpc_block_count(&self.rpc).await?;
+    async fn run_finality_pass(&self, tip: u64) -> Result<()> {
         let records = {
             let store = self.store.lock().await;
             store.non_dissolved()
         };
         let mut canonical = std::collections::HashMap::new();
         for r in records.iter().filter(|r| r.state == EpochState::Provisional) {
+            if r.height > tip {
+                // Can't exist on the node yet; never canonical, never due.
+                // Leaving it out of `canonical` below is enough (missing →
+                // not canonical), and skips the "Result not found" RPC call.
+                tracing::debug!(height = r.height, tip, unit = %r.unit, "boundary above the tip; skipping finality check");
+                continue;
+            }
             if let Some(expected_hash) = &r.block_hash {
                 let actual = self.get_block_hash(r.height).await?;
                 canonical.insert(r.unit.clone(), actual == *expected_hash);
@@ -872,13 +898,25 @@ pub fn due_for_finality(
         .collect()
 }
 
-/// The newest entry in `recent` the node still agrees with, or `None` if no
-/// entry is canonical (a reorg deeper than the retained window).
+/// The newest entry in `recent`, at or below `tip`, the node still agrees
+/// with, or `None` if no such entry is canonical (a reorg deeper than the
+/// retained window). An entry above `tip` cannot exist on the node's chain
+/// and is never canonical — callers must not spend an RPC call on it.
+/// `resync` mirrors this exact search by hand (see its doc comment) so it
+/// can make the `is_canonical` check lazily, one RPC call at a time, instead
+/// of eagerly checking every entry as this pure version does for testing.
+#[allow(dead_code)]
 pub fn rollback_point(
     recent: &[ScannedBlock],
+    tip: u64,
     is_canonical: impl Fn(&ScannedBlock) -> bool,
 ) -> Option<ScannedBlock> {
-    recent.iter().rev().find(|b| is_canonical(b)).cloned()
+    recent
+        .iter()
+        .rev()
+        .filter(|b| b.height <= tip)
+        .find(|b| is_canonical(b))
+        .cloned()
 }
 
 /// Retires every record whose unit is not in `keep`. All selected
@@ -1610,14 +1648,29 @@ mod tests {
     #[test]
     fn rollback_point_prefers_the_newest_canonical_entry() {
         let recent = vec![block(100, "h100"), block(101, "h101"), block(102, "h102")];
-        let point = rollback_point(&recent, |b| b.height != 102);
+        let point = rollback_point(&recent, 102, |b| b.height != 102);
         assert_eq!(point, Some(block(101, "h101")));
     }
 
     #[test]
     fn rollback_point_none_when_nothing_is_canonical() {
         let recent = vec![block(100, "h100"), block(101, "h101")];
-        assert_eq!(rollback_point(&recent, |_| false), None);
+        assert_eq!(rollback_point(&recent, 101, |_| false), None);
+    }
+
+    #[test]
+    fn rollback_point_skips_entries_above_the_tip_without_consulting_is_canonical() {
+        let recent: Vec<ScannedBlock> = (10..20).map(|h| block(h, &format!("h{h}"))).collect();
+        let tip = 15;
+        let point = rollback_point(&recent, tip, |b| {
+            assert!(
+                b.height <= tip,
+                "must never ask is_canonical about height {} above tip {tip}",
+                b.height
+            );
+            true
+        });
+        assert_eq!(point, Some(block(15, "h15")), "the newest canonical entry at or below the tip");
     }
 
     // --- EpochManager: finalize / dissolve ---
