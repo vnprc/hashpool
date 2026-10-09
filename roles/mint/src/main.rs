@@ -49,20 +49,39 @@ struct BitcoinRpcConfig {
 use lib::epoch::{admin_router, EpochManager, EpochSettings};
 use lib::{connect_to_pool_sv2, setup_mint};
 
-/// Blocks `POST /v1/mint/quote/ehash` (404): cdk-axum mounts it for every
-/// custom method, but bulk-pay pays every unpaid quote in a finalized unit,
-/// so an open quote-creation route would let anyone mint ehash for free.
+/// Blocks every `POST /v1/mint/quote/<method>` (404): bulk-pay would mint
+/// whatever quote it created for free at finality, and this mint's only
+/// real quote-creation path is the SV2 message from the pool, never HTTP.
 async fn block_ehash_quote_creation(
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    if req.method() == hyper::Method::POST && req.uri().path() == "/v1/mint/quote/ehash" {
+    if is_http_quote_creation(req.method(), req.uri().path()) {
         return axum::response::Response::builder()
             .status(axum::http::StatusCode::NOT_FOUND)
             .body(axum::body::Body::empty())
             .expect("static response is well-formed");
     }
     next.run(req).await
+}
+
+/// `method` is any POST under `/v1/mint/quote/`, after percent-decoding and
+/// case-folding the path: axum decodes the `{method}` segment before cdk
+/// ever sees it, and cdk lowercases custom method names, so comparing the
+/// raw path (as a first version of this middleware did) let
+/// `%65hash`/`EHASH` through.
+fn is_http_quote_creation(method: &hyper::Method, raw_path: &str) -> bool {
+    if method != hyper::Method::POST {
+        return false;
+    }
+    let decoded = percent_encoding::percent_decode_str(raw_path).decode_utf8_lossy();
+    let mut segments = decoded
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_lowercase());
+    segments.next().as_deref() == Some("v1")
+        && segments.next().as_deref() == Some("mint")
+        && segments.next().as_deref() == Some("quote")
 }
 
 #[tokio::main]
@@ -251,5 +270,36 @@ mod tests {
         let expected = bitcoin::Address::p2wpkh(&compressed, bitcoin::Network::Regtest).to_string();
 
         assert_eq!(configured, expected);
+    }
+
+    fn blocked(raw_path: &str) {
+        assert!(
+            is_http_quote_creation(&hyper::Method::POST, raw_path),
+            "{raw_path} must be blocked"
+        );
+    }
+
+    fn allowed(method: &hyper::Method, raw_path: &str) {
+        assert!(
+            !is_http_quote_creation(method, raw_path),
+            "{method} {raw_path} must be allowed through"
+        );
+    }
+
+    #[test]
+    fn blocks_every_post_quote_creation_path_regardless_of_method_name_or_encoding() {
+        blocked("/v1/mint/quote/ehash");
+        blocked("/v1/mint/quote/%65hash");
+        blocked("/v1/mint/quote/EHASH");
+        blocked("/v1//mint/quote/ehash/");
+        blocked("/v1/mint/quote/bolt11");
+    }
+
+    #[test]
+    fn allows_everything_that_is_not_quote_creation() {
+        allowed(&hyper::Method::GET, "/v1/mint/quote/ehash/abc");
+        allowed(&hyper::Method::POST, "/v1/mint/ehash");
+        allowed(&hyper::Method::POST, "/v1/mint/ehash/batch");
+        allowed(&hyper::Method::POST, "/v1/swap");
     }
 }

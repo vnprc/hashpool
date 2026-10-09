@@ -4167,6 +4167,7 @@ dependencies = [
  "mint_quote_sv2",
  "network_helpers_sv2",
  "noise_sv2",
+ "percent-encoding",
  "roles_logic_sv2",
  "rpc_sv2",
  "serde",
