@@ -515,6 +515,7 @@ impl EpochManager {
             }
             let reward_sats = self.coinbase_reward(&info, &hash).await?;
             self.process_block(height, hash.clone(), reward_sats).await?;
+            tracing::debug!(height, hash = %hash, "watermark advancing");
             let mut store = self.store.lock().await;
             store.set_watermark(ScannedBlock { height, hash }, self.recent_cap())?;
         }
