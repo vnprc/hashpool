@@ -310,6 +310,9 @@ scenario_4() {
   block_hash=$(epochs ".records[] | select(.unit == \"$unit\") | .block_hash")
 
   cli invalidateblock "$block_hash" > /dev/null
+  # Regtest blocks mined within the same second as the invalidated block can
+  # be byte-identical (same height, address, timestamp) and get rejected.
+  sleep 1
   cli generatetoaddress 2 "$(other_addr)" > /dev/null
 
   if wait_for 30 record_is_dissolved "$unit"; then
@@ -358,6 +361,9 @@ scenario_5() {
   old_hash=$(epochs ".records[] | select(.unit == \"$unit\") | .block_hash")
 
   cli invalidateblock "$old_hash" > /dev/null
+  # Regtest blocks mined within the same second as the invalidated block can
+  # be byte-identical (same height, address, timestamp) and get rejected.
+  sleep 1
   cli generatetoaddress 1 "$(mint_addr)" > /dev/null
 
   if wait_for 30 record_remined_at_height "$h" "$old_hash"; then
