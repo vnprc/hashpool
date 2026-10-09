@@ -16,13 +16,21 @@ use cdk_common::database::DynMintDatabase;
 use cdk_ehash::EhashPaymentProcessor;
 use rpc_sv2::mini_rpc_client::{Auth, BlockInfo, MiniRpcClient};
 use std::collections::HashSet;
+use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{EpochRecord, EpochSource, EpochState, EpochStore, ScannedBlock, Tx};
 use tokio::sync::{RwLock, RwLockReadGuard};
 use tracing::{info, warn};
+
+/// A `with_store_tx` closure borrows its `EpochStore`/`Tx` arguments for a
+/// lifetime `with_store_tx` itself chooses (its locals), so the closure
+/// must be polymorphic over that lifetime; stable Rust can express that for
+/// a boxed future but not for a bare generic `Fut: Future`, hence the box.
+type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// Number of keys per epoch keyset (amounts 2^0 .. 2^(NUM_KEYS-1)).
 const NUM_KEYS: u32 = 64;
@@ -250,26 +258,38 @@ impl EpochManager {
         Ok(manager)
     }
 
-    /// Locks the store, clones it, runs `f` with the clone and a fresh
-    /// transaction (`f` must call `tx.commit()` itself before returning),
-    /// and only on success assigns the clone back. A failed commit, or any
-    /// other error `f` returns, leaves the locked store exactly as it was.
-    async fn with_store_tx<F, Fut, T>(&self, f: F) -> Result<T>
+    /// Locks the store, clones it, runs `f` against the clone and a fresh
+    /// transaction, and on success commits and assigns the clone back. The
+    /// helper owns the transaction, not `f`: on error it awaits
+    /// `tx.rollback()` itself before propagating, rather than dropping
+    /// `tx` and relying on cdk's background rollback-on-drop, which is not
+    /// guaranteed to finish before the next statement that wants the same
+    /// write lock runs. Either way, the locked store is left exactly as it
+    /// was on error.
+    async fn with_store_tx<F, T>(&self, f: F) -> Result<T>
     where
-        F: FnOnce(EpochStore, Tx) -> Fut,
-        Fut: std::future::Future<Output = Result<(EpochStore, T)>>,
+        for<'a> F: FnOnce(&'a mut EpochStore, &'a mut Tx) -> BoxFuture<'a, Result<T>>,
     {
         let mut guard = self.store.lock().await;
-        let clone = guard.clone();
-        let tx = self
+        let mut clone = guard.clone();
+        let mut tx = self
             .mint
             .localstore()
             .begin_transaction()
             .await
             .map_err(|e| anyhow!("begin_transaction: {e}"))?;
-        let (new_store, value) = f(clone, tx).await?;
-        *guard = new_store;
-        Ok(value)
+
+        match f(&mut clone, &mut tx).await {
+            Ok(value) => {
+                tx.commit().await.map_err(|e| anyhow!("commit: {e}"))?;
+                *guard = clone;
+                Ok(value)
+            }
+            Err(e) => {
+                let _ = tx.rollback().await;
+                Err(e)
+            }
+        }
     }
 
     /// Contract: hold the returned guard across both "which unit" and "pay
@@ -452,10 +472,10 @@ impl EpochManager {
         let cap = self.recent_cap();
 
         let previous = self
-            .with_store_tx(|mut store, mut tx| {
+            .with_store_tx(|store, tx| {
                 let record = record.clone();
                 let watermark = watermark.clone();
-                async move {
+                Box::pin(async move {
                     // Re-checked here, under the lock this transaction holds,
                     // right before appending: the manual lever's own earlier
                     // (dropped) pre-check could otherwise race a reward.
@@ -468,14 +488,13 @@ impl EpochManager {
                         }
                     }
 
-                    store.append(&mut tx, record).await?;
+                    store.append(tx, record).await?;
                     if let Some(w) = watermark {
-                        store.set_watermark(&mut tx, w, cap).await?;
+                        store.set_watermark(tx, w, cap).await?;
                     }
-                    tx.commit().await.map_err(|e| anyhow!("commit: {e}"))?;
 
-                    Ok((store, previous))
-                }
+                    Ok(previous)
+                })
             })
             .await?;
 
@@ -549,13 +568,12 @@ impl EpochManager {
         let hash = self.get_block_hash(tip).await?;
         warn!(height = tip, "epoch store has no watermark; starting scan at the current tip");
         let cap = self.recent_cap();
-        self.with_store_tx(|mut store, mut tx| {
+        self.with_store_tx(|store, tx| {
             let hash = hash.clone();
-            async move {
-                store.set_watermark(&mut tx, ScannedBlock { height: tip, hash }, cap).await?;
-                tx.commit().await.map_err(|e| anyhow!("commit: {e}"))?;
-                Ok((store, ()))
-            }
+            Box::pin(async move {
+                store.set_watermark(tx, ScannedBlock { height: tip, hash }, cap).await?;
+                Ok(())
+            })
         })
         .await
     }
@@ -591,13 +609,12 @@ impl EpochManager {
                         to = point.height,
                         "watermark rollback"
                     );
-                    self.with_store_tx(|mut store, mut tx| {
+                    self.with_store_tx(|store, tx| {
                         let height = point.height;
-                        async move {
-                            store.rollback_to(&mut tx, height).await?;
-                            tx.commit().await.map_err(|e| anyhow!("commit: {e}"))?;
-                            Ok((store, ()))
-                        }
+                        Box::pin(async move {
+                            store.rollback_to(tx, height).await?;
+                            Ok(())
+                        })
                     })
                     .await?;
                 }
@@ -611,14 +628,13 @@ impl EpochManager {
                 let height = oldest.height.saturating_sub(1).min(tip);
                 let hash = self.get_block_hash(height).await?;
                 let cap = self.recent_cap();
-                self.with_store_tx(|mut store, mut tx| {
+                self.with_store_tx(|store, tx| {
                     let hash = hash.clone();
-                    async move {
-                        store.rollback_to(&mut tx, height).await?;
-                        store.set_watermark(&mut tx, ScannedBlock { height, hash }, cap).await?;
-                        tx.commit().await.map_err(|e| anyhow!("commit: {e}"))?;
-                        Ok((store, ()))
-                    }
+                    Box::pin(async move {
+                        store.rollback_to(tx, height).await?;
+                        store.set_watermark(tx, ScannedBlock { height, hash }, cap).await?;
+                        Ok(())
+                    })
                 })
                 .await?;
                 Ok(())
@@ -650,13 +666,12 @@ impl EpochManager {
             self.process_block(height, hash.clone(), reward_sats).await?;
             tracing::debug!(height, hash = %hash, "watermark advancing");
             let cap = self.recent_cap();
-            self.with_store_tx(|mut store, mut tx| {
+            self.with_store_tx(|store, tx| {
                 let hash = hash.clone();
-                async move {
-                    store.set_watermark(&mut tx, ScannedBlock { height, hash }, cap).await?;
-                    tx.commit().await.map_err(|e| anyhow!("commit: {e}"))?;
-                    Ok((store, ()))
-                }
+                Box::pin(async move {
+                    store.set_watermark(tx, ScannedBlock { height, hash }, cap).await?;
+                    Ok(())
+                })
             })
             .await?;
         }
@@ -677,27 +692,32 @@ impl EpochManager {
                     .iter()
                     .find(|r| r.unit == unit)
                     .and_then(|r| r.block_hash.clone());
-                self.with_store_tx(|mut store, mut tx| {
-                    let unit = unit.clone();
-                    let hash = hash.clone();
-                    async move {
-                        let mut current = self.current.write().await;
-                        store
-                            .update_record(&mut tx, &unit, |r| {
-                                r.block_hash = Some(hash.clone());
-                                r.reward_sats = Some(reward_sats);
-                            })
-                            .await?;
-                        tx.commit().await.map_err(|e| anyhow!("commit: {e}"))?;
-                        if current.unit == unit {
-                            if let Some(updated) = store.record(&unit) {
-                                *current = updated;
-                            }
-                        }
-                        Ok((store, ()))
+                // `current` is updated only after the transaction below
+                // commits (never inside the closure): `with_store_tx` only
+                // assigns its store clone back on a successful commit, and
+                // writing `current` first would announce a hash that a
+                // failed commit could still roll back.
+                let updated = self
+                    .with_store_tx(|store, tx| {
+                        let unit = unit.clone();
+                        let hash = hash.clone();
+                        Box::pin(async move {
+                            store
+                                .update_record(tx, &unit, |r| {
+                                    r.block_hash = Some(hash.clone());
+                                    r.reward_sats = Some(reward_sats);
+                                })
+                                .await?;
+                            Ok(store.record(&unit))
+                        })
+                    })
+                    .await?;
+                if let Some(updated) = updated {
+                    let mut current = self.current.write().await;
+                    if current.unit == unit {
+                        *current = updated;
                     }
-                })
-                .await?;
+                }
                 info!(unit = %unit, height, old_hash = ?old_hash, new_hash = %hash, "epoch re-mined at same height");
             }
             BlockAction::Dissolve { unit } => {
@@ -1930,12 +1950,15 @@ mod tests {
         };
 
         let result: Result<()> = manager
-            .with_store_tx(|mut store, mut tx| async move {
-                store
-                    .append(&mut tx, record(999, "hash_test_should_not_persist", EpochState::Final))
-                    .await?;
-                // Never commits: the closure errors before `tx.commit()`.
-                Err(anyhow!("simulated failure before commit"))
+            .with_store_tx(|store, tx| {
+                Box::pin(async move {
+                    store
+                        .append(tx, record(999, "hash_test_should_not_persist", EpochState::Final))
+                        .await?;
+                    // The helper commits only on `Ok`; returning `Err` here
+                    // makes it roll back instead.
+                    Err(anyhow!("simulated failure before commit"))
+                })
             })
             .await;
         assert!(result.is_err(), "a failing closure must propagate its error");
