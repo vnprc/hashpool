@@ -238,18 +238,15 @@ impl EpochStore {
     }
 }
 
-/// Writes `body` to a temp file beside `path`, fsyncs it, renames it into
-/// place, then fsyncs the parent directory — so a crash mid-write leaves
-/// either the old content or the new, never a truncated file, and the
-/// rename itself survives power loss.
+/// A crash at any point leaves the old file or the new one, never a
+/// truncated one.
 fn persist_blocking(path: &Path, body: Vec<u8>) -> Result<()> {
     use std::fs::File;
     use std::io::Write;
 
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("creating {}", parent.display()))?;
-    }
+    let parent = parent_dir(path);
+    std::fs::create_dir_all(&parent)
+        .with_context(|| format!("creating {}", parent.display()))?;
     let tmp = path.with_extension("json.tmp");
     {
         let mut file =
@@ -260,13 +257,21 @@ fn persist_blocking(path: &Path, body: Vec<u8>) -> Result<()> {
             .with_context(|| format!("fsyncing {}", tmp.display()))?;
     }
     std::fs::rename(&tmp, path).with_context(|| format!("renaming into {}", path.display()))?;
-    if let Some(parent) = path.parent() {
-        let dir = File::open(parent)
-            .with_context(|| format!("opening {} to fsync the rename", parent.display()))?;
-        dir.sync_all()
-            .with_context(|| format!("fsyncing {}", parent.display()))?;
-    }
+    let dir = File::open(&parent)
+        .with_context(|| format!("opening {} to fsync the rename", parent.display()))?;
+    dir.sync_all()
+        .with_context(|| format!("fsyncing {}", parent.display()))?;
     Ok(())
+}
+
+/// `path.parent()` is `Some("")` for a bare relative path like
+/// `"epochs.json"` — an empty path is not openable as a directory, so it
+/// must be normalized to `.` (the actual directory it names).
+fn parent_dir(path: &Path) -> PathBuf {
+    match path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+        _ => PathBuf::from("."),
+    }
 }
 
 pub fn unix_now() -> u64 {
@@ -524,5 +529,31 @@ mod tests {
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&tmp);
+    }
+
+    /// A bare relative path like `"epochs.json"` has `Path::parent() ==
+    /// Some("")`, which is not an openable directory — `persist` must
+    /// normalize that to `.` for both `create_dir_all` and the post-rename
+    /// directory fsync, or the write commits but `persist` still reports
+    /// failure (and memory rolls back while disk did not).
+    #[tokio::test]
+    async fn persist_succeeds_at_a_bare_relative_path() {
+        let dir = std::env::temp_dir().join(format!("epoch-store-test-relative-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let original_cwd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+
+        let path = PathBuf::from("epochs.json");
+        let mut store = EpochStore::create_new(&path).unwrap();
+        let append_result = store.append(record(100, "a", EpochState::Final)).await;
+        let reload_result = EpochStore::load(&path);
+
+        std::env::set_current_dir(&original_cwd).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        append_result.unwrap();
+        let reloaded = reload_result.unwrap();
+        assert_eq!(reloaded.current().unwrap().unit, "a");
     }
 }
