@@ -51,6 +51,21 @@ fn is_invariant_violation(e: &anyhow::Error) -> bool {
     e.downcast_ref::<InvariantViolation>().is_some()
 }
 
+/// Refusal marker: a `Final` epoch (genesis/manual) was attempted while the
+/// current epoch is still provisional. Lets the manual lever answer 409
+/// without its own racing pre-check — `open_epoch` decides under the store
+/// lock, atomically with the rest of the open.
+#[derive(Debug)]
+pub struct ProvisionalCurrent;
+
+impl std::fmt::Display for ProvisionalCurrent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "current epoch is provisional; manual rotation refused")
+    }
+}
+
+impl std::error::Error for ProvisionalCurrent {}
+
 #[derive(Debug, Clone)]
 pub struct EpochSettings {
     /// Pool identity: compressed secp256k1 pubkey, lowercase hex. Namespaces
@@ -331,6 +346,15 @@ impl EpochManager {
 
         let mut store = self.store.lock().await;
         let previous = store.current().cloned();
+
+        if state == EpochState::Final {
+            if let Some(prev) = &previous {
+                if prev.state == EpochState::Provisional {
+                    return Err(anyhow::Error::new(ProvisionalCurrent));
+                }
+            }
+        }
+
         let mut suffix = store.count_at_height(height);
         let mut attempts = 0u32;
 
@@ -1059,17 +1083,6 @@ pub fn admin_router(manager: Arc<EpochManager>) -> Router {
 }
 
 async fn rotate_epoch_handler(State(manager): State<Arc<EpochManager>>) -> impl IntoResponse {
-    {
-        let current = manager.current_epoch().await;
-        if current.state == EpochState::Provisional {
-            return (
-                StatusCode::CONFLICT,
-                Json(serde_json::json!({
-                    "error": "current epoch is provisional; manual rotation refused"
-                })),
-            );
-        }
-    }
     let height = match manager.chain_height().await {
         Ok(h) => h,
         Err(e) => {
@@ -1090,6 +1103,10 @@ async fn rotate_epoch_handler(State(manager): State<Arc<EpochManager>>) -> impl 
                 "keyset_id": record.keyset_id,
                 "height": record.height,
             })),
+        ),
+        Err(e) if e.downcast_ref::<ProvisionalCurrent>().is_some() => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": e.to_string() })),
         ),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1695,6 +1712,63 @@ mod tests {
             true
         });
         assert_eq!(point, Some(block(15, "h15")), "the newest canonical entry at or below the tip");
+    }
+
+    // --- EpochManager: open_epoch refusal ---
+
+    #[tokio::test]
+    async fn open_epoch_refuses_a_final_open_while_current_is_provisional() {
+        let store_path = temp_store_path("provisional-refuse");
+        let _ = std::fs::remove_file(&store_path);
+        seed_genesis_store(&store_path, "hash_test_genesis_provisional_refuse");
+
+        let mint = test_mint().await;
+        let settings = test_settings(store_path.clone());
+        let manager = EpochManager::load_or_genesis(mint.clone(), settings)
+            .await
+            .unwrap();
+
+        manager
+            .open_epoch(
+                100,
+                Some("hash_a".into()),
+                Some(500),
+                EpochSource::Reward,
+                EpochState::Provisional,
+            )
+            .await
+            .unwrap();
+
+        let record_count_before = {
+            let store = manager.store.lock().await;
+            store.non_dissolved().len()
+        };
+
+        let result = manager
+            .open_epoch(200, None, None, EpochSource::Manual, EpochState::Final)
+            .await;
+        assert!(
+            result.is_err(),
+            "a manual Final open must be refused while current is provisional"
+        );
+        assert!(
+            result
+                .unwrap_err()
+                .downcast_ref::<ProvisionalCurrent>()
+                .is_some(),
+            "the refusal must be the typed ProvisionalCurrent error"
+        );
+
+        let record_count_after = {
+            let store = manager.store.lock().await;
+            store.non_dissolved().len()
+        };
+        assert_eq!(
+            record_count_before, record_count_after,
+            "a refused open must create no record"
+        );
+
+        let _ = std::fs::remove_file(&store_path);
     }
 
     // --- EpochManager: finalize / dissolve ---
