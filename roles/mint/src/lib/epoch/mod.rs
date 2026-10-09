@@ -150,14 +150,16 @@ impl EpochManager {
                 .current()
                 .cloned()
                 .ok_or_else(|| anyhow!("epoch store has records but no current (non-dissolved) one"))?;
-            let non_dissolved = store.non_dissolved();
+            // Chronological, not insertion, order: a reorg rescan can append
+            // a lower-height record after still-provisional higher ones.
+            let chronological = store.chronological();
             let outstanding = outstanding_quote_units(&mint).await?;
 
             // Must stay quotable across a restart (EPOCH_DESIGN.md, "Dissolve").
-            let chain = resumable_chain(&non_dissolved);
+            let chain = resumable_chain(&chronological);
 
             // EPOCH_DESIGN.md, `only_mintable`.
-            let to_restore: Vec<EpochRecord> = non_dissolved
+            let to_restore: Vec<EpochRecord> = chronological
                 .iter()
                 .filter(|r| outstanding.contains(&r.unit) || chain.contains(&r.unit))
                 .cloned()
@@ -187,7 +189,7 @@ impl EpochManager {
             // Every non-chain record, not just the register set: one left out may still
             // carry a quote-creation gate persisted by an earlier process.
             let retire_mint = manager.mint.clone();
-            retire_all_except(&non_dissolved, &chain, move |unit| {
+            retire_all_except(&chronological, &chain, move |unit| {
                 let mint = retire_mint.clone();
                 async move {
                     let currency_unit = CurrencyUnit::Custom(unit.into());
@@ -782,9 +784,10 @@ impl EpochManager {
     /// For each provisional record whose boundary is still canonical and has
     /// reached `confirmation_depth` confirmations, oldest first: finalize it.
     async fn run_finality_pass(&self, tip: u64) -> Result<()> {
+        // Chronological order, not insertion order: see `chronological`.
         let records = {
             let store = self.store.lock().await;
-            store.non_dissolved()
+            store.chronological()
         };
         let mut canonical = std::collections::HashMap::new();
         for r in records.iter().filter(|r| r.state == EpochState::Provisional) {
@@ -1246,10 +1249,11 @@ where
 }
 
 /// Every epoch a cascade of dissolves could hand the current role to.
-/// Requires `non_dissolved` oldest first, current last.
-fn resumable_chain(non_dissolved: &[EpochRecord]) -> HashSet<String> {
+/// Requires `records` in chronological order (`EpochStore::chronological`),
+/// oldest first.
+fn resumable_chain(records: &[EpochRecord]) -> HashSet<String> {
     let mut chain = HashSet::new();
-    for record in non_dissolved.iter().rev() {
+    for record in records.iter().rev() {
         chain.insert(record.unit.clone());
         if record.state != EpochState::Provisional {
             break;
@@ -1387,6 +1391,13 @@ mod tests {
             "epoch-manager-test-{}-{label}-{n}.sqlite",
             std::process::id()
         ))
+    }
+
+    /// A syntactically valid V1 keyset id ("00" + 14 hex digits) for
+    /// records seeded directly (bypassing `open_epoch`, so with no real
+    /// keyset behind them) that still need to parse inside `dissolve`.
+    fn valid_keyset_id(n: u64) -> String {
+        format!("00{n:014x}")
     }
 
     fn record(height: u64, unit: &str, state: EpochState) -> EpochRecord {
@@ -1936,6 +1947,43 @@ mod tests {
         );
     }
 
+    #[test]
+    fn resumable_chain_and_due_for_finality_use_chronological_order_after_a_reorg_rescan() {
+        // The reviewer's exact sequence: genesis(final), 100 and 110
+        // provisional on branch A, then 95 provisional opened and appended
+        // last on the replacement branch. `chronological` (tested in
+        // store.rs) is what produces this ordering; here it's taken as a
+        // given input to check `resumable_chain` and `due_for_finality`
+        // against it directly.
+        let genesis = record(0, "genesis", EpochState::Final);
+        let mut h95 = record(95, "h95", EpochState::Provisional);
+        h95.block_hash = Some("hash95".into());
+        let mut h100 = record(100, "h100", EpochState::Provisional);
+        h100.block_hash = Some("hash100".into());
+        let mut h110 = record(110, "h110", EpochState::Provisional);
+        h110.block_hash = Some("hash110".into());
+        let chronological = vec![genesis, h95, h100, h110];
+
+        let chain = resumable_chain(&chronological);
+        assert_eq!(
+            chain,
+            HashSet::from([
+                "genesis".to_string(),
+                "h95".to_string(),
+                "h100".to_string(),
+                "h110".to_string(),
+            ]),
+            "the resumable chain reaches all the way back to genesis through the stacked provisionals"
+        );
+
+        let due = due_for_finality(&chronological, 1000, 1, |_| true);
+        assert_eq!(
+            due,
+            vec!["h95".to_string(), "h100".to_string(), "h110".to_string()],
+            "finality order follows height, not insertion order"
+        );
+    }
+
     // --- rollback_point ---
 
     #[tokio::test]
@@ -2370,6 +2418,89 @@ mod tests {
         let moved = quotes.iter().find(|q| q.id.to_string() == quote_id).unwrap();
         assert_eq!(moved.unit.to_string(), prev_unit, "the quote must have moved to the previous unit");
         assert_eq!(moved.amount_paid().value(), 10, "the quote must be paid after the retry");
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[tokio::test]
+    async fn dissolve_uses_chronological_not_insertion_order_for_the_previous_epoch() {
+        // The reviewer's exact reorg-rescan sequence: provisional rewards
+        // at 100 and 110 on branch A; a reorg below 100; branch B pays the
+        // mint at 95, which the forward walk opens and appends AFTER 100
+        // and 110 in insertion order, even though 95 < 100 < 110.
+        let db_path = temp_db_path("dissolve-chronology");
+        let _ = std::fs::remove_file(&db_path);
+        let mint = test_mint_file(&db_path).await;
+
+        {
+            let db = mint.localstore();
+            let mut store = EpochStore::new_empty();
+            let mut tx = db.begin_transaction().await.unwrap();
+
+            let mut genesis = record(0, "genesis", EpochState::Final);
+            genesis.keyset_id = valid_keyset_id(0);
+            store.append(&mut tx, genesis).await.unwrap();
+
+            let mut r100 = record(100, "h100", EpochState::Provisional);
+            r100.keyset_id = valid_keyset_id(100);
+            r100.block_hash = Some("hash100".into());
+            store.append(&mut tx, r100).await.unwrap();
+
+            let mut r110 = record(110, "h110", EpochState::Provisional);
+            r110.keyset_id = valid_keyset_id(110);
+            r110.block_hash = Some("hash110".into());
+            store.append(&mut tx, r110).await.unwrap();
+
+            // Inserted last, even though its height is the smallest.
+            let mut r95 = record(95, "h95", EpochState::Provisional);
+            r95.keyset_id = valid_keyset_id(95);
+            r95.block_hash = Some("hash95".into());
+            store.append(&mut tx, r95).await.unwrap();
+
+            tx.commit().await.unwrap();
+        }
+
+        let mut settings = test_settings();
+        settings.mint_db_path = db_path.clone();
+        let manager = EpochManager::load_or_genesis(mint.clone(), settings)
+            .await
+            .unwrap();
+
+        // `current()` is the last-inserted non-dissolved record (95), not
+        // the tallest height (110) — by design, during this rescan window.
+        assert_eq!(manager.current_epoch().await.unit, "h95");
+
+        let unit_100 = CurrencyUnit::Custom("h100".to_string().into());
+        let quote_id = seed_unpaid_quote(&mint, &unit_100, 10).await;
+
+        manager.dissolve("h100").await.unwrap();
+
+        let quotes = mint.mint_quotes().await.unwrap();
+        let moved = quotes.iter().find(|q| q.id.to_string() == quote_id).unwrap();
+        assert_eq!(
+            moved.unit.to_string(),
+            "h95",
+            "100's chronological predecessor is 95, not genesis (insertion order would say genesis)"
+        );
+        assert_eq!(
+            moved.amount_paid().value(),
+            0,
+            "95 is itself still provisional, so the re-stamped quote waits for 95's own finality"
+        );
+
+        let dissolved_100 = {
+            let store = manager.store.lock().await;
+            store.record("h100").unwrap()
+        };
+        assert_eq!(dissolved_100.state, EpochState::Dissolved);
+
+        // With 100 dissolved, 110's chronological predecessor is now 95 too.
+        manager.dissolve("h110").await.unwrap();
+        let dissolved_110 = {
+            let store = manager.store.lock().await;
+            store.record("h110").unwrap()
+        };
+        assert_eq!(dissolved_110.state, EpochState::Dissolved);
 
         let _ = std::fs::remove_file(&db_path);
     }

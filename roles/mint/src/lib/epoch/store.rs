@@ -123,13 +123,34 @@ impl EpochStore {
             .find(|r| r.state != EpochState::Dissolved)
     }
 
-    /// Oldest first. A dissolved record must never resolve again.
+    /// Oldest first, by insertion order (not chronology — see
+    /// `chronological`). A dissolved record must never resolve again.
     pub fn non_dissolved(&self) -> Vec<EpochRecord> {
         self.records
             .iter()
             .filter(|r| r.state != EpochState::Dissolved)
             .cloned()
             .collect()
+    }
+
+    /// Non-dissolved records in chronological order: ascending by
+    /// `(height, insertion index)`, not by insertion order alone. A reorg
+    /// rescan can append a lower-height record after an already-inserted
+    /// higher one — the watermark rolls back, then walks forward again, so
+    /// a replacement branch's reward lands after the orphaned branch's
+    /// still-provisional records — so insertion order is not chronology.
+    /// `previous_non_dissolved` and callers that need "oldest first" for
+    /// real (`resumable_chain`, the finality pass) use this, never
+    /// `non_dissolved`.
+    pub fn chronological(&self) -> Vec<EpochRecord> {
+        let mut indexed: Vec<(usize, &EpochRecord)> = self
+            .records
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r.state != EpochState::Dissolved)
+            .collect();
+        indexed.sort_by_key(|(idx, r)| (r.height, *idx));
+        indexed.into_iter().map(|(_, r)| r.clone()).collect()
     }
 
     pub fn unit_taken(&self, unit: &str) -> bool {
@@ -141,14 +162,13 @@ impl EpochStore {
         self.records.iter().find(|r| r.unit == unit).cloned()
     }
 
-    /// The nearest non-dissolved record older than `unit`.
+    /// The non-dissolved record with the greatest `(height, insertion
+    /// index)` strictly below `unit`'s own — chronologically previous, not
+    /// positionally previous (see `chronological`).
     pub fn previous_non_dissolved(&self, unit: &str) -> Option<EpochRecord> {
-        let idx = self.records.iter().position(|r| r.unit == unit)?;
-        self.records[..idx]
-            .iter()
-            .rev()
-            .find(|r| r.state != EpochState::Dissolved)
-            .cloned()
+        let chrono = self.chronological();
+        let pos = chrono.iter().position(|r| r.unit == unit)?;
+        pos.checked_sub(1).map(|i| chrono[i].clone())
     }
 
     pub fn watermark(&self) -> Option<&ScannedBlock> {
@@ -386,6 +406,44 @@ mod tests {
 
         assert_eq!(store.previous_non_dissolved("c").unwrap().unit, "a");
         assert!(store.previous_non_dissolved("a").is_none());
+    }
+
+    #[tokio::test]
+    async fn chronological_and_previous_non_dissolved_use_height_not_insertion_order() {
+        // A reorg rescan can append a lower-height record after
+        // still-provisional higher ones: provisional rewards at 100 and
+        // 110 on branch A, then branch B's reward at 95 is opened and
+        // appended last, even though 95 < 100 < 110.
+        let db = test_db().await;
+        let mut store = EpochStore::new_empty();
+        let mut tx = db.begin_transaction().await.unwrap();
+        store.append(&mut tx, record(0, "genesis", EpochState::Final)).await.unwrap();
+        store.append(&mut tx, record(100, "h100", EpochState::Provisional)).await.unwrap();
+        store.append(&mut tx, record(110, "h110", EpochState::Provisional)).await.unwrap();
+        store.append(&mut tx, record(95, "h95", EpochState::Provisional)).await.unwrap();
+        tx.commit().await.unwrap();
+
+        let chrono: Vec<String> = store.chronological().into_iter().map(|r| r.unit).collect();
+        assert_eq!(chrono, vec!["genesis", "h95", "h100", "h110"]);
+
+        assert_eq!(store.previous_non_dissolved("h95").unwrap().unit, "genesis");
+        assert_eq!(store.previous_non_dissolved("h100").unwrap().unit, "h95");
+        assert_eq!(store.previous_non_dissolved("h110").unwrap().unit, "h100");
+    }
+
+    #[tokio::test]
+    async fn previous_non_dissolved_skips_a_dissolved_record_in_chronological_order() {
+        let db = test_db().await;
+        let mut store = EpochStore::new_empty();
+        let mut tx = db.begin_transaction().await.unwrap();
+        store.append(&mut tx, record(0, "genesis", EpochState::Final)).await.unwrap();
+        store.append(&mut tx, record(100, "h100", EpochState::Dissolved)).await.unwrap();
+        store.append(&mut tx, record(110, "h110", EpochState::Provisional)).await.unwrap();
+        store.append(&mut tx, record(95, "h95", EpochState::Provisional)).await.unwrap();
+        tx.commit().await.unwrap();
+
+        // h100 is dissolved, so h110's chronological predecessor is h95.
+        assert_eq!(store.previous_non_dissolved("h110").unwrap().unit, "h95");
     }
 
     #[tokio::test]
