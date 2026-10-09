@@ -66,8 +66,18 @@ other_addr() {
   cli -rpcwallet=regtest getnewaddress
 }
 
+# The epoch records now live in the mint database's cdk key-value store
+# (primary namespace "hashpool", secondary namespace "epochs", key
+# "records"), not a JSON file; the stored value is a bare JSON array, so it
+# is re-wrapped as `{records: ...}` to keep every existing ".records"
+# filter below unchanged.
+epochs_records_json() {
+  sqlite3 .devenv/state/mint/mint.sqlite \
+    "SELECT CAST(value AS TEXT) FROM kv_store WHERE primary_namespace='hashpool' AND secondary_namespace='epochs' AND key='records';"
+}
+
 epochs() {
-  jq -r "$1" .devenv/state/mint/epochs.json
+  epochs_records_json | jq -r "{records: .} | $1"
 }
 
 quotes_in_unit() {
@@ -166,10 +176,10 @@ mint_port_open() {
 # for both at once (",17,37,57,59,62,65," vs. "*,59,*,62,*,65,*").
 three_reward_records_present() {
   local h1="$1" h2="$2" h3="$3"
-  jq -e --argjson want "[$h1, $h2, $h3]" \
-    '[.records[] | select(.source == "reward") | .height] as $have
+  epochs_records_json | jq -e --argjson want "[$h1, $h2, $h3]" \
+    '[.[] | select(.source == "reward") | .height] as $have
      | all($want[]; . as $w | $have | index($w) != null)' \
-    .devenv/state/mint/epochs.json > /dev/null
+    > /dev/null
 }
 
 current_unit() {
