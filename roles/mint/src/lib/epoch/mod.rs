@@ -112,14 +112,27 @@ pub struct EpochManager {
 impl EpochManager {
     /// Load the persisted current epoch, or open the genesis epoch at the
     /// current chain height. Blocks (with retry) until bitcoind answers.
-    pub async fn load_or_genesis(mint: Arc<Mint>, settings: EpochSettings) -> Result<Arc<Self>> {
+    ///
+    /// `fresh_start` is the caller's already-made decision (main.rs: neither
+    /// the mint database nor the epoch store exists yet) — this never probes
+    /// for that itself, so a missing store cannot be mistaken for a fresh
+    /// start by accident.
+    pub async fn load_or_genesis(
+        mint: Arc<Mint>,
+        settings: EpochSettings,
+        fresh_start: bool,
+    ) -> Result<Arc<Self>> {
         let pool_pubkey = naming::validate_pool_pubkey(&settings.pool_pubkey)?;
         let uri: hyper::Uri = settings
             .rpc_url
             .parse()
             .with_context(|| format!("invalid bitcoin_rpc url {}", settings.rpc_url))?;
         let rpc = MiniRpcClient::new(uri, Auth::new(settings.rpc_user, settings.rpc_pass));
-        let store = EpochStore::load(&settings.store_path)?;
+        let store = if fresh_start {
+            EpochStore::create_new(&settings.store_path)?
+        } else {
+            EpochStore::load(&settings.store_path)?
+        };
         let amounts: Vec<u64> = (0..NUM_KEYS).map(|i| 2_u64.pow(i)).collect();
 
         if let Some(current) = store.current().cloned() {
@@ -221,13 +234,15 @@ impl EpochManager {
             .await?;
         {
             let mut store = manager.store.lock().await;
-            store.set_watermark(
-                ScannedBlock {
-                    height,
-                    hash: genesis_hash,
-                },
-                manager.recent_cap(),
-            )?;
+            store
+                .set_watermark(
+                    ScannedBlock {
+                        height,
+                        hash: genesis_hash,
+                    },
+                    manager.recent_cap(),
+                )
+                .await?;
         }
         info!(unit = %record.unit, height, "genesis epoch opened");
         Ok(manager)
@@ -399,7 +414,7 @@ impl EpochManager {
             source,
             opened_at: store::unix_now(),
         };
-        store.append(record.clone())?;
+        store.append(record.clone()).await?;
         *self.current.write().await = record.clone();
 
         // Retire (not deregister) the previous epoch's quote-creation entry
@@ -468,7 +483,9 @@ impl EpochManager {
         let hash = self.get_block_hash(tip).await?;
         warn!(height = tip, "epoch store has no watermark; starting scan at the current tip");
         let mut store = self.store.lock().await;
-        store.set_watermark(ScannedBlock { height: tip, hash }, self.recent_cap())
+        store
+            .set_watermark(ScannedBlock { height: tip, hash }, self.recent_cap())
+            .await
     }
 
     /// Rolls the watermark back to the newest retained entry the node still
@@ -503,7 +520,7 @@ impl EpochManager {
                         "watermark rollback"
                     );
                     let mut store = self.store.lock().await;
-                    store.rollback_to(point.height)?;
+                    store.rollback_to(point.height).await?;
                 }
                 Ok(())
             }
@@ -515,8 +532,10 @@ impl EpochManager {
                 let height = oldest.height.saturating_sub(1).min(tip);
                 let hash = self.get_block_hash(height).await?;
                 let mut store = self.store.lock().await;
-                store.rollback_to(height)?;
-                store.set_watermark(ScannedBlock { height, hash }, self.recent_cap())?;
+                store.rollback_to(height).await?;
+                store
+                    .set_watermark(ScannedBlock { height, hash }, self.recent_cap())
+                    .await?;
                 Ok(())
             }
         }
@@ -546,7 +565,9 @@ impl EpochManager {
             self.process_block(height, hash.clone(), reward_sats).await?;
             tracing::debug!(height, hash = %hash, "watermark advancing");
             let mut store = self.store.lock().await;
-            store.set_watermark(ScannedBlock { height, hash }, self.recent_cap())?;
+            store
+                .set_watermark(ScannedBlock { height, hash }, self.recent_cap())
+                .await?;
         }
     }
 
@@ -567,10 +588,12 @@ impl EpochManager {
                     .and_then(|r| r.block_hash.clone());
                 let mut store = self.store.lock().await;
                 let mut current = self.current.write().await;
-                store.update_record(&unit, |r| {
-                    r.block_hash = Some(hash.clone());
-                    r.reward_sats = Some(reward_sats);
-                })?;
+                store
+                    .update_record(&unit, |r| {
+                        r.block_hash = Some(hash.clone());
+                        r.reward_sats = Some(reward_sats);
+                    })
+                    .await?;
                 if current.unit == unit {
                     if let Some(updated) = store.record(&unit) {
                         *current = updated;
@@ -644,7 +667,7 @@ impl EpochManager {
 
         let paid = self.pay_unpaid_quotes(unit).await?;
 
-        store.update_record(unit, |r| r.state = EpochState::Final)?;
+        store.update_record(unit, |r| r.state = EpochState::Final).await?;
         let updated = store
             .record(unit)
             .expect("just updated, must still be present");
@@ -742,7 +765,7 @@ impl EpochManager {
             paid = self.pay_unpaid_quotes(&prev.unit).await?;
         }
 
-        store.update_record(unit, |r| r.state = EpochState::Dissolved)?;
+        store.update_record(unit, |r| r.state = EpochState::Dissolved).await?;
         if current.unit == unit {
             *current = prev.clone();
         }
@@ -1138,11 +1161,12 @@ mod tests {
 
     /// Pre-populates a store with a genesis-shaped record and watermark, so
     /// `load_or_genesis` takes the resume path and never calls bitcoind.
-    fn seed_genesis_store(path: &std::path::Path, unit: &str) {
-        let mut store = EpochStore::load(path).unwrap();
-        store.append(record(1, unit, EpochState::Final)).unwrap();
+    async fn seed_genesis_store(path: &std::path::Path, unit: &str) {
+        let mut store = EpochStore::create_new(path).unwrap();
+        store.append(record(1, unit, EpochState::Final)).await.unwrap();
         store
             .set_watermark(block(1, "genesis_hash"), 16)
+            .await
             .unwrap();
     }
 
@@ -1298,18 +1322,22 @@ mod tests {
         let store_path = temp_store_path("resume");
         let _ = std::fs::remove_file(&store_path);
 
-        let mut store = EpochStore::load(&store_path).unwrap();
+        let mut store = EpochStore::create_new(&store_path).unwrap();
         store
             .append(record(100, "hash_test_100_dissolved", EpochState::Dissolved))
+            .await
             .unwrap();
         store
             .append(record(150, "hash_test_150_settled", EpochState::Final))
+            .await
             .unwrap();
         store
             .append(record(200, "hash_test_200_owing", EpochState::Final))
+            .await
             .unwrap();
         store
             .append(record(300, "hash_test_300_current", EpochState::Final))
+            .await
             .unwrap();
         drop(store);
 
@@ -1318,7 +1346,7 @@ mod tests {
         seed_paid_quote(&mint, &owing_unit, 10).await;
 
         let settings = test_settings(store_path.clone());
-        let manager = EpochManager::load_or_genesis(mint.clone(), settings)
+        let manager = EpochManager::load_or_genesis(mint.clone(), settings, false)
             .await
             .expect("resume must succeed");
 
@@ -1371,18 +1399,20 @@ mod tests {
         let store_path = temp_store_path("provisional");
         let _ = std::fs::remove_file(&store_path);
 
-        let mut store = EpochStore::load(&store_path).unwrap();
+        let mut store = EpochStore::create_new(&store_path).unwrap();
         store
             .append(record(100, "hash_test_100_prev", EpochState::Final))
+            .await
             .unwrap();
         store
             .append(record(200, "hash_test_200_provisional", EpochState::Provisional))
+            .await
             .unwrap();
         drop(store);
 
         let mint = test_mint().await;
         let settings = test_settings(store_path.clone());
-        let manager = EpochManager::load_or_genesis(mint.clone(), settings)
+        let manager = EpochManager::load_or_genesis(mint.clone(), settings, false)
             .await
             .expect("resume must succeed");
 
@@ -1416,21 +1446,24 @@ mod tests {
         let store_path = temp_store_path("chain");
         let _ = std::fs::remove_file(&store_path);
 
-        let mut store = EpochStore::load(&store_path).unwrap();
+        let mut store = EpochStore::create_new(&store_path).unwrap();
         store
             .append(record(100, "hash_test_100_final", EpochState::Final))
+            .await
             .unwrap();
         store
             .append(record(200, "hash_test_200_provisional", EpochState::Provisional))
+            .await
             .unwrap();
         store
             .append(record(300, "hash_test_300_provisional", EpochState::Provisional))
+            .await
             .unwrap();
         drop(store);
 
         let mint = test_mint().await;
         let settings = test_settings(store_path.clone());
-        let manager = EpochManager::load_or_genesis(mint.clone(), settings)
+        let manager = EpochManager::load_or_genesis(mint.clone(), settings, false)
             .await
             .expect("resume must succeed");
 
@@ -1460,12 +1493,14 @@ mod tests {
         let store_path = temp_store_path("excluded-retire");
         let _ = std::fs::remove_file(&store_path);
 
-        let mut store = EpochStore::load(&store_path).unwrap();
+        let mut store = EpochStore::create_new(&store_path).unwrap();
         store
             .append(record(100, "hash_test_100_stale", EpochState::Final))
+            .await
             .unwrap();
         store
             .append(record(200, "hash_test_200_current", EpochState::Final))
+            .await
             .unwrap();
         drop(store);
 
@@ -1486,7 +1521,7 @@ mod tests {
         .unwrap();
 
         let settings = test_settings(store_path.clone());
-        let manager = EpochManager::load_or_genesis(mint.clone(), settings)
+        let manager = EpochManager::load_or_genesis(mint.clone(), settings, false)
             .await
             .expect("resume must succeed");
 
@@ -1702,11 +1737,11 @@ mod tests {
     async fn open_epoch_refuses_a_final_open_while_current_is_provisional() {
         let store_path = temp_store_path("provisional-refuse");
         let _ = std::fs::remove_file(&store_path);
-        seed_genesis_store(&store_path, "hash_test_genesis_provisional_refuse");
+        seed_genesis_store(&store_path, "hash_test_genesis_provisional_refuse").await;
 
         let mint = test_mint().await;
         let settings = test_settings(store_path.clone());
-        let manager = EpochManager::load_or_genesis(mint.clone(), settings)
+        let manager = EpochManager::load_or_genesis(mint.clone(), settings, false)
             .await
             .unwrap();
 
@@ -1759,11 +1794,11 @@ mod tests {
     async fn finalize_flips_state_pays_seeded_quote_and_retires_previous_unit() {
         let store_path = temp_store_path("finalize");
         let _ = std::fs::remove_file(&store_path);
-        seed_genesis_store(&store_path, "hash_test_genesis_finalize");
+        seed_genesis_store(&store_path, "hash_test_genesis_finalize").await;
 
         let mint = test_mint().await;
         let settings = test_settings(store_path.clone());
-        let manager = EpochManager::load_or_genesis(mint.clone(), settings)
+        let manager = EpochManager::load_or_genesis(mint.clone(), settings, false)
             .await
             .unwrap();
         let genesis_unit = manager.current_epoch().await.unit.clone();
@@ -1812,11 +1847,11 @@ mod tests {
     async fn finalize_leaves_the_record_provisional_and_unpaid_when_pay_fails() {
         let store_path = temp_store_path("finalize-retry");
         let _ = std::fs::remove_file(&store_path);
-        seed_genesis_store(&store_path, "hash_test_genesis_finalize_retry");
+        seed_genesis_store(&store_path, "hash_test_genesis_finalize_retry").await;
 
         let mint = test_mint().await;
         let settings = test_settings(store_path.clone());
-        let manager = EpochManager::load_or_genesis(mint.clone(), settings)
+        let manager = EpochManager::load_or_genesis(mint.clone(), settings, false)
             .await
             .unwrap();
 
@@ -1862,12 +1897,12 @@ mod tests {
         let db_path = temp_db_path("dissolve");
         let _ = std::fs::remove_file(&store_path);
         let _ = std::fs::remove_file(&db_path);
-        seed_genesis_store(&store_path, "hash_test_genesis_dissolve");
+        seed_genesis_store(&store_path, "hash_test_genesis_dissolve").await;
 
         let mint = test_mint_file(&db_path).await;
         let mut settings = test_settings(store_path.clone());
         settings.mint_db_path = db_path.clone();
-        let manager = EpochManager::load_or_genesis(mint.clone(), settings)
+        let manager = EpochManager::load_or_genesis(mint.clone(), settings, false)
             .await
             .unwrap();
         let genesis_unit = manager.current_epoch().await.unit.clone();
@@ -1924,12 +1959,12 @@ mod tests {
         let db_path = temp_db_path("dissolve-invariant");
         let _ = std::fs::remove_file(&store_path);
         let _ = std::fs::remove_file(&db_path);
-        seed_genesis_store(&store_path, "hash_test_genesis_dissolve_invariant");
+        seed_genesis_store(&store_path, "hash_test_genesis_dissolve_invariant").await;
 
         let mint = test_mint_file(&db_path).await;
         let mut settings = test_settings(store_path.clone());
         settings.mint_db_path = db_path.clone();
-        let manager = EpochManager::load_or_genesis(mint.clone(), settings)
+        let manager = EpochManager::load_or_genesis(mint.clone(), settings, false)
             .await
             .unwrap();
 
@@ -1976,12 +2011,12 @@ mod tests {
         let db_path = temp_db_path("dissolve-retry");
         let _ = std::fs::remove_file(&store_path);
         let _ = std::fs::remove_file(&db_path);
-        seed_genesis_store(&store_path, "hash_test_genesis_dissolve_retry");
+        seed_genesis_store(&store_path, "hash_test_genesis_dissolve_retry").await;
 
         let mint = test_mint_file(&db_path).await;
         let mut settings = test_settings(store_path.clone());
         settings.mint_db_path = db_path.clone();
-        let manager = EpochManager::load_or_genesis(mint.clone(), settings)
+        let manager = EpochManager::load_or_genesis(mint.clone(), settings, false)
             .await
             .unwrap();
         let prev_unit = manager.current_epoch().await.unit.clone();

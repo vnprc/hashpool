@@ -123,8 +123,7 @@ async fn main() -> Result<()> {
 
     let global_config: PoolGlobalConfig = toml::from_str(&fs::read_to_string(global_config_path)?)?;
 
-    // Setup mint with all required components - determine database path
-    // Priority: env var > config file (no hardcoded fallback)
+    // Determine database path. Priority: env var > config file (no hardcoded fallback)
     let db_path = std::env::var("CDK_MINT_DB_PATH")
         .ok()
         .or_else(|| {
@@ -137,12 +136,10 @@ async fn main() -> Result<()> {
             "Database path must be specified either via CDK_MINT_DB_PATH environment variable or [hashpool_mint] db_path config"
         ))?;
 
-    tracing::info!("Using database path: {}", db_path);
-    let mint = setup_mint(mint_config.cdk_settings.clone(), db_path.clone()).await?;
-
-    // Epoch mechanics: load the persisted current epoch or open genesis at the
-    // current chain height. Fails loud if the pool identity or bitcoind RPC
-    // config is missing. See docs/EPOCH_DESIGN.md.
+    // Epoch mechanics config: validated up front, before setup_mint creates
+    // the mint database below, so a bad setting or a store/database
+    // mismatch (the fresh_start decision further down) fails before any
+    // file is created. See docs/EPOCH_DESIGN.md.
     let hashpool_cfg = mint_config.hashpool_mint.clone().ok_or_else(|| {
         anyhow::anyhow!("[hashpool_mint] config section is required for epoch mechanics")
     })?;
@@ -175,53 +172,81 @@ async fn main() -> Result<()> {
         "[hashpool_mint] poll_interval_secs must be >= 1"
     );
 
+    let pool_pubkey = hashpool_cfg.pool_pubkey.clone().ok_or_else(|| {
+        anyhow::anyhow!("[hashpool_mint] pool_pubkey is required (namespaces epoch units)")
+    })?;
+    let pool_pubkey = lib::epoch::naming::validate_pool_pubkey(&pool_pubkey)
+        .with_context(|| format!("loading {mint_config_path}"))?;
+
+    let admin_listen = hashpool_cfg
+        .admin_listen
+        .clone()
+        .unwrap_or_else(|| "127.0.0.1:3339".to_string());
+    let admin_allow_non_loopback = hashpool_cfg.admin_allow_non_loopback.unwrap_or(false);
+    let admin_listen_addr =
+        lib::epoch::admin::validate_admin_listen(&admin_listen, admin_allow_non_loopback)?;
+    if !admin_listen_addr.ip().is_loopback() {
+        tracing::warn!(
+            addr = %admin_listen_addr,
+            "[hashpool_mint] admin_allow_non_loopback is set: the unauthenticated epoch rotation lever is reachable from the network"
+        );
+    }
+
     let mint_db_path = lib::resolve_and_prepare_db_path(&db_path);
+    let store_path = hashpool_cfg
+        .epoch_store_path
+        .clone()
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            mint_db_path
+                .parent()
+                .expect("db path has a parent")
+                .join("epochs.json")
+        });
+
+    // The mint database and the epoch store are created together (genesis
+    // below), so a deliberate fresh start is "neither exists" — `just clean
+    // cashu` removes both. Any other combination means one was lost or
+    // restored without the other; re-genesising over it would silently
+    // discard epoch history, so refuse instead of guessing.
+    let db_exists = mint_db_path.exists();
+    let store_exists = store_path.exists();
+    let fresh_start = match (db_exists, store_exists) {
+        (false, false) => true,
+        (true, true) => false,
+        (true, false) => {
+            return Err(anyhow::anyhow!(
+                "mint database {} exists but epoch store {} does not; restore epochs.json, or run `just clean cashu` for a deliberate clean slate",
+                mint_db_path.display(),
+                store_path.display()
+            ));
+        }
+        (false, true) => {
+            return Err(anyhow::anyhow!(
+                "epoch store {} exists but mint database {} does not; the store names keysets a fresh database would not have — restore the database, or run `just clean cashu` for a deliberate clean slate",
+                store_path.display(),
+                mint_db_path.display()
+            ));
+        }
+    };
+
+    tracing::info!("Using database path: {}", db_path);
+    let mint = setup_mint(mint_config.cdk_settings.clone(), db_path.clone()).await?;
+
     let epoch_settings = EpochSettings {
-        pool_pubkey: {
-            let pool_pubkey = hashpool_cfg.pool_pubkey.clone().ok_or_else(|| {
-                anyhow::anyhow!("[hashpool_mint] pool_pubkey is required (namespaces epoch units)")
-            })?;
-            lib::epoch::naming::validate_pool_pubkey(&pool_pubkey)
-                .with_context(|| format!("loading {mint_config_path}"))?
-        },
-        store_path: hashpool_cfg
-            .epoch_store_path
-            .clone()
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| {
-                mint_db_path
-                    .parent()
-                    .expect("db path has a parent")
-                    .join("epochs.json")
-            }),
+        pool_pubkey,
+        store_path,
         rpc_url: rpc_cfg.url,
         rpc_user: rpc_cfg.user,
         rpc_pass: rpc_cfg.pass,
-        admin_listen: {
-            let admin_listen = hashpool_cfg
-                .admin_listen
-                .clone()
-                .unwrap_or_else(|| "127.0.0.1:3339".to_string());
-            let admin_allow_non_loopback = hashpool_cfg.admin_allow_non_loopback.unwrap_or(false);
-            let admin_listen_addr = lib::epoch::admin::validate_admin_listen(
-                &admin_listen,
-                admin_allow_non_loopback,
-            )?;
-            if !admin_listen_addr.ip().is_loopback() {
-                tracing::warn!(
-                    addr = %admin_listen_addr,
-                    "[hashpool_mint] admin_allow_non_loopback is set: the unauthenticated epoch rotation lever is reachable from the network"
-                );
-            }
-            admin_listen
-        },
+        admin_listen,
         receive_script,
         confirmation_depth,
         poll_interval: std::time::Duration::from_secs(poll_interval_secs),
         mint_db_path,
     };
     let admin_listen = epoch_settings.admin_listen.clone();
-    let epochs = EpochManager::load_or_genesis(mint.clone(), epoch_settings).await?;
+    let epochs = EpochManager::load_or_genesis(mint.clone(), epoch_settings, fresh_start).await?;
     // Resume (register-then-retire, above) completes before the watcher
     // starts and before the listeners bind below.
     epochs.spawn_watcher();
