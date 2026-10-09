@@ -87,6 +87,11 @@ pub struct EpochManager {
     confirmation_depth: u32,
     poll_interval: Duration,
     mint_db_path: PathBuf,
+    /// Test-only seam: when set, `pay_unpaid_quotes` consults it first and
+    /// returns its error immediately, without touching the mint — how
+    /// finalize/dissolve's pay-before-persist retry path is tested.
+    #[cfg(test)]
+    pay_hook: std::sync::Mutex<Option<Box<dyn Fn() -> Result<()> + Send + Sync>>>,
 }
 
 impl EpochManager {
@@ -127,6 +132,8 @@ impl EpochManager {
                 confirmation_depth: settings.confirmation_depth,
                 poll_interval: settings.poll_interval,
                 mint_db_path: settings.mint_db_path,
+                #[cfg(test)]
+                pay_hook: std::sync::Mutex::new(None),
             });
 
             // Register before retire leaves a closed epoch briefly quotable; safe only
@@ -148,16 +155,6 @@ impl EpochManager {
                 }
             })
             .await?;
-
-            // A crash between a Final flip and its bulk-pay would otherwise strand
-            // those quotes forever (EPOCH_DESIGN.md, D6).
-            for record in &to_restore {
-                if record.state == EpochState::Final {
-                    if let Err(e) = manager.pay_unpaid_quotes(&record.unit).await {
-                        warn!(unit = %record.unit, "failed to bulk-pay on resume: {e}");
-                    }
-                }
-            }
 
             info!(
                 unit = %current.unit,
@@ -195,6 +192,8 @@ impl EpochManager {
             confirmation_depth: settings.confirmation_depth,
             poll_interval: settings.poll_interval,
             mint_db_path: settings.mint_db_path,
+            #[cfg(test)]
+            pay_hook: std::sync::Mutex::new(None),
         });
         let record = manager
             .open_epoch(
@@ -239,6 +238,16 @@ impl EpochManager {
     fn invariant_error(&self, msg: String) -> anyhow::Error {
         tracing::error!("critical invariant violation: {msg}");
         anyhow::Error::new(InvariantViolation(msg))
+    }
+
+    #[cfg(test)]
+    fn set_pay_hook(&self, hook: impl Fn() -> Result<()> + Send + Sync + 'static) {
+        *self.pay_hook.lock().expect("pay_hook lock poisoned") = Some(Box::new(hook));
+    }
+
+    #[cfg(test)]
+    fn clear_pay_hook(&self) {
+        *self.pay_hook.lock().expect("pay_hook lock poisoned") = None;
     }
 
     async fn get_block_hash(&self, height: u64) -> Result<String> {
@@ -626,22 +635,29 @@ impl EpochManager {
 
     /// Marks `unit` final, bulk-pays its quotes, and retires the previous
     /// epoch's quote-creation entry (old quotes still mint; no new ones).
+    ///
+    /// Contract: persist the `Final` flip only after `pay_unpaid_quotes`
+    /// has already succeeded. `pay_unpaid_quotes` is idempotent, so on
+    /// error nothing is persisted here, the record stays provisional, and
+    /// the next finality pass simply retries — never a Final record whose
+    /// quotes nothing will ever pay again.
     async fn finalize(&self, unit: &str) -> Result<()> {
-        let (height, block_hash, prev) = {
-            let mut store = self.store.lock().await;
-            let mut current = self.current.write().await;
-            store.update_record(unit, |r| r.state = EpochState::Final)?;
-            let updated = store
-                .record(unit)
-                .expect("just updated, must still be present");
-            if current.unit == unit {
-                *current = updated.clone();
-            }
-            let prev = store.previous_non_dissolved(unit);
-            (updated.height, updated.block_hash.clone(), prev)
-        };
+        let mut store = self.store.lock().await;
+        let mut current = self.current.write().await;
 
         let paid = self.pay_unpaid_quotes(unit).await?;
+
+        store.update_record(unit, |r| r.state = EpochState::Final)?;
+        let updated = store
+            .record(unit)
+            .expect("just updated, must still be present");
+        if current.unit == unit {
+            *current = updated.clone();
+        }
+        let prev = store.previous_non_dissolved(unit);
+
+        drop(current);
+        drop(store);
 
         if let Some(prev) = &prev {
             let prev_unit = CurrencyUnit::Custom(prev.unit.clone().into());
@@ -656,8 +672,8 @@ impl EpochManager {
 
         info!(
             unit = %unit,
-            height,
-            block_hash = ?block_hash,
+            height = updated.height,
+            block_hash = ?updated.block_hash,
             quotes_paid = paid,
             retired_unit = ?prev.as_ref().map(|r| r.unit.clone()),
             "epoch finalized"
@@ -669,71 +685,75 @@ impl EpochManager {
     /// quotes onto the previous epoch and pays them, then flips the record
     /// to `Dissolved`. Refuses (invariant violation, nothing mutated) if the
     /// unit's keyset has issued anything or any of its quotes are owing.
+    ///
+    /// Contract: same as `finalize` — the re-stamped quotes are paid before
+    /// the record flips to `Dissolved`. A failed pay leaves the record
+    /// provisional; retrying re-stamps 0 rows (already moved) and pays the
+    /// quotes now sitting unpaid in `prev`, so the retry is itself safe.
     async fn dissolve(&self, unit: &str) -> Result<()> {
-        let (height, old_hash, prev, restamped) = {
-            let mut store = self.store.lock().await;
-            let mut current = self.current.write().await;
+        let mut store = self.store.lock().await;
+        let mut current = self.current.write().await;
 
-            let record = store
-                .record(unit)
-                .ok_or_else(|| anyhow!("no epoch record for unit {unit}"))?;
-            let prev = store.previous_non_dissolved(unit).ok_or_else(|| {
-                self.invariant_error(format!(
-                    "dissolve {unit}: no previous non-dissolved epoch to resume into"
-                ))
-            })?;
+        let record = store
+            .record(unit)
+            .ok_or_else(|| anyhow!("no epoch record for unit {unit}"))?;
+        let prev = store.previous_non_dissolved(unit).ok_or_else(|| {
+            self.invariant_error(format!(
+                "dissolve {unit}: no previous non-dissolved epoch to resume into"
+            ))
+        })?;
 
-            let keyset_id = cdk::nuts::Id::from_str(&record.keyset_id)
-                .map_err(|e| anyhow!("parsing keyset id {}: {e}", record.keyset_id))?;
-            let issued = self
-                .mint
-                .total_issued()
-                .await
-                .map_err(|e| anyhow!("total_issued: {e}"))?;
-            let issued_amount = issued.get(&keyset_id).copied().map(|a| a.to_u64()).unwrap_or(0);
-            if issued_amount != 0 {
-                return Err(self.invariant_error(format!(
-                    "dissolve {unit}: keyset {} has issued {issued_amount}, must be zero",
-                    record.keyset_id
-                )));
-            }
+        let keyset_id = cdk::nuts::Id::from_str(&record.keyset_id)
+            .map_err(|e| anyhow!("parsing keyset id {}: {e}", record.keyset_id))?;
+        let issued = self
+            .mint
+            .total_issued()
+            .await
+            .map_err(|e| anyhow!("total_issued: {e}"))?;
+        let issued_amount = issued.get(&keyset_id).copied().map(|a| a.to_u64()).unwrap_or(0);
+        if issued_amount != 0 {
+            return Err(self.invariant_error(format!(
+                "dissolve {unit}: keyset {} has issued {issued_amount}, must be zero",
+                record.keyset_id
+            )));
+        }
 
-            let target_unit = CurrencyUnit::Custom(unit.to_string().into());
-            let quotes = self
-                .mint
-                .mint_quotes()
-                .await
-                .map_err(|e| anyhow!("mint_quotes: {e}"))?;
-            let owing: Vec<_> = quotes.into_iter().filter(|q| q.unit == target_unit).collect();
-            if owing
-                .iter()
-                .any(|q| q.amount_paid().value() != 0 || q.amount_issued().value() != 0)
-            {
-                return Err(self.invariant_error(format!(
-                    "dissolve {unit}: a quote in the dissolving unit has nonzero amount_paid or amount_issued"
-                )));
-            }
-            let expected = owing.len();
+        let target_unit = CurrencyUnit::Custom(unit.to_string().into());
+        let quotes = self
+            .mint
+            .mint_quotes()
+            .await
+            .map_err(|e| anyhow!("mint_quotes: {e}"))?;
+        let owing: Vec<_> = quotes.into_iter().filter(|q| q.unit == target_unit).collect();
+        if owing
+            .iter()
+            .any(|q| q.amount_paid().value() != 0 || q.amount_issued().value() != 0)
+        {
+            return Err(self.invariant_error(format!(
+                "dissolve {unit}: a quote in the dissolving unit has nonzero amount_paid or amount_issued"
+            )));
+        }
+        let expected = owing.len();
 
-            let affected = self.restamp_quotes(unit, &prev.unit).await?;
-            if affected != expected {
-                return Err(self.invariant_error(format!(
-                    "dissolve {unit}: re-stamp affected {affected} row(s), expected {expected}"
-                )));
-            }
-
-            store.update_record(unit, |r| r.state = EpochState::Dissolved)?;
-            if current.unit == unit {
-                *current = prev.clone();
-            }
-
-            (record.height, record.block_hash.clone(), prev, affected)
-        };
+        let affected = self.restamp_quotes(unit, &prev.unit).await?;
+        if affected != expected {
+            return Err(self.invariant_error(format!(
+                "dissolve {unit}: re-stamp affected {affected} row(s), expected {expected}"
+            )));
+        }
 
         let mut paid = 0usize;
         if prev.state == EpochState::Final {
             paid = self.pay_unpaid_quotes(&prev.unit).await?;
         }
+
+        store.update_record(unit, |r| r.state = EpochState::Dissolved)?;
+        if current.unit == unit {
+            *current = prev.clone();
+        }
+
+        drop(current);
+        drop(store);
 
         let dissolved_unit = CurrencyUnit::Custom(unit.to_string().into());
         if let Err(e) = self
@@ -746,9 +766,9 @@ impl EpochManager {
 
         info!(
             unit = %unit,
-            height,
-            old_hash = ?old_hash,
-            quotes_restamped = restamped,
+            height = record.height,
+            old_hash = ?record.block_hash,
+            quotes_restamped = affected,
             quotes_paid_in_target = paid,
             target_unit = %prev.unit,
             "epoch dissolved"
@@ -792,6 +812,10 @@ impl EpochManager {
     /// mint for free at finality. `DuplicatePaymentId` is a crash-retry, not
     /// a failure.
     async fn pay_unpaid_quotes(&self, unit: &str) -> Result<usize> {
+        #[cfg(test)]
+        if let Some(hook) = self.pay_hook.lock().expect("pay_hook lock poisoned").as_ref() {
+            hook()?;
+        }
         let target = CurrencyUnit::Custom(unit.to_string().into());
         let quotes = self
             .mint
@@ -1729,6 +1753,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn finalize_leaves_the_record_provisional_and_unpaid_when_pay_fails() {
+        let store_path = temp_store_path("finalize-retry");
+        let _ = std::fs::remove_file(&store_path);
+        seed_genesis_store(&store_path, "hash_test_genesis_finalize_retry");
+
+        let mint = test_mint().await;
+        let settings = test_settings(store_path.clone());
+        let manager = EpochManager::load_or_genesis(mint.clone(), settings)
+            .await
+            .unwrap();
+
+        let record = manager
+            .open_epoch(
+                100,
+                Some("hash_a".into()),
+                Some(500),
+                EpochSource::Reward,
+                EpochState::Provisional,
+            )
+            .await
+            .unwrap();
+
+        let unit = CurrencyUnit::Custom(record.unit.clone().into());
+        let quote_id = seed_unpaid_quote(&mint, &unit, 10).await;
+
+        manager.set_pay_hook(|| Err(anyhow!("simulated pay failure")));
+        let result = manager.finalize(&record.unit).await;
+        assert!(result.is_err(), "a failing pay must fail finalize");
+
+        let state_after = {
+            let store = manager.store.lock().await;
+            store.record(&record.unit).unwrap().state
+        };
+        assert_eq!(
+            state_after,
+            EpochState::Provisional,
+            "a failed pay must leave the record provisional for the next tick to retry"
+        );
+
+        let quotes = mint.mint_quotes().await.unwrap();
+        let seeded = quotes.iter().find(|q| q.id.to_string() == quote_id).unwrap();
+        assert_eq!(seeded.amount_paid().value(), 0, "the quote must remain unpaid");
+
+        manager.clear_pay_hook();
+        let _ = std::fs::remove_file(&store_path);
+    }
+
+    #[tokio::test]
     async fn dissolve_restamps_and_pays_an_unpaid_quote_onto_the_previous_unit() {
         let store_path = temp_store_path("dissolve");
         let db_path = temp_db_path("dissolve");
@@ -1837,6 +1909,73 @@ mod tests {
             quotes.iter().any(|q| q.unit == unit && q.amount_paid().value() == 10),
             "the paid quote must be untouched"
         );
+
+        let _ = std::fs::remove_file(&store_path);
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[tokio::test]
+    async fn dissolve_retries_cleanly_after_a_failed_pay_leaves_the_record_provisional() {
+        let store_path = temp_store_path("dissolve-retry");
+        let db_path = temp_db_path("dissolve-retry");
+        let _ = std::fs::remove_file(&store_path);
+        let _ = std::fs::remove_file(&db_path);
+        seed_genesis_store(&store_path, "hash_test_genesis_dissolve_retry");
+
+        let mint = test_mint_file(&db_path).await;
+        let mut settings = test_settings(store_path.clone());
+        settings.mint_db_path = db_path.clone();
+        let manager = EpochManager::load_or_genesis(mint.clone(), settings)
+            .await
+            .unwrap();
+        let prev_unit = manager.current_epoch().await.unit.clone();
+
+        let record = manager
+            .open_epoch(
+                100,
+                Some("hash_a".into()),
+                Some(500),
+                EpochSource::Reward,
+                EpochState::Provisional,
+            )
+            .await
+            .unwrap();
+
+        let unit = CurrencyUnit::Custom(record.unit.clone().into());
+        let quote_id = seed_unpaid_quote(&mint, &unit, 10).await;
+
+        // First attempt: the pay step fails. Nothing must be persisted — the
+        // re-stamp already ran (it is idempotent and runs before the pay),
+        // but the record must still read provisional.
+        manager.set_pay_hook(|| Err(anyhow!("simulated pay failure")));
+        let result = manager.dissolve(&record.unit).await;
+        assert!(result.is_err(), "a failing pay must fail dissolve");
+
+        let state_after_failure = {
+            let store = manager.store.lock().await;
+            store.record(&record.unit).unwrap().state
+        };
+        assert_eq!(
+            state_after_failure,
+            EpochState::Provisional,
+            "a failed pay must leave the record provisional for the next tick to retry"
+        );
+
+        // Retry: the re-stamp now moves 0 rows (already moved), and the pay
+        // step pays the quote now sitting unpaid in the previous unit.
+        manager.clear_pay_hook();
+        manager.dissolve(&record.unit).await.unwrap();
+
+        let dissolved = {
+            let store = manager.store.lock().await;
+            store.record(&record.unit).unwrap()
+        };
+        assert_eq!(dissolved.state, EpochState::Dissolved);
+
+        let quotes = mint.mint_quotes().await.unwrap();
+        let moved = quotes.iter().find(|q| q.id.to_string() == quote_id).unwrap();
+        assert_eq!(moved.unit.to_string(), prev_unit, "the quote must have moved to the previous unit");
+        assert_eq!(moved.amount_paid().value(), 10, "the quote must be paid after the retry");
 
         let _ = std::fs::remove_file(&store_path);
         let _ = std::fs::remove_file(&db_path);
