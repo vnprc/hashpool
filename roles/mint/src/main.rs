@@ -29,6 +29,9 @@ struct HashpoolMintConfig {
     epoch_store_path: Option<String>,
     /// Loopback listener for the manual rotation lever. Default 127.0.0.1:3339.
     admin_listen: Option<String>,
+    /// Opts into binding `admin_listen` to a non-loopback address. Default
+    /// false: a non-loopback bind is refused at startup otherwise.
+    admin_allow_non_loopback: Option<bool>,
     bitcoin_rpc: Option<BitcoinRpcConfig>,
     /// Coinbase address the watcher matches (compared as a script, never as
     /// this string). Required: the mint refuses to start without it.
@@ -190,10 +193,24 @@ async fn main() -> Result<()> {
         rpc_url: rpc_cfg.url,
         rpc_user: rpc_cfg.user,
         rpc_pass: rpc_cfg.pass,
-        admin_listen: hashpool_cfg
-            .admin_listen
-            .clone()
-            .unwrap_or_else(|| "127.0.0.1:3339".to_string()),
+        admin_listen: {
+            let admin_listen = hashpool_cfg
+                .admin_listen
+                .clone()
+                .unwrap_or_else(|| "127.0.0.1:3339".to_string());
+            let admin_allow_non_loopback = hashpool_cfg.admin_allow_non_loopback.unwrap_or(false);
+            let admin_listen_addr = lib::epoch::admin::validate_admin_listen(
+                &admin_listen,
+                admin_allow_non_loopback,
+            )?;
+            if !admin_listen_addr.ip().is_loopback() {
+                tracing::warn!(
+                    addr = %admin_listen_addr,
+                    "[hashpool_mint] admin_allow_non_loopback is set: the unauthenticated epoch rotation lever is reachable from the network"
+                );
+            }
+            admin_listen
+        },
         receive_script,
         confirmation_depth,
         poll_interval: std::time::Duration::from_secs(poll_interval_secs),
@@ -205,7 +222,11 @@ async fn main() -> Result<()> {
     // starts and before the listeners bind below.
     epochs.spawn_watcher();
 
-    // Manual rotation lever on a loopback-only listener.
+    // Manual rotation lever on a loopback-only listener (admin_listen is
+    // validated above). No authentication: the lever is reachable only from
+    // processes on the same host, and any such process can already read the
+    // mint config, which holds the mint mnemonic — a credential here would
+    // gate nothing the host does not already have.
     let admin = admin_router(epochs.clone());
     let admin_listener = TcpListener::bind(&admin_listen).await?;
     info!("Epoch admin listening on {}", admin_listen);
