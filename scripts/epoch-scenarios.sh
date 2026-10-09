@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # epoch-scenarios.sh - regtest assertions for vnprc/hashpool#18 (automatic
 # reward trigger). Run against a live stack started separately with
-# HASHPOOL_MINER=off, confirmation_depth raised to 20, poll_interval_secs=1.
+# HASHPOOL_MINER=off and poll_interval_secs=1. Reads confirmation_depth from
+# config/mint.config.toml (default 6) rather than assuming a fixed value.
 #
 # Usage: scripts/epoch-scenarios.sh <1|3|4|5>
 #
@@ -48,6 +49,17 @@ mint_addr() {
 pool_pubkey() {
   grep -E '^[[:space:]]*pool_pubkey[[:space:]]*=' config/mint.config.toml \
     | tail -n1 | cut -d= -f2- | xargs | tr -d '"'
+}
+
+confirmation_depth() {
+  local value
+  value=$(grep -E '^[[:space:]]*confirmation_depth[[:space:]]*=' config/mint.config.toml \
+    | tail -n1 | cut -d= -f2- | xargs || true)
+  if [ -z "$value" ]; then
+    echo 6
+  else
+    echo "$value"
+  fi
 }
 
 other_addr() {
@@ -204,12 +216,12 @@ scenario_1() {
   expected_sats=$(subsidy_sats "$tip")
   assert_eq "scenario 1: reward_sats matches the regtest subsidy at height $tip" "$expected_sats" "$actual_sats"
 
-  cli generatetoaddress 19 "$(other_addr)" > /dev/null
+  cli generatetoaddress "$((DEPTH - 1))" "$(other_addr)" > /dev/null
 
   if wait_for 30 record_is_final "$unit"; then
-    pass "scenario 1: $unit reaches final at D=20"
+    pass "scenario 1: $unit reaches final at D=$DEPTH"
   else
-    fail "scenario 1: $unit reaches final at D=20" "final" "still not final after 30s"
+    fail "scenario 1: $unit reaches final at D=$DEPTH" "final" "still not final after 30s"
     return
   fi
 
@@ -252,7 +264,7 @@ scenario_3() {
     return
   fi
 
-  cli generatetoaddress 20 "$(other_addr)" > /dev/null
+  cli generatetoaddress "$((DEPTH - 1))" "$(other_addr)" > /dev/null
 
   local last_unit="hash_$(pool_pubkey)_${heights[2]}"
   if wait_for 30 record_is_final "$last_unit"; then
@@ -348,7 +360,7 @@ scenario_5() {
   record_count_at_h=$(epochs ".records[] | select(.height == $h) | .unit" | wc -l)
   assert_eq "scenario 5: no second record exists at height $h" "1" "$record_count_at_h"
 
-  cli generatetoaddress 19 "$(other_addr)" > /dev/null
+  cli generatetoaddress "$((DEPTH - 1))" "$(other_addr)" > /dev/null
 
   if wait_for 30 record_is_final "$unit"; then
     pass "scenario 5: $unit reaches final after the re-mine"
@@ -359,6 +371,7 @@ scenario_5() {
 
 main() {
   local scenario="${1:-}"
+  DEPTH="$(confirmation_depth)"
   case "$scenario" in
     1) scenario_1 ;;
     3) scenario_3 ;;
