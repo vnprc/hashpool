@@ -1,9 +1,8 @@
 use anyhow::{anyhow, Result};
 use std::str::FromStr;
 
-/// secp256k1 generator point, compressed hex. A structurally valid pubkey
-/// nobody controls — ships as a placeholder in example configs everywhere,
-/// so it is rejected by name rather than treated as an ordinary key.
+/// secp256k1 generator point: the well-known placeholder copied from example
+/// configs, refused here as a pool identity.
 const GENERATOR_POINT: &str = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
 
 /// Validate a pool identity key: 33-byte compressed secp256k1 public key, hex.
