@@ -133,6 +133,16 @@ impl EpochManager {
         } else {
             EpochStore::load(&settings.store_path)?
         };
+        // A resumed store with no current record (empty, or every record
+        // dissolved) must not fall through to genesis below — that would be
+        // exactly the silent re-genesis #36 forbids, just reached by a
+        // different door. Let the operator decide instead.
+        if !fresh_start && store.current().is_none() {
+            return Err(anyhow!(
+                "epoch store {} holds no current epoch (empty, or every record dissolved); refusing to re-genesis over it",
+                settings.store_path.display()
+            ));
+        }
         let amounts: Vec<u64> = (0..NUM_KEYS).map(|i| 2_u64.pow(i)).collect();
 
         if let Some(current) = store.current().cloned() {
@@ -1315,6 +1325,52 @@ mod tests {
         .unwrap();
 
         quote_id
+    }
+
+    #[tokio::test]
+    async fn resuming_a_store_with_no_current_epoch_is_refused_not_re_genesised() {
+        let store_path = temp_store_path("no-current");
+        let _ = std::fs::remove_file(&store_path);
+
+        // Every record dissolved: current() is None, but the store is not
+        // empty and this is not a fresh start.
+        let mut store = EpochStore::create_new(&store_path).unwrap();
+        store
+            .append(record(100, "hash_test_100_dissolved", EpochState::Dissolved))
+            .await
+            .unwrap();
+        drop(store);
+
+        let mint = test_mint().await;
+        let settings = test_settings(store_path.clone());
+        let result = EpochManager::load_or_genesis(mint.clone(), settings, false).await;
+
+        let err = match result {
+            Err(e) => e.to_string(),
+            Ok(_) => panic!("no current epoch must refuse, not fall through to genesis"),
+        };
+        assert!(err.contains(&store_path.display().to_string()), "{err}");
+        assert!(err.contains("no current epoch"), "{err}");
+
+        let _ = std::fs::remove_file(&store_path);
+    }
+
+    #[tokio::test]
+    async fn resuming_an_empty_store_is_refused_not_re_genesised() {
+        let store_path = temp_store_path("empty-store");
+        let _ = std::fs::remove_file(&store_path);
+        // A store file that exists and parses, but holds zero records —
+        // distinct from a missing file, which `EpochStore::load` already
+        // refuses on its own.
+        std::fs::write(&store_path, serde_json::json!({ "records": [] }).to_string()).unwrap();
+
+        let mint = test_mint().await;
+        let settings = test_settings(store_path.clone());
+        let result = EpochManager::load_or_genesis(mint.clone(), settings, false).await;
+
+        assert!(result.is_err(), "an empty store on the resume path must refuse, not genesis");
+
+        let _ = std::fs::remove_file(&store_path);
     }
 
     #[tokio::test]
