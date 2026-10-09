@@ -33,3 +33,13 @@ reserve_fee_min = 2
 
 [hashpool_mint]
 db_path = "/var/lib/hashpool/mint/mint.sqlite"
+# TODO(operator): set the pool's real identity key before deploying — this
+# placeholder (the secp256k1 generator point) namespaces epoch units.
+pool_pubkey = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+admin_listen = "127.0.0.1:3339"
+
+[hashpool_mint.bitcoin_rpc]
+# TODO(operator): point at the deployment's bitcoind RPC.
+url = "http://127.0.0.1:48332"
+user = "username"
+pass = "password"

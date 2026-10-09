@@ -4167,6 +4167,7 @@ dependencies = [
  "network_helpers_sv2",
  "noise_sv2",
  "roles_logic_sv2",
+ "rpc_sv2",
  "serde",
  "serde_json",
  "shared_config",

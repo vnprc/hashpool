@@ -5,7 +5,10 @@ use roles_logic_sv2::parsers_sv2::AnyMessage;
 use std::sync::Arc;
 use tracing::info;
 
-use super::{super::message_types::MintMessageType, quote_processing::process_mint_quote_message};
+use super::{
+    super::epoch::EpochManager, super::message_types::MintMessageType,
+    quote_processing::process_mint_quote_message,
+};
 
 /// Type alias for frames used in mint/pool communication
 /// Uses AnyMessage to work with Connection channel types
@@ -14,13 +17,14 @@ type MintFrame = StandardEitherFrame<AnyMessage<'static>>;
 /// Handle SV2 connection frames and process mint quote requests
 pub async fn handle_sv2_connection(
     mint: Arc<Mint>,
+    epochs: Arc<EpochManager>,
     receiver: async_channel::Receiver<MintFrame>,
     sender: async_channel::Sender<MintFrame>,
 ) -> Result<()> {
     info!("Starting SV2 message handling loop");
 
     while let Ok(either_frame) = receiver.recv().await {
-        if let Err(e) = process_sv2_frame(&mint, either_frame, &sender).await {
+        if let Err(e) = process_sv2_frame(&mint, &epochs, either_frame, &sender).await {
             tracing::error!("Error processing SV2 frame: {}", e);
             // Continue processing other frames
         }
@@ -32,13 +36,16 @@ pub async fn handle_sv2_connection(
 /// Process a single SV2 frame
 async fn process_sv2_frame(
     mint: &Arc<Mint>,
+    epochs: &Arc<EpochManager>,
     either_frame: MintFrame,
     sender: &async_channel::Sender<MintFrame>,
 ) -> Result<()> {
     tracing::debug!("Received SV2 either frame");
 
     match either_frame {
-        StandardEitherFrame::Sv2(incoming) => process_sv2_message(mint, incoming, sender).await,
+        StandardEitherFrame::Sv2(incoming) => {
+            process_sv2_message(mint, epochs, incoming, sender).await
+        }
         StandardEitherFrame::HandShake(_) => {
             tracing::debug!("Received handshake frame - ignoring");
             Ok(())
@@ -49,6 +56,7 @@ async fn process_sv2_frame(
 /// Process an SV2 message frame
 async fn process_sv2_message(
     mint: &Arc<Mint>,
+    epochs: &Arc<EpochManager>,
     mut incoming: StandardSv2Frame<AnyMessage<'static>>,
     sender: &async_channel::Sender<MintFrame>,
 ) -> Result<()> {
@@ -76,7 +84,8 @@ async fn process_sv2_message(
         // Mint quote messages from pool
         MintMessageType::MintQuoteRequest => {
             tracing::info!("Received MintQuoteRequest from pool, processing quote");
-            process_mint_quote_message(mint.clone(), message_type, &payload, sender).await
+            process_mint_quote_message(mint.clone(), epochs.clone(), message_type, &payload, sender)
+                .await
         }
         MintMessageType::MintQuoteResponse | MintMessageType::MintQuoteError => {
             tracing::warn!(

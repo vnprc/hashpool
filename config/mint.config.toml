@@ -34,4 +34,15 @@ reserve_fee_min = 2
 
 [hashpool_mint]
 db_path = ".devenv/state/mint/mint.sqlite"
+# Pool identity key namespacing epoch units (hash_<pool>_<height>).
+# Dev placeholder: the secp256k1 generator point — deliberately NOT the miner
+# locking key; replace per deployment.
+pool_pubkey = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+# Manual epoch-rotation lever (`just rotate-epoch`); loopback only.
+admin_listen = "127.0.0.1:3339"
+
+[hashpool_mint.bitcoin_rpc]
+url = "http://127.0.0.1:18443"
+user = "username"
+pass = "password"
 
