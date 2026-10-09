@@ -35,9 +35,11 @@ reserve_fee_min = 2
 [hashpool_mint]
 db_path = ".devenv/state/mint/mint.sqlite"
 # Pool identity key namespacing epoch units (hash_<pool>_<height>).
-# Dev placeholder: the secp256k1 generator point — deliberately NOT the miner
-# locking key; replace per deployment.
-pool_pubkey = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+# Dev placeholder: pubkey of sha256("hashpool dev pool identity") — not the
+# miner locking key, and deliberately not the secp256k1 generator point
+# either, since that well-known value is refused at startup; replace per
+# deployment.
+pool_pubkey = "034dcb73610a1af09a68b17e69d4e2ac8e1a05536264c2a805f027839ffd7de66a"
 # Manual epoch-rotation lever (`just rotate-epoch`); loopback only.
 admin_listen = "127.0.0.1:3339"
 # Dev placeholder: the P2WPKH regtest address of the secp256k1 generator
