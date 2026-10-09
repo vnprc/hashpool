@@ -103,8 +103,11 @@ with one source implemented now (on-chain coinbase) and lightning later.
 **Watcher state and recovery:** the watcher persists the last processed block and the last
 ~D block hashes. On restart it re-scans forward from the watermark; rewards seen during
 downtime open and close epochs in sequence (intermediate epochs may be empty — that is fine).
-Reward events deduplicate by height. The bitcoin node keeps the fork tree; the mint keeps an
-epoch list, a provisional flag, a confirmation counter, and a few recent hashes.
+Reward events deduplicate by height. The bitcoin node keeps the fork tree; the mint keeps the
+epoch records and this watermark in its own database, as two keys in cdk's key-value store
+(primary namespace `hashpool`, secondary namespace `epochs`) — not a separate file — so a
+hashpool state change commits in the same database transaction as the cdk change it pairs
+with (for example, paying a quote at finality).
 
 ## Reorgs: provisional boundaries
 

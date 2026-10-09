@@ -25,8 +25,6 @@ struct HashpoolMintConfig {
     /// Pool identity: compressed secp256k1 pubkey (hex) namespacing epoch
     /// units (`hash_<pool>_<height>`). Required.
     pool_pubkey: Option<String>,
-    /// Epoch record store; defaults to `epochs.json` beside the mint database.
-    epoch_store_path: Option<String>,
     /// Loopback listener for the manual rotation lever. Default 127.0.0.1:3339.
     admin_listen: Option<String>,
     bitcoin_rpc: Option<BitcoinRpcConfig>,
@@ -177,16 +175,6 @@ async fn main() -> Result<()> {
         pool_pubkey: hashpool_cfg.pool_pubkey.clone().ok_or_else(|| {
             anyhow::anyhow!("[hashpool_mint] pool_pubkey is required (namespaces epoch units)")
         })?,
-        store_path: hashpool_cfg
-            .epoch_store_path
-            .clone()
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| {
-                mint_db_path
-                    .parent()
-                    .expect("db path has a parent")
-                    .join("epochs.json")
-            }),
         rpc_url: rpc_cfg.url,
         rpc_user: rpc_cfg.user,
         rpc_pass: rpc_cfg.pass,
