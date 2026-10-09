@@ -3,7 +3,7 @@ use binary_sv2::Str0255;
 use cdk::mint::{Mint, MintQuoteRequest, MintQuoteResponse as CdkMintQuoteResponse};
 use cdk::{
     cdk_payment::{PaymentIdentifier, WaitPaymentResponse},
-    nuts::PaymentMethod,
+    nuts::{CurrencyUnit, PaymentMethod},
     Amount,
 };
 use codec_sv2::StandardEitherFrame;
@@ -21,6 +21,7 @@ use tracing::info;
 use codec_sv2::StandardSv2Frame;
 use ehash::calculate_difficulty;
 
+use super::super::epoch::store::EpochState;
 use super::super::epoch::EpochManager;
 
 /// Type alias for frames used in mint/pool communication
@@ -59,10 +60,13 @@ pub async fn process_mint_quote_message(
                 .map_err(|e| anyhow::anyhow!("Failed to convert MintQuoteRequest: {e}"))?;
 
             // Stamp the current mining epoch's unit; the wire request's unit
-            // string is legacy and ignored (the mint owns epoch identity). One
-            // snapshot read so a rotation between quote creation and the pay
-            // decision cannot strand a final-epoch quote unpaid.
-            let (epoch_unit, epoch_final) = epochs.current_snapshot();
+            // string is legacy and ignored (the mint owns epoch identity). The
+            // read guard is held across quote creation and the pay decision
+            // below: a rotation between the two can never strand a
+            // final-epoch quote unpaid, or create one in a unit mid-dissolve.
+            let current_epoch = epochs.current_epoch().await;
+            let epoch_unit = CurrencyUnit::Custom(current_epoch.unit.clone().into());
+            let epoch_final = current_epoch.state == EpochState::Final;
             cdk_custom_request.unit = epoch_unit.clone();
 
             let mint_quote_request = MintQuoteRequest::Custom {
@@ -109,6 +113,7 @@ pub async fn process_mint_quote_message(
                             quote_id_str
                         );
                     }
+                    drop(current_epoch);
 
                     let sv2_response = mint_quote_response_from_cdk(share_hash, custom_response)
                         .map_err(|e| {
@@ -120,6 +125,7 @@ pub async fn process_mint_quote_message(
                     Ok(())
                 }
                 Err(e) => {
+                    drop(current_epoch);
                     let amount_exponent = if amount > 0 {
                         Some(amount.trailing_zeros())
                     } else {

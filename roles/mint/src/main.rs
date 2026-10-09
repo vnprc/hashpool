@@ -30,6 +30,13 @@ struct HashpoolMintConfig {
     /// Loopback listener for the manual rotation lever. Default 127.0.0.1:3339.
     admin_listen: Option<String>,
     bitcoin_rpc: Option<BitcoinRpcConfig>,
+    /// Coinbase address the watcher matches (compared as a script, never as
+    /// this string). Required: the mint refuses to start without it.
+    receive_address: Option<String>,
+    /// Confirmations before a provisional epoch boundary is final. Default 6.
+    confirmation_depth: Option<u32>,
+    /// Watcher RPC poll cadence, in seconds. Default 5.
+    poll_interval_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +48,22 @@ struct BitcoinRpcConfig {
 
 use lib::epoch::{admin_router, EpochManager, EpochSettings};
 use lib::{connect_to_pool_sv2, setup_mint};
+
+/// Blocks `POST /v1/mint/quote/ehash` (404): cdk-axum mounts it for every
+/// custom method, but bulk-pay pays every unpaid quote in a finalized unit,
+/// so an open quote-creation route would let anyone mint ehash for free.
+async fn block_ehash_quote_creation(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    if req.method() == hyper::Method::POST && req.uri().path() == "/v1/mint/quote/ehash" {
+        return axum::response::Response::builder()
+            .status(axum::http::StatusCode::NOT_FOUND)
+            .body(axum::body::Body::empty())
+            .expect("static response is well-formed");
+    }
+    next.run(req).await
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -101,6 +124,33 @@ async fn main() -> Result<()> {
     let rpc_cfg = hashpool_cfg.bitcoin_rpc.clone().ok_or_else(|| {
         anyhow::anyhow!("[hashpool_mint.bitcoin_rpc] url/user/pass are required (epoch genesis and rotation read the chain height)")
     })?;
+    let receive_address = hashpool_cfg.receive_address.clone().ok_or_else(|| {
+        anyhow::anyhow!(
+            "[hashpool_mint] receive_address is required (coinbase script the watcher matches)"
+        )
+    })?;
+    let receive_script = receive_address
+        .parse::<bitcoin::Address<bitcoin::address::NetworkUnchecked>>()
+        .map_err(|e| anyhow::anyhow!("invalid [hashpool_mint] receive_address: {e}"))?
+        .assume_checked()
+        .script_pubkey();
+    info!(
+        script = %hex::encode(receive_script.as_bytes()),
+        "mint receive script"
+    );
+
+    let confirmation_depth = hashpool_cfg.confirmation_depth.unwrap_or(6);
+    anyhow::ensure!(
+        confirmation_depth >= 1,
+        "[hashpool_mint] confirmation_depth must be >= 1"
+    );
+    let poll_interval_secs = hashpool_cfg.poll_interval_secs.unwrap_or(5);
+    anyhow::ensure!(
+        poll_interval_secs >= 1,
+        "[hashpool_mint] poll_interval_secs must be >= 1"
+    );
+
+    let mint_db_path = lib::resolve_and_prepare_db_path(&db_path);
     let epoch_settings = EpochSettings {
         pool_pubkey: hashpool_cfg.pool_pubkey.clone().ok_or_else(|| {
             anyhow::anyhow!("[hashpool_mint] pool_pubkey is required (namespaces epoch units)")
@@ -110,7 +160,7 @@ async fn main() -> Result<()> {
             .clone()
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| {
-                lib::resolve_and_prepare_db_path(&db_path)
+                mint_db_path
                     .parent()
                     .expect("db path has a parent")
                     .join("epochs.json")
@@ -122,9 +172,16 @@ async fn main() -> Result<()> {
             .admin_listen
             .clone()
             .unwrap_or_else(|| "127.0.0.1:3339".to_string()),
+        receive_script,
+        confirmation_depth,
+        poll_interval: std::time::Duration::from_secs(poll_interval_secs),
+        mint_db_path,
     };
     let admin_listen = epoch_settings.admin_listen.clone();
     let epochs = EpochManager::load_or_genesis(mint.clone(), epoch_settings).await?;
+    // Resume (register-then-retire, above) completes before the watcher
+    // starts and before the listeners bind below.
+    epochs.spawn_watcher();
 
     // Manual rotation lever on a loopback-only listener.
     let admin = admin_router(epochs.clone());
@@ -138,7 +195,8 @@ async fn main() -> Result<()> {
 
     // Setup HTTP cache and router
     let cache: HttpCache = HttpCache::from_config(mint_config.cdk_settings.info.http_cache).await?;
-    let router = cdk_axum::create_mint_router_with_custom_cache(mint.clone(), cache, vec!["ehash".to_string()], true).await?;
+    let router = cdk_axum::create_mint_router_with_custom_cache(mint.clone(), cache, vec!["ehash".to_string()], true).await?
+        .layer(axum::middleware::from_fn(block_ehash_quote_creation));
 
     // Start SV2 connection to pool if enabled
     if let Some(ref sv2_config) = global_config.sv2_messaging {

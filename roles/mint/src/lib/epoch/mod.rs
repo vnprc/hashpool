@@ -7,22 +7,48 @@ pub mod store;
 use anyhow::{anyhow, Context, Result};
 use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::post, Json, Router};
 use cdk::{
-    cdk_payment::MintPayment,
+    cdk_payment::{MintPayment, WaitPaymentResponse},
     mint::{Mint, MintMeltLimits},
     nuts::{CurrencyUnit, PaymentMethod},
 };
 use cdk_ehash::EhashPaymentProcessor;
-use rpc_sv2::mini_rpc_client::{Auth, MiniRpcClient};
+use rpc_sv2::mini_rpc_client::{Auth, BlockInfo, MiniRpcClient};
 use std::collections::HashSet;
-use std::sync::{Arc, RwLock};
-use store::{EpochRecord, EpochSource, EpochState, EpochStore};
+use std::path::PathBuf;
+use std::str::FromStr;
+use std::sync::Arc;
+use std::time::Duration;
+use store::{EpochRecord, EpochSource, EpochState, EpochStore, ScannedBlock};
+use tokio::sync::{RwLock, RwLockReadGuard};
 use tracing::{info, warn};
 
 /// Number of keys per epoch keyset (amounts 2^0 .. 2^(NUM_KEYS-1)).
 const NUM_KEYS: u32 = 64;
 
+/// Hard timeout on every RPC call the watcher makes, so a hung (not
+/// refusing) node cannot wedge the watcher task.
+const RPC_TIMEOUT: Duration = Duration::from_secs(10);
+
 fn ehash_method() -> PaymentMethod {
     PaymentMethod::Custom("ehash".to_string())
+}
+
+/// Marker for a dissolve-time invariant violation: a nonzero issue count or
+/// an owing quote in the unit being dissolved. Distinguishes "stop the
+/// watcher" from an ordinary transient RPC error in `spawn_watcher`'s loop.
+#[derive(Debug)]
+pub struct InvariantViolation(pub String);
+
+impl std::fmt::Display for InvariantViolation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for InvariantViolation {}
+
+fn is_invariant_violation(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<InvariantViolation>().is_some()
 }
 
 #[derive(Debug, Clone)]
@@ -30,22 +56,37 @@ pub struct EpochSettings {
     /// Pool identity: compressed secp256k1 pubkey, lowercase hex. Namespaces
     /// every epoch unit (`hash_<pool>_<height>`).
     pub pool_pubkey: String,
-    pub store_path: std::path::PathBuf,
+    pub store_path: PathBuf,
     pub rpc_url: String,
     pub rpc_user: String,
     pub rpc_pass: String,
     /// Loopback listener for the manual rotation lever.
     pub admin_listen: String,
+    /// Coinbase script the watcher matches against, compared byte-for-byte
+    /// (never as an address string).
+    pub receive_script: bitcoin::ScriptBuf,
+    /// Confirmations before a provisional boundary is final
+    /// (`tip - height + 1 >= confirmation_depth`).
+    pub confirmation_depth: u32,
+    pub poll_interval: Duration,
+    /// Resolved sqlite path of the mint database; the dissolve re-stamp
+    /// opens a second connection to it directly.
+    pub mint_db_path: PathBuf,
 }
 
 pub struct EpochManager {
     mint: Arc<Mint>,
-    /// Serializes rotations; also guards the store file.
+    /// Serializes rotations; also guards the store file. Lock order is
+    /// always store, then `current` (never the reverse).
     store: tokio::sync::Mutex<EpochStore>,
     current: RwLock<EpochRecord>,
     pool_pubkey: String,
     amounts: Vec<u64>,
     rpc: MiniRpcClient,
+    receive_script: bitcoin::ScriptBuf,
+    confirmation_depth: u32,
+    poll_interval: Duration,
+    mint_db_path: PathBuf,
 }
 
 impl EpochManager {
@@ -82,6 +123,10 @@ impl EpochManager {
                 pool_pubkey,
                 amounts,
                 rpc,
+                receive_script: settings.receive_script,
+                confirmation_depth: settings.confirmation_depth,
+                poll_interval: settings.poll_interval,
+                mint_db_path: settings.mint_db_path,
             });
 
             // Register before retire leaves a closed epoch briefly quotable; safe only
@@ -104,6 +149,16 @@ impl EpochManager {
             })
             .await?;
 
+            // A crash between a Final flip and its bulk-pay would otherwise strand
+            // those quotes forever (EPOCH_DESIGN.md, D6).
+            for record in &to_restore {
+                if record.state == EpochState::Final {
+                    if let Err(e) = manager.pay_unpaid_quotes(&record.unit).await {
+                        warn!(unit = %record.unit, "failed to bulk-pay on resume: {e}");
+                    }
+                }
+            }
+
             info!(
                 unit = %current.unit,
                 height = current.height,
@@ -113,9 +168,12 @@ impl EpochManager {
             return Ok(manager);
         }
 
-        let height = block_count_with_retry(&rpc, 30, std::time::Duration::from_secs(2))
+        let height = block_count_with_retry(&rpc, 30, Duration::from_secs(2))
             .await
             .context("genesis needs the chain height; is bitcoind reachable?")?;
+        let genesis_hash = block_hash_with_retry(&rpc, height, 30, Duration::from_secs(2))
+            .await
+            .context("genesis needs the chain hash; is bitcoind reachable?")?;
         let placeholder = EpochRecord {
             height: 0,
             unit: String::new(),
@@ -133,28 +191,95 @@ impl EpochManager {
             pool_pubkey,
             amounts,
             rpc,
+            receive_script: settings.receive_script,
+            confirmation_depth: settings.confirmation_depth,
+            poll_interval: settings.poll_interval,
+            mint_db_path: settings.mint_db_path,
         });
         let record = manager
-            .open_epoch(height, None, None, EpochSource::Genesis)
+            .open_epoch(
+                height,
+                None,
+                None,
+                EpochSource::Genesis,
+                EpochState::Final,
+            )
             .await?;
+        {
+            let mut store = manager.store.lock().await;
+            store.set_watermark(
+                ScannedBlock {
+                    height,
+                    hash: genesis_hash,
+                },
+                manager.recent_cap(),
+            )?;
+        }
         info!(unit = %record.unit, height, "genesis epoch opened");
         Ok(manager)
     }
 
-    /// Single-read snapshot for the quote path: the unit new quotes are
-    /// stamped with, and whether that epoch's boundary is final (final →
-    /// quotes pay at creation; provisional → they wait for finality). One
-    /// read, so a rotation between "which unit" and "pay now?" cannot tear.
-    pub fn current_snapshot(&self) -> (CurrencyUnit, bool) {
-        let current = self.current.read().expect("epoch lock poisoned");
-        (
-            CurrencyUnit::Custom(current.unit.clone().into()),
-            current.state == EpochState::Final,
-        )
+    /// Read guard over the current epoch: the unit new quotes are stamped
+    /// with, and whether that epoch's boundary is final. The caller must
+    /// hold the guard across both "which unit" and "pay now or not" so a
+    /// rotation between the two cannot strand a final-epoch quote unpaid,
+    /// or create a quote in a unit mid-dissolve.
+    pub async fn current_epoch(&self) -> RwLockReadGuard<'_, EpochRecord> {
+        self.current.read().await
     }
 
     pub async fn chain_height(&self) -> Result<u64> {
         rpc_block_count(&self.rpc).await
+    }
+
+    fn recent_cap(&self) -> usize {
+        std::cmp::max(2 * self.confirmation_depth as usize, 16)
+    }
+
+    fn invariant_error(&self, msg: String) -> anyhow::Error {
+        tracing::error!("critical invariant violation: {msg}");
+        anyhow::Error::new(InvariantViolation(msg))
+    }
+
+    async fn get_block_hash(&self, height: u64) -> Result<String> {
+        tokio::time::timeout(RPC_TIMEOUT, self.rpc.get_block_hash(height))
+            .await
+            .map_err(|_| anyhow!("getblockhash timed out after {RPC_TIMEOUT:?}"))?
+            .map_err(|e| anyhow!("getblockhash failed: {e:?}"))
+    }
+
+    async fn get_block_info(&self, hash: &str) -> Result<BlockInfo> {
+        tokio::time::timeout(RPC_TIMEOUT, self.rpc.get_block_info(hash))
+            .await
+            .map_err(|_| anyhow!("getblock timed out after {RPC_TIMEOUT:?}"))?
+            .map_err(|e| anyhow!("getblock failed: {e:?}"))
+    }
+
+    async fn get_raw_transaction_hex(&self, txid: &str, block_hash: &str) -> Result<String> {
+        tokio::time::timeout(RPC_TIMEOUT, self.rpc.get_raw_transaction_hex(txid, block_hash))
+            .await
+            .map_err(|_| anyhow!("getrawtransaction timed out after {RPC_TIMEOUT:?}"))?
+            .map_err(|e| anyhow!("getrawtransaction failed: {e:?}"))
+    }
+
+    /// Sats the coinbase of `hash` pays to the receive script (0 if none).
+    async fn coinbase_reward(&self, info: &BlockInfo, hash: &str) -> Result<u64> {
+        let coinbase_txid = info
+            .tx
+            .first()
+            .ok_or_else(|| anyhow!("block {hash} has no transactions"))?;
+        let raw_hex = self.get_raw_transaction_hex(coinbase_txid, hash).await?;
+        let bytes = hex::decode(&raw_hex)
+            .with_context(|| format!("decoding coinbase tx hex for block {hash}"))?;
+        let tx: bitcoin::Transaction = bitcoin::consensus::deserialize(&bytes)
+            .with_context(|| format!("decoding coinbase tx for block {hash}"))?;
+        let sats = tx
+            .output
+            .iter()
+            .filter(|o| o.script_pubkey.as_bytes() == self.receive_script.as_bytes())
+            .map(|o| o.value.to_sat())
+            .sum();
+        Ok(sats)
     }
 
     /// Idempotent quote-creation registration for a unit: an already-present
@@ -180,15 +305,18 @@ impl EpochManager {
             .map_err(|e| anyhow!("registering {unit} for quoting failed: {e}"))
     }
 
-    /// Close the current epoch and open a new one. Genesis/manual epochs open
-    /// Final; the previous epoch's quote-creation entry is retired once the
-    /// successor is final (old quotes still mint; no new quotes).
+    /// Close the current epoch and open a new one. `state` is `Final` for
+    /// genesis and manual rotation (retires the previous epoch's
+    /// quote-creation entry at once) or `Provisional` for a reward (the
+    /// previous epoch may have to resume as current on dissolve, so it is
+    /// left quotable).
     pub async fn open_epoch(
         &self,
         height: u64,
         block_hash: Option<String>,
         reward_sats: Option<u64>,
         source: EpochSource,
+        state: EpochState,
     ) -> Result<EpochRecord> {
         const MAX_NAME_ATTEMPTS: u32 = 32;
 
@@ -236,30 +364,520 @@ impl EpochManager {
             keyset_id,
             block_hash,
             reward_sats,
-            state: EpochState::Final,
+            state,
             source,
             opened_at: store::unix_now(),
         };
         store.append(record.clone())?;
-        *self.current.write().expect("epoch lock poisoned") = record.clone();
+        *self.current.write().await = record.clone();
 
         // Retire (not deregister) the previous epoch's quote-creation entry
         // last: deregister also drops the processor map entry, stranding its
-        // paid-but-unissued quotes. Failure is loud but non-fatal.
-        if let Some(prev) = &previous {
+        // paid-but-unissued quotes. Only for a Final boundary (genesis/manual);
+        // a provisional reward epoch leaves the previous epoch quotable in
+        // case it has to resume as current on dissolve.
+        if state == EpochState::Final {
+            if let Some(prev) = &previous {
+                let prev_unit = CurrencyUnit::Custom(prev.unit.clone().into());
+                if let Err(e) = self
+                    .mint
+                    .retire_payment_processor(prev_unit, ehash_method())
+                    .await
+                {
+                    warn!(unit = %prev.unit, "failed to retire previous epoch entry: {e}");
+                }
+            }
+        }
+
+        info!(unit = %record.unit, height, ?source, ?state, "epoch opened");
+        Ok(record)
+    }
+
+    /// Spawns the chain-watching loop: one tick, then sleep `poll_interval`,
+    /// forever. A transient tick error is logged and the loop continues; an
+    /// invariant violation is logged and the loop exits (the mint keeps
+    /// serving everything else).
+    pub fn spawn_watcher(self: &Arc<Self>) {
+        let manager = self.clone();
+        tokio::spawn(async move {
+            loop {
+                match manager.tick().await {
+                    Ok(()) => {}
+                    Err(e) if is_invariant_violation(&e) => {
+                        tracing::error!("epoch watcher stopped: {e}");
+                        break;
+                    }
+                    Err(e) => {
+                        warn!("epoch watcher tick failed (will retry): {e}");
+                    }
+                }
+                tokio::time::sleep(manager.poll_interval).await;
+            }
+        });
+    }
+
+    async fn tick(&self) -> Result<()> {
+        self.init_watermark_if_absent().await?;
+        self.resync().await?;
+        self.walk_forward().await?;
+        self.run_finality_pass().await?;
+        Ok(())
+    }
+
+    /// A store written before this change has no watermark; start scanning
+    /// from the current tip (rewards below it will never be scanned). Only
+    /// fires for old stores — genesis sets its own watermark.
+    async fn init_watermark_if_absent(&self) -> Result<()> {
+        let store = self.store.lock().await;
+        if store.watermark().is_some() {
+            return Ok(());
+        }
+        drop(store);
+        let tip = rpc_block_count(&self.rpc).await?;
+        let hash = self.get_block_hash(tip).await?;
+        warn!(height = tip, "epoch store has no watermark; starting scan at the current tip");
+        let mut store = self.store.lock().await;
+        store.set_watermark(ScannedBlock { height: tip, hash }, self.recent_cap())
+    }
+
+    /// Walks `recent` newest to oldest for the first entry the node still
+    /// agrees with, and rolls the watermark back to it. If none agree, the
+    /// retained window itself is behind a reorg; fall back to the node's
+    /// hash one below the oldest retained height.
+    async fn resync(&self) -> Result<()> {
+        let recent = {
+            let store = self.store.lock().await;
+            store.recent().to_vec()
+        };
+        if recent.is_empty() {
+            return Ok(());
+        }
+        let watermark = {
+            let store = self.store.lock().await;
+            store.watermark().cloned()
+        };
+
+        let mut canonical = std::collections::HashMap::new();
+        for b in &recent {
+            let hash = self.get_block_hash(b.height).await?;
+            canonical.insert(b.height, hash == b.hash);
+        }
+        let found = rollback_point(&recent, |b| {
+            canonical.get(&b.height).copied().unwrap_or(false)
+        });
+
+        match found {
+            Some(point) => {
+                if Some(&point) != watermark.as_ref() {
+                    info!(
+                        from = watermark.map(|w| w.height).unwrap_or(0),
+                        to = point.height,
+                        "watermark rollback"
+                    );
+                    let mut store = self.store.lock().await;
+                    store.rollback_to(point.height)?;
+                }
+                Ok(())
+            }
+            None => {
+                tracing::error!("reorg deeper than the retained window");
+                let oldest = recent.first().expect("checked non-empty above");
+                let height = oldest.height.saturating_sub(1);
+                let hash = self.get_block_hash(height).await?;
+                let mut store = self.store.lock().await;
+                store.rollback_to(height)?;
+                store.set_watermark(ScannedBlock { height, hash }, self.recent_cap())?;
+                Ok(())
+            }
+        }
+    }
+
+    async fn walk_forward(&self) -> Result<()> {
+        let tip = rpc_block_count(&self.rpc).await?;
+        loop {
+            let watermark = {
+                let store = self.store.lock().await;
+                store.watermark().cloned()
+            };
+            let watermark = match watermark {
+                Some(w) => w,
+                None => return Ok(()),
+            };
+            if watermark.height >= tip {
+                return Ok(());
+            }
+            let height = watermark.height + 1;
+            let hash = self.get_block_hash(height).await?;
+            let info = self.get_block_info(&hash).await?;
+            if info.previousblockhash.as_deref() != Some(watermark.hash.as_str()) {
+                // The chain moved under the walk; the next tick's resync handles it.
+                return Ok(());
+            }
+            let reward_sats = self.coinbase_reward(&info, &hash).await?;
+            self.process_block(height, hash.clone(), reward_sats).await?;
+            let mut store = self.store.lock().await;
+            store.set_watermark(ScannedBlock { height, hash }, self.recent_cap())?;
+        }
+    }
+
+    async fn process_block(&self, height: u64, hash: String, reward_sats: u64) -> Result<()> {
+        if reward_sats > 0 {
+            info!(height, hash = %hash, reward_sats, "reward detected");
+        }
+        let records = {
+            let store = self.store.lock().await;
+            store.non_dissolved()
+        };
+        match plan_block(&records, height, &hash, reward_sats) {
+            BlockAction::Nothing => {}
+            BlockAction::ReMine { unit } => {
+                let old_hash = records
+                    .iter()
+                    .find(|r| r.unit == unit)
+                    .and_then(|r| r.block_hash.clone());
+                let mut store = self.store.lock().await;
+                let mut current = self.current.write().await;
+                store.update_record(&unit, |r| {
+                    r.block_hash = Some(hash.clone());
+                    r.reward_sats = Some(reward_sats);
+                })?;
+                if current.unit == unit {
+                    if let Some(updated) = store.record(&unit) {
+                        *current = updated;
+                    }
+                }
+                info!(unit = %unit, height, old_hash = ?old_hash, new_hash = %hash, "epoch re-mined at same height");
+            }
+            BlockAction::Dissolve { unit } => {
+                self.dissolve(&unit).await?;
+            }
+            BlockAction::Open => {
+                self.open_epoch(
+                    height,
+                    Some(hash.clone()),
+                    Some(reward_sats),
+                    EpochSource::Reward,
+                    EpochState::Provisional,
+                )
+                .await?;
+            }
+            BlockAction::ReorgPastFinal { unit } => {
+                tracing::error!(
+                    unit = %unit,
+                    height,
+                    hash = %hash,
+                    "reorg crossed a final boundary; accepted residual risk, taking no action"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// For each provisional record whose boundary is still canonical and has
+    /// reached `confirmation_depth` confirmations, oldest first: finalize it.
+    async fn run_finality_pass(&self) -> Result<()> {
+        let tip = rpc_block_count(&self.rpc).await?;
+        let records = {
+            let store = self.store.lock().await;
+            store.non_dissolved()
+        };
+        let mut canonical = std::collections::HashMap::new();
+        for r in records.iter().filter(|r| r.state == EpochState::Provisional) {
+            if let Some(expected_hash) = &r.block_hash {
+                let actual = self.get_block_hash(r.height).await?;
+                canonical.insert(r.unit.clone(), actual == *expected_hash);
+            }
+        }
+        let due = due_for_finality(&records, tip, self.confirmation_depth, |r| {
+            canonical.get(&r.unit).copied().unwrap_or(false)
+        });
+        for unit in due {
+            self.finalize(&unit).await?;
+        }
+        Ok(())
+    }
+
+    /// Marks `unit` final, bulk-pays its quotes, and retires the previous
+    /// epoch's quote-creation entry (old quotes still mint; no new ones).
+    async fn finalize(&self, unit: &str) -> Result<()> {
+        let (height, block_hash, prev) = {
+            let mut store = self.store.lock().await;
+            let mut current = self.current.write().await;
+            store.update_record(unit, |r| r.state = EpochState::Final)?;
+            let updated = store
+                .record(unit)
+                .expect("just updated, must still be present");
+            if current.unit == unit {
+                *current = updated.clone();
+            }
+            let prev = store.previous_non_dissolved(unit);
+            (updated.height, updated.block_hash.clone(), prev)
+        };
+
+        let paid = self.pay_unpaid_quotes(unit).await?;
+
+        if let Some(prev) = &prev {
             let prev_unit = CurrencyUnit::Custom(prev.unit.clone().into());
             if let Err(e) = self
                 .mint
                 .retire_payment_processor(prev_unit, ehash_method())
                 .await
             {
-                warn!(unit = %prev.unit, "failed to retire previous epoch entry: {e}");
+                warn!(unit = %prev.unit, "failed to retire previous epoch entry at finality: {e}");
             }
         }
 
-        info!(unit = %record.unit, height, ?source, "epoch opened");
-        Ok(record)
+        info!(
+            unit = %unit,
+            height,
+            block_hash = ?block_hash,
+            quotes_paid = paid,
+            retired_unit = ?prev.as_ref().map(|r| r.unit.clone()),
+            "epoch finalized"
+        );
+        Ok(())
     }
+
+    /// Orphans `unit` before finality: re-stamps its never-paid, never-issued
+    /// quotes onto the previous epoch and pays them, then flips the record
+    /// to `Dissolved`. Refuses (invariant violation, nothing mutated) if the
+    /// unit's keyset has issued anything or any of its quotes are owing.
+    async fn dissolve(&self, unit: &str) -> Result<()> {
+        let (height, old_hash, prev, restamped) = {
+            let mut store = self.store.lock().await;
+            let mut current = self.current.write().await;
+
+            let record = store
+                .record(unit)
+                .ok_or_else(|| anyhow!("no epoch record for unit {unit}"))?;
+            let prev = store.previous_non_dissolved(unit).ok_or_else(|| {
+                self.invariant_error(format!(
+                    "dissolve {unit}: no previous non-dissolved epoch to resume into"
+                ))
+            })?;
+
+            let keyset_id = cdk::nuts::Id::from_str(&record.keyset_id)
+                .map_err(|e| anyhow!("parsing keyset id {}: {e}", record.keyset_id))?;
+            let issued = self
+                .mint
+                .total_issued()
+                .await
+                .map_err(|e| anyhow!("total_issued: {e}"))?;
+            let issued_amount = issued.get(&keyset_id).copied().map(|a| a.to_u64()).unwrap_or(0);
+            if issued_amount != 0 {
+                return Err(self.invariant_error(format!(
+                    "dissolve {unit}: keyset {} has issued {issued_amount}, must be zero",
+                    record.keyset_id
+                )));
+            }
+
+            let target_unit = CurrencyUnit::Custom(unit.to_string().into());
+            let quotes = self
+                .mint
+                .mint_quotes()
+                .await
+                .map_err(|e| anyhow!("mint_quotes: {e}"))?;
+            let owing: Vec<_> = quotes.into_iter().filter(|q| q.unit == target_unit).collect();
+            if owing
+                .iter()
+                .any(|q| q.amount_paid().value() != 0 || q.amount_issued().value() != 0)
+            {
+                return Err(self.invariant_error(format!(
+                    "dissolve {unit}: a quote in the dissolving unit has nonzero amount_paid or amount_issued"
+                )));
+            }
+            let expected = owing.len();
+
+            let affected = self.restamp_quotes(unit, &prev.unit).await?;
+            if affected != expected {
+                return Err(self.invariant_error(format!(
+                    "dissolve {unit}: re-stamp affected {affected} row(s), expected {expected}"
+                )));
+            }
+
+            store.update_record(unit, |r| r.state = EpochState::Dissolved)?;
+            if current.unit == unit {
+                *current = prev.clone();
+            }
+
+            (record.height, record.block_hash.clone(), prev, affected)
+        };
+
+        let mut paid = 0usize;
+        if prev.state == EpochState::Final {
+            paid = self.pay_unpaid_quotes(&prev.unit).await?;
+        }
+
+        let dissolved_unit = CurrencyUnit::Custom(unit.to_string().into());
+        if let Err(e) = self
+            .mint
+            .retire_payment_processor(dissolved_unit, ehash_method())
+            .await
+        {
+            warn!(unit = %unit, "failed to retire dissolved epoch entry: {e}");
+        }
+
+        info!(
+            unit = %unit,
+            height,
+            old_hash = ?old_hash,
+            quotes_restamped = restamped,
+            quotes_paid_in_target = paid,
+            target_unit = %prev.unit,
+            "epoch dissolved"
+        );
+        Ok(())
+    }
+
+    /// Direct SQL re-stamp: cdk exposes no API to change a quote's unit.
+    /// Opens a second connection on the same sqlite file through cdk's own
+    /// pool and statement layer.
+    async fn restamp_quotes(&self, from_unit: &str, to_unit: &str) -> Result<usize> {
+        let path_str = self.mint_db_path.to_str().ok_or_else(|| {
+            anyhow!(
+                "mint db path {} is not valid UTF-8",
+                self.mint_db_path.display()
+            )
+        })?;
+        let pool = cdk_sql_common::pool::Pool::<cdk_sqlite::SqliteConnectionManager>::new(
+            path_str.into(),
+        );
+        let conn = pool.get().await.map_err(|e| {
+            anyhow!(
+                "opening a second sqlite connection on {}: {e}",
+                self.mint_db_path.display()
+            )
+        })?;
+        let affected = cdk_sql_common::stmt::query(
+            "UPDATE mint_quote SET unit = :to WHERE unit = :from AND amount_paid = 0 AND amount_issued = 0",
+        )
+        .map_err(|e| anyhow!("{e}"))?
+        .bind("to", to_unit.to_string())
+        .bind("from", from_unit.to_string())
+        .execute(&*conn)
+        .await
+        .map_err(|e| anyhow!("re-stamping quotes from {from_unit} to {to_unit}: {e}"))?;
+        Ok(affected)
+    }
+
+    /// Pays every unpaid quote in `unit`. Safe only because the HTTP route
+    /// that creates ehash quotes is closed (main.rs); otherwise this would
+    /// mint for free at finality. `DuplicatePaymentId` is a crash-retry, not
+    /// a failure.
+    async fn pay_unpaid_quotes(&self, unit: &str) -> Result<usize> {
+        let target = CurrencyUnit::Custom(unit.to_string().into());
+        let quotes = self
+            .mint
+            .mint_quotes()
+            .await
+            .map_err(|e| anyhow!("listing mint quotes: {e}"))?;
+        let mut paid = 0usize;
+        for quote in quotes
+            .into_iter()
+            .filter(|q| q.unit == target && q.amount_paid().value() == 0)
+        {
+            let amount = quote
+                .amount
+                .ok_or_else(|| anyhow!("quote {} has no amount", quote.id))?;
+            let payment_id = match &quote.request_lookup_id {
+                cdk::cdk_payment::PaymentIdentifier::CustomId(s) => s.clone(),
+                other => other.to_string(),
+            };
+            match self
+                .mint
+                .pay_mint_quote_for_request_id(WaitPaymentResponse {
+                    payment_identifier: quote.request_lookup_id.clone(),
+                    payment_amount: amount,
+                    payment_id,
+                })
+                .await
+            {
+                Ok(()) => paid += 1,
+                Err(cdk::Error::DuplicatePaymentId) => paid += 1,
+                Err(e) => return Err(anyhow!("paying quote {}: {e}", quote.id)),
+            }
+        }
+        Ok(paid)
+    }
+}
+
+/// What `process_block` decided for one (height, hash, reward_sats) triple,
+/// factored out of the RPC-driven watcher so it is unit-testable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BlockAction {
+    Nothing,
+    /// Same-height re-mine: a provisional boundary's block was replaced by a
+    /// different block that still pays the mint.
+    ReMine { unit: String },
+    /// A provisional boundary was orphaned with no replacement payment.
+    Dissolve { unit: String },
+    /// A reward with no existing record at this height opens a new epoch.
+    Open,
+    /// A reward replaced an already-final boundary: accepted residual risk.
+    ReorgPastFinal { unit: String },
+}
+
+pub fn plan_block(
+    records: &[EpochRecord],
+    height: u64,
+    hash: &str,
+    reward_sats: u64,
+) -> BlockAction {
+    if let Some(r) = records
+        .iter()
+        .find(|r| r.height == height && r.state == EpochState::Provisional)
+    {
+        if r.block_hash.as_deref() == Some(hash) {
+            BlockAction::Nothing
+        } else if reward_sats > 0 {
+            BlockAction::ReMine { unit: r.unit.clone() }
+        } else {
+            BlockAction::Dissolve { unit: r.unit.clone() }
+        }
+    } else if reward_sats > 0 {
+        if let Some(r) = records
+            .iter()
+            .find(|r| r.height == height && r.state == EpochState::Final)
+        {
+            if r.block_hash.as_deref() == Some(hash) {
+                BlockAction::Nothing
+            } else {
+                BlockAction::ReorgPastFinal { unit: r.unit.clone() }
+            }
+        } else {
+            BlockAction::Open
+        }
+    } else {
+        BlockAction::Nothing
+    }
+}
+
+/// Units due for finality: provisional, canonical, and at or past
+/// `confirmation_depth` confirmations (`tip - height + 1 >= depth`, so
+/// depth 1 is final at detection). Preserves `records`' order (oldest first
+/// when `records` is).
+pub fn due_for_finality(
+    records: &[EpochRecord],
+    tip: u64,
+    depth: u32,
+    is_canonical: impl Fn(&EpochRecord) -> bool,
+) -> Vec<String> {
+    records
+        .iter()
+        .filter(|r| r.state == EpochState::Provisional)
+        .filter(|r| tip.saturating_sub(r.height) + 1 >= depth as u64)
+        .filter(|r| is_canonical(r))
+        .map(|r| r.unit.clone())
+        .collect()
+}
+
+/// The newest entry in `recent` the node still agrees with, or `None` if no
+/// entry is canonical (a reorg deeper than the retained window).
+pub fn rollback_point(
+    recent: &[ScannedBlock],
+    is_canonical: impl Fn(&ScannedBlock) -> bool,
+) -> Option<ScannedBlock> {
+    recent.iter().rev().find(|b| is_canonical(b)).cloned()
 }
 
 /// Retires every record whose unit is not in `keep`. All selected
@@ -314,20 +932,49 @@ async fn outstanding_quote_units(mint: &Mint) -> Result<HashSet<String>> {
 /// One getblockcount attempt with a hard timeout, so a hung (not refusing)
 /// RPC endpoint cannot block mint startup forever.
 async fn rpc_block_count(rpc: &MiniRpcClient) -> Result<u64> {
-    tokio::time::timeout(std::time::Duration::from_secs(10), rpc.get_block_count())
+    tokio::time::timeout(RPC_TIMEOUT, rpc.get_block_count())
         .await
-        .map_err(|_| anyhow!("getblockcount timed out after 10s"))?
+        .map_err(|_| anyhow!("getblockcount timed out after {RPC_TIMEOUT:?}"))?
         .map_err(|e| anyhow!("getblockcount failed: {e:?}"))
+}
+
+async fn rpc_block_hash(rpc: &MiniRpcClient, height: u64) -> Result<String> {
+    tokio::time::timeout(RPC_TIMEOUT, rpc.get_block_hash(height))
+        .await
+        .map_err(|_| anyhow!("getblockhash timed out after {RPC_TIMEOUT:?}"))?
+        .map_err(|e| anyhow!("getblockhash failed: {e:?}"))
 }
 
 async fn block_count_with_retry(
     rpc: &MiniRpcClient,
     attempts: u32,
-    delay: std::time::Duration,
+    delay: Duration,
 ) -> Result<u64> {
     let mut last_err = None;
     for _ in 0..attempts {
         match rpc_block_count(rpc).await {
+            Ok(h) => return Ok(h),
+            Err(e) => {
+                last_err = Some(e.to_string());
+                tokio::time::sleep(delay).await;
+            }
+        }
+    }
+    Err(anyhow!(
+        "bitcoind RPC unreachable after {attempts} attempts: {}",
+        last_err.unwrap_or_default()
+    ))
+}
+
+async fn block_hash_with_retry(
+    rpc: &MiniRpcClient,
+    height: u64,
+    attempts: u32,
+    delay: Duration,
+) -> Result<String> {
+    let mut last_err = None;
+    for _ in 0..attempts {
+        match rpc_block_hash(rpc, height).await {
             Ok(h) => return Ok(h),
             Err(e) => {
                 last_err = Some(e.to_string());
@@ -349,6 +996,17 @@ pub fn admin_router(manager: Arc<EpochManager>) -> Router {
 }
 
 async fn rotate_epoch_handler(State(manager): State<Arc<EpochManager>>) -> impl IntoResponse {
+    {
+        let current = manager.current_epoch().await;
+        if current.state == EpochState::Provisional {
+            return (
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({
+                    "error": "current epoch is provisional; manual rotation refused"
+                })),
+            );
+        }
+    }
     let height = match manager.chain_height().await {
         Ok(h) => h,
         Err(e) => {
@@ -359,7 +1017,7 @@ async fn rotate_epoch_handler(State(manager): State<Arc<EpochManager>>) -> impl 
         }
     };
     match manager
-        .open_epoch(height, None, None, EpochSource::Manual)
+        .open_epoch(height, None, None, EpochSource::Manual, EpochState::Final)
         .await
     {
         Ok(record) => (
@@ -395,6 +1053,14 @@ mod tests {
         ))
     }
 
+    fn temp_db_path(label: &str) -> std::path::PathBuf {
+        let n = TEST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "epoch-manager-test-{}-{label}-{n}.sqlite",
+            std::process::id()
+        ))
+    }
+
     fn record(height: u64, unit: &str, state: EpochState) -> EpochRecord {
         EpochRecord {
             height,
@@ -408,8 +1074,38 @@ mod tests {
         }
     }
 
+    fn block(height: u64, hash: &str) -> ScannedBlock {
+        ScannedBlock {
+            height,
+            hash: hash.into(),
+        }
+    }
+
+    /// Pre-populates a store with a genesis-shaped record and watermark, so
+    /// `load_or_genesis` takes the resume path and never calls bitcoind.
+    fn seed_genesis_store(path: &std::path::Path, unit: &str) {
+        let mut store = EpochStore::load(path).unwrap();
+        store.append(record(1, unit, EpochState::Final)).unwrap();
+        store
+            .set_watermark(block(1, "genesis_hash"), 16)
+            .unwrap();
+    }
+
     async fn test_mint() -> Arc<Mint> {
         let db = Arc::new(cdk_sqlite::mint::memory::empty().await.unwrap());
+        let mint = MintBuilder::new(db.clone())
+            .build_with_seed(db, &[7u8; 64])
+            .await
+            .unwrap();
+        let mint = Arc::new(mint);
+        mint.start().await.unwrap();
+        mint
+    }
+
+    /// File-backed mint: the dissolve re-stamp opens a second sqlite
+    /// connection on the same file, which an in-memory cdk DB cannot serve.
+    async fn test_mint_file(path: &std::path::PathBuf) -> Arc<Mint> {
+        let db = Arc::new(cdk_sqlite::MintSqliteDatabase::new(path).await.unwrap());
         let mint = MintBuilder::new(db.clone())
             .build_with_seed(db, &[7u8; 64])
             .await
@@ -428,6 +1124,10 @@ mod tests {
             rpc_user: "user".to_string(),
             rpc_pass: "pass".to_string(),
             admin_listen: "127.0.0.1:0".to_string(),
+            receive_script: bitcoin::ScriptBuf::new(),
+            confirmation_depth: 1,
+            poll_interval: Duration::from_secs(1),
+            mint_db_path: std::path::PathBuf::from(":memory:"),
         }
     }
 
@@ -472,6 +1172,70 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
         panic!("seeded quote for {unit} never reached paid state");
+    }
+
+    /// Registers `unit` and creates an unpaid quote in it (a share accepted
+    /// while the epoch is provisional).
+    async fn seed_unpaid_quote(mint: &Mint, unit: &CurrencyUnit, amount: u64) -> String {
+        if mint
+            .get_payment_processor(unit.clone(), ehash_method())
+            .is_err()
+        {
+            let processor = Arc::new(EhashPaymentProcessor::new(unit.clone()));
+            mint.register_payment_processor(
+                unit.clone(),
+                ehash_method(),
+                MintMeltLimits::new(1, u64::MAX),
+                processor as Arc<dyn MintPayment<Err = cdk::cdk_payment::Error> + Send + Sync>,
+            )
+            .await
+            .unwrap();
+        }
+
+        let header_hash = "22".repeat(32);
+        let request = cdk::MintQuoteRequest::Custom {
+            method: ehash_method(),
+            request: cdk::nuts::MintQuoteCustomRequest {
+                amount: Some(cdk::Amount::from(amount)),
+                unit: unit.clone(),
+                description: None,
+                pubkey: None,
+                extra: serde_json::json!({ "header_hash": header_hash }),
+            },
+        };
+        let response = mint.get_mint_quote(request).await.unwrap();
+        response.quote().to_string()
+    }
+
+    /// Creates a quote and pays it through `Mint` directly, bypassing any
+    /// processor instance. Needed when `unit`'s processor was already
+    /// registered elsewhere (e.g. by `open_epoch`): a second, unregistered
+    /// `EhashPaymentProcessor` has no consumer task draining its channel, so
+    /// `pay_ehash_quote` on it would never actually mark the quote paid.
+    async fn seed_quote_paid_directly(mint: &Mint, unit: &CurrencyUnit, amount: u64) -> String {
+        let header_hash = "33".repeat(32);
+        let request = cdk::MintQuoteRequest::Custom {
+            method: ehash_method(),
+            request: cdk::nuts::MintQuoteCustomRequest {
+                amount: Some(cdk::Amount::from(amount)),
+                unit: unit.clone(),
+                description: None,
+                pubkey: None,
+                extra: serde_json::json!({ "header_hash": header_hash }),
+            },
+        };
+        let response = mint.get_mint_quote(request).await.unwrap();
+        let quote_id = response.quote().to_string();
+
+        mint.pay_mint_quote_for_request_id(WaitPaymentResponse {
+            payment_identifier: cdk::cdk_payment::PaymentIdentifier::CustomId(header_hash.clone()),
+            payment_amount: cdk::Amount::new(amount, unit.clone()),
+            payment_id: header_hash,
+        })
+        .await
+        .unwrap();
+
+        quote_id
     }
 
     #[tokio::test]
@@ -733,5 +1497,294 @@ mod tests {
 
         assert!(result.is_ok());
         assert_eq!(*seen.lock().unwrap(), vec!["a".to_string(), "b".to_string()]);
+    }
+
+    // --- plan_block ---
+
+    #[test]
+    fn plan_block_nothing_when_rewalking_an_untouched_provisional_boundary() {
+        let records = vec![record(100, "u100", EpochState::Provisional)];
+        let mut r = records;
+        r[0].block_hash = Some("hash_a".into());
+        assert_eq!(plan_block(&r, 100, "hash_a", 0), BlockAction::Nothing);
+    }
+
+    #[test]
+    fn plan_block_remine_when_provisional_boundary_replaced_by_a_paying_block() {
+        let mut r = vec![record(100, "u100", EpochState::Provisional)];
+        r[0].block_hash = Some("hash_a".into());
+        assert_eq!(
+            plan_block(&r, 100, "hash_b", 500),
+            BlockAction::ReMine { unit: "u100".into() }
+        );
+    }
+
+    #[test]
+    fn plan_block_dissolve_when_provisional_boundary_replaced_with_no_payment() {
+        let mut r = vec![record(100, "u100", EpochState::Provisional)];
+        r[0].block_hash = Some("hash_a".into());
+        assert_eq!(
+            plan_block(&r, 100, "hash_b", 0),
+            BlockAction::Dissolve { unit: "u100".into() }
+        );
+    }
+
+    #[test]
+    fn plan_block_open_when_reward_with_no_existing_record() {
+        let r = vec![record(100, "u100", EpochState::Final)];
+        assert_eq!(plan_block(&r, 200, "hash_c", 500), BlockAction::Open);
+    }
+
+    #[test]
+    fn plan_block_dissolved_record_at_same_height_is_left_alone_and_opens_anew() {
+        let r = vec![record(100, "u100_1", EpochState::Dissolved)];
+        assert_eq!(plan_block(&r, 100, "hash_c", 500), BlockAction::Open);
+    }
+
+    #[test]
+    fn plan_block_nothing_when_rewalking_a_final_boundary() {
+        let mut r = vec![record(100, "u100", EpochState::Final)];
+        r[0].block_hash = Some("hash_a".into());
+        assert_eq!(plan_block(&r, 100, "hash_a", 500), BlockAction::Nothing);
+    }
+
+    #[test]
+    fn plan_block_reorg_past_final_when_a_reward_replaces_a_final_boundary() {
+        let mut r = vec![record(100, "u100", EpochState::Final)];
+        r[0].block_hash = Some("hash_a".into());
+        assert_eq!(
+            plan_block(&r, 100, "hash_b", 500),
+            BlockAction::ReorgPastFinal { unit: "u100".into() }
+        );
+    }
+
+    #[test]
+    fn plan_block_nothing_when_no_reward_and_no_provisional_record() {
+        let r = vec![record(100, "u100", EpochState::Final)];
+        assert_eq!(plan_block(&r, 200, "hash_c", 0), BlockAction::Nothing);
+    }
+
+    // --- due_for_finality ---
+
+    #[test]
+    fn due_for_finality_orders_oldest_first_and_excludes_non_canonical() {
+        let mut older = record(100, "older", EpochState::Provisional);
+        older.block_hash = Some("h100".into());
+        let mut newer = record(200, "newer", EpochState::Provisional);
+        newer.block_hash = Some("h200".into());
+        let mut stale = record(150, "stale", EpochState::Provisional);
+        stale.block_hash = Some("h150".into());
+        let records = vec![older, stale, newer];
+
+        let due = due_for_finality(&records, 300, 3, |r| r.unit != "stale");
+        assert_eq!(due, vec!["older".to_string(), "newer".to_string()]);
+    }
+
+    #[test]
+    fn due_for_finality_boundary_is_exactly_at_and_one_below() {
+        let mut r = record(100, "u", EpochState::Provisional);
+        r.block_hash = Some("h".into());
+        let records = vec![r];
+
+        // tip - height + 1 == depth: exactly at the boundary, due.
+        assert_eq!(
+            due_for_finality(&records, 102, 3, |_| true),
+            vec!["u".to_string()]
+        );
+        // one block short: not due.
+        assert_eq!(due_for_finality(&records, 101, 3, |_| true), Vec::<String>::new());
+    }
+
+    #[test]
+    fn due_for_finality_only_considers_provisional_records() {
+        let records = vec![record(100, "final", EpochState::Final)];
+        assert_eq!(
+            due_for_finality(&records, 1000, 1, |_| true),
+            Vec::<String>::new()
+        );
+    }
+
+    // --- rollback_point ---
+
+    #[test]
+    fn rollback_point_prefers_the_newest_canonical_entry() {
+        let recent = vec![block(100, "h100"), block(101, "h101"), block(102, "h102")];
+        let point = rollback_point(&recent, |b| b.height != 102);
+        assert_eq!(point, Some(block(101, "h101")));
+    }
+
+    #[test]
+    fn rollback_point_none_when_nothing_is_canonical() {
+        let recent = vec![block(100, "h100"), block(101, "h101")];
+        assert_eq!(rollback_point(&recent, |_| false), None);
+    }
+
+    // --- EpochManager: finalize / dissolve ---
+
+    #[tokio::test]
+    async fn finalize_flips_state_pays_seeded_quote_and_retires_previous_unit() {
+        let store_path = temp_store_path("finalize");
+        let _ = std::fs::remove_file(&store_path);
+        seed_genesis_store(&store_path, "hash_test_genesis_finalize");
+
+        let mint = test_mint().await;
+        let settings = test_settings(store_path.clone());
+        let manager = EpochManager::load_or_genesis(mint.clone(), settings)
+            .await
+            .unwrap();
+        let genesis_unit = manager.current_epoch().await.unit.clone();
+
+        let record = manager
+            .open_epoch(
+                100,
+                Some("hash_a".into()),
+                Some(500),
+                EpochSource::Reward,
+                EpochState::Provisional,
+            )
+            .await
+            .unwrap();
+
+        let unit = CurrencyUnit::Custom(record.unit.clone().into());
+        let quote_id = seed_unpaid_quote(&mint, &unit, 10).await;
+
+        manager.finalize(&record.unit).await.unwrap();
+
+        let quotes = mint.mint_quotes().await.unwrap();
+        let seeded = quotes.iter().find(|q| q.id.to_string() == quote_id).unwrap();
+        assert_eq!(seeded.amount_paid().value(), 10, "seeded quote must be paid at finality");
+
+        assert_eq!(manager.current_epoch().await.state, EpochState::Final);
+
+        let mint_info = mint.mint_info().await.unwrap();
+        let genesis_currency = CurrencyUnit::Custom(genesis_unit.into());
+        assert!(
+            mint_info
+                .nuts
+                .nut04
+                .get_settings(&genesis_currency, &ehash_method())
+                .is_none(),
+            "the previous unit's quote-creation settings must be retired"
+        );
+        assert!(
+            mint.get_payment_processor(genesis_currency, ehash_method()).is_ok(),
+            "the previous unit's processor-map entry must remain (retire, not deregister)"
+        );
+
+        let _ = std::fs::remove_file(&store_path);
+    }
+
+    #[tokio::test]
+    async fn dissolve_restamps_and_pays_an_unpaid_quote_onto_the_previous_unit() {
+        let store_path = temp_store_path("dissolve");
+        let db_path = temp_db_path("dissolve");
+        let _ = std::fs::remove_file(&store_path);
+        let _ = std::fs::remove_file(&db_path);
+        seed_genesis_store(&store_path, "hash_test_genesis_dissolve");
+
+        let mint = test_mint_file(&db_path).await;
+        let mut settings = test_settings(store_path.clone());
+        settings.mint_db_path = db_path.clone();
+        let manager = EpochManager::load_or_genesis(mint.clone(), settings)
+            .await
+            .unwrap();
+        let genesis_unit = manager.current_epoch().await.unit.clone();
+
+        let record = manager
+            .open_epoch(
+                100,
+                Some("hash_a".into()),
+                Some(500),
+                EpochSource::Reward,
+                EpochState::Provisional,
+            )
+            .await
+            .unwrap();
+
+        let unit = CurrencyUnit::Custom(record.unit.clone().into());
+        let quote_id = seed_unpaid_quote(&mint, &unit, 10).await;
+
+        manager.dissolve(&record.unit).await.unwrap();
+
+        let quotes = mint.mint_quotes().await.unwrap();
+        let moved = quotes.iter().find(|q| q.id.to_string() == quote_id).unwrap();
+        assert_eq!(moved.unit.to_string(), genesis_unit, "quote must move to the previous unit");
+        assert_eq!(moved.amount_paid().value(), 10, "re-stamped quote must be paid");
+
+        let current = manager.current_epoch().await;
+        assert_eq!(current.unit, genesis_unit, "current must roll back to the previous epoch");
+        drop(current);
+
+        let dissolved = {
+            let store = manager.store.lock().await;
+            store.record(&record.unit).unwrap()
+        };
+        assert_eq!(dissolved.state, EpochState::Dissolved);
+
+        let mint_info = mint.mint_info().await.unwrap();
+        let genesis_currency = CurrencyUnit::Custom(genesis_unit.into());
+        assert!(
+            mint_info
+                .nuts
+                .nut04
+                .get_settings(&genesis_currency, &ehash_method())
+                .is_some(),
+            "the previous unit must still have nut04 settings after dissolve"
+        );
+
+        let _ = std::fs::remove_file(&store_path);
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[tokio::test]
+    async fn dissolve_refuses_and_mutates_nothing_when_a_quote_is_already_paid() {
+        let store_path = temp_store_path("dissolve-invariant");
+        let db_path = temp_db_path("dissolve-invariant");
+        let _ = std::fs::remove_file(&store_path);
+        let _ = std::fs::remove_file(&db_path);
+        seed_genesis_store(&store_path, "hash_test_genesis_dissolve_invariant");
+
+        let mint = test_mint_file(&db_path).await;
+        let mut settings = test_settings(store_path.clone());
+        settings.mint_db_path = db_path.clone();
+        let manager = EpochManager::load_or_genesis(mint.clone(), settings)
+            .await
+            .unwrap();
+
+        let record = manager
+            .open_epoch(
+                100,
+                Some("hash_a".into()),
+                Some(500),
+                EpochSource::Reward,
+                EpochState::Provisional,
+            )
+            .await
+            .unwrap();
+
+        let unit = CurrencyUnit::Custom(record.unit.clone().into());
+        seed_quote_paid_directly(&mint, &unit, 10).await;
+
+        let result = manager.dissolve(&record.unit).await;
+        assert!(result.is_err(), "dissolving a unit with a paid quote must fail");
+
+        let state_after = {
+            let store = manager.store.lock().await;
+            store.record(&record.unit).unwrap().state
+        };
+        assert_eq!(
+            state_after,
+            EpochState::Provisional,
+            "a failed dissolve must not flip the record"
+        );
+
+        let quotes = mint.mint_quotes().await.unwrap();
+        assert!(
+            quotes.iter().any(|q| q.unit == unit && q.amount_paid().value() == 10),
+            "the paid quote must be untouched"
+        );
+
+        let _ = std::fs::remove_file(&store_path);
+        let _ = std::fs::remove_file(&db_path);
     }
 }

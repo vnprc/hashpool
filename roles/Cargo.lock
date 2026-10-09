@@ -4152,6 +4152,7 @@ dependencies = [
  "cdk-axum",
  "cdk-ehash",
  "cdk-mintd",
+ "cdk-sql-common",
  "cdk-sqlite",
  "codec_sv2",
  "common_messages_sv2",

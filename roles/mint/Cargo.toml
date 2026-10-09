@@ -25,6 +25,7 @@ cdk-axum   = "0.17.0"
 cdk-ehash  = { git = "https://forge.anarch.diy/vnprc/cdk-ehash.git", rev = "1328180" }
 cdk-mintd  = "0.17.0"
 cdk-sqlite = "0.17.0"
+cdk-sql-common = "0.17.0"
 toml = "0.8.22"
 
 shared_config = { path = "../roles-utils/config" }
