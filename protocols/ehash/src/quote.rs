@@ -96,7 +96,7 @@ impl ParsedMintQuoteRequest {
     /// Convert the parsed SV2 request into a CDK custom quote request.
     pub fn to_cdk_request(&self) -> Result<MintQuoteCustomRequest, QuoteConversionError> {
         let amount = Amount::from(self.request.amount);
-        let unit = CurrencyUnit::Custom("hash".to_string());
+        let unit = CurrencyUnit::Custom("hash".to_string().into());
 
         let header_hash_hex = hex::encode(self.share_hash.as_bytes());
 
@@ -258,7 +258,7 @@ mod tests {
 
         let cdk_request = parsed.to_cdk_request().expect("convert to cdk");
         assert_eq!(cdk_request.amount, Some(Amount::from(10_u64)));
-        assert_eq!(cdk_request.unit, CurrencyUnit::Custom("hash".to_string()));
+        assert_eq!(cdk_request.unit, CurrencyUnit::Custom("hash".to_string().into()));
         assert_eq!(cdk_request.pubkey, Some(expected_pubkey));
         assert_eq!(cdk_request.extra["header_hash"], hex::encode(&hash));
     }

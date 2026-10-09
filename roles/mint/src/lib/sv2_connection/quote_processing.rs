@@ -79,7 +79,7 @@ pub async fn process_mint_quote_message(
 
                     // Mark quote as paid immediately — pool validated the share before sending this message.
                     let header_hash_hex = hex::encode(share_hash.as_bytes());
-                    let amount_with_unit = Amount::new(amount, CurrencyUnit::Custom("hash".to_string()));
+                    let amount_with_unit = Amount::new(amount, CurrencyUnit::Custom("hash".to_string().into()));
 
                     mint.pay_mint_quote_for_request_id(WaitPaymentResponse {
                         payment_identifier: PaymentIdentifier::CustomId(header_hash_hex.clone()),

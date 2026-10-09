@@ -314,7 +314,7 @@ devenv up
 4. **Snapshot-based stats**: Services send complete state every 5s, not incremental events
 5. **Shared Bitcoin nodes**: In devenv and the testnet deployment, both sides may share a Bitcoin node for convenience
    - this will not be the case in a production deployment
-6. **CDK dependencies**: Using forked CDK from `github.com/vnprc/cdk.git`
+6. **CDK dependencies**: Using forked CDK from `ssh://git@forge.anarch.diy:2222/vnprc/cdk`
 7. **Database paths**: Set via environment variables (e.g., `CDK_MINT_DB_PATH`)
 8. **Minimal SRI coupling**: Only ~80 lines of SRI code changed for stats (adapter trait pattern)
 

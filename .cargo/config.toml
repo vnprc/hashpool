@@ -1,0 +1,5 @@
+# cargo's bundled libgit2 cannot authenticate to the forge over SSH
+# (ssh-agent-only auth, no fallback to default key files); shell out
+# to system git for fetches instead.
+[net]
+git-fetch-with-cli = true

@@ -26,15 +26,15 @@ members = [
 ]
 
 [patch.crates-io]
-cashu           = { git = "https://github.com/vnprc/cdk", rev = "7011eebc" }
-cdk             = { git = "https://github.com/vnprc/cdk", rev = "7011eebc" }
-cdk-common      = { git = "https://github.com/vnprc/cdk", rev = "7011eebc" }
-cdk-axum        = { git = "https://github.com/vnprc/cdk", rev = "7011eebc" }
-cdk-mintd       = { git = "https://github.com/vnprc/cdk", rev = "7011eebc" }
-cdk-http-client = { git = "https://github.com/vnprc/cdk", rev = "7011eebc" }
-cdk-signatory   = { git = "https://github.com/vnprc/cdk", rev = "7011eebc" }
-cdk-sql-common  = { git = "https://github.com/vnprc/cdk", rev = "7011eebc" }
-cdk-sqlite      = { git = "https://github.com/vnprc/cdk", rev = "7011eebc" }
+cashu           = { git = "ssh://git@forge.anarch.diy:2222/vnprc/cdk", rev = "874a1bf3" }
+cdk             = { git = "ssh://git@forge.anarch.diy:2222/vnprc/cdk", rev = "874a1bf3" }
+cdk-common      = { git = "ssh://git@forge.anarch.diy:2222/vnprc/cdk", rev = "874a1bf3" }
+cdk-axum        = { git = "ssh://git@forge.anarch.diy:2222/vnprc/cdk", rev = "874a1bf3" }
+cdk-mintd       = { git = "ssh://git@forge.anarch.diy:2222/vnprc/cdk", rev = "874a1bf3" }
+cdk-http-client = { git = "ssh://git@forge.anarch.diy:2222/vnprc/cdk", rev = "874a1bf3" }
+cdk-signatory   = { git = "ssh://git@forge.anarch.diy:2222/vnprc/cdk", rev = "874a1bf3" }
+cdk-sql-common  = { git = "ssh://git@forge.anarch.diy:2222/vnprc/cdk", rev = "874a1bf3" }
+cdk-sqlite      = { git = "ssh://git@forge.anarch.diy:2222/vnprc/cdk", rev = "874a1bf3" }
 
 [profile.dev]
 # Required by super_safe_lock

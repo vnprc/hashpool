@@ -97,8 +97,8 @@ db TYPE="":
     fi
 
 # CDK configuration - update these when CDK version changes
-CDK_REPO := "https://github.com/vnprc/cdk.git"
-CDK_COMMIT := "9523a003"
+CDK_REPO := "ssh://git@forge.anarch.diy:2222/vnprc/cdk"
+CDK_COMMIT := "874a1bf38b4b6df34b54178b2550899cc8c1dbfa"
 
 # build cdk-cli from remote repo
 build-cdk-cli:
