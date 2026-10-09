@@ -1153,9 +1153,13 @@ pub fn plan_block(
             BlockAction::Dissolve { unit: r.unit.clone() }
         }
     } else if reward_sats > 0 {
+        // Only a Final record with a recorded block hash (a reward epoch)
+        // participates in the dedupe/reorg check: Manual and Genesis
+        // records carry no hash and were never a chain boundary, so they
+        // must not suppress or reinterpret a reward landing at their height.
         if let Some(r) = records
             .iter()
-            .find(|r| r.height == height && r.state == EpochState::Final)
+            .find(|r| r.height == height && r.state == EpochState::Final && r.block_hash.is_some())
         {
             if r.block_hash.as_deref() == Some(hash) {
                 BlockAction::Nothing
@@ -1869,6 +1873,15 @@ mod tests {
             plan_block(&r, 100, "hash_b", 500),
             BlockAction::ReorgPastFinal { unit: "u100".into() }
         );
+    }
+
+    #[test]
+    fn plan_block_opens_a_new_epoch_when_a_reward_lands_on_a_hashless_final_record() {
+        // A Manual or Genesis record at H carries no block hash and was
+        // never a chain boundary; it must not suppress or reinterpret a
+        // reward landing at its height.
+        let r = vec![record(100, "u100_manual", EpochState::Final)];
+        assert_eq!(plan_block(&r, 100, "hash_b", 500), BlockAction::Open);
     }
 
     #[test]
