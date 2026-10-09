@@ -4150,6 +4150,7 @@ dependencies = [
  "bitcoin 0.32.9",
  "cdk",
  "cdk-axum",
+ "cdk-common",
  "cdk-ehash",
  "cdk-mintd",
  "cdk-sql-common",
