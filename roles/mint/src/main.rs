@@ -90,6 +90,37 @@ fn is_http_quote_creation(method: &hyper::Method, raw_path: &str) -> bool {
         && segments[3] == "ehash"
 }
 
+/// Whether to genesis (`Ok(true)`) or resume (`Ok(false)`) given the mint
+/// database's and the epoch store's existence. `db_is_empty` (whether the
+/// database holds no keysets and no mint quotes) only matters for (db
+/// exists, store missing): a failed first start — genesis fails before the
+/// store's first write, e.g. bitcoind unreachable — leaves exactly that
+/// shape, and is safe to treat as a fresh start; a non-empty database with
+/// no store is a lost or deleted file and must not be silently re-genesised.
+fn fresh_start_decision(
+    db_exists: bool,
+    store_exists: bool,
+    db_is_empty: bool,
+    mint_db_path: &std::path::Path,
+    store_path: &std::path::Path,
+) -> Result<bool> {
+    match (db_exists, store_exists) {
+        (false, false) => Ok(true),
+        (true, true) => Ok(false),
+        (true, false) if db_is_empty => Ok(true),
+        (true, false) => Err(anyhow::anyhow!(
+            "mint database {} exists but epoch store {} does not; restore epochs.json, or run `just clean cashu` for a deliberate clean slate",
+            mint_db_path.display(),
+            store_path.display()
+        )),
+        (false, true) => Err(anyhow::anyhow!(
+            "epoch store {} exists but mint database {} does not; the store names keysets a fresh database would not have — restore the database, or run `just clean cashu` for a deliberate clean slate",
+            store_path.display(),
+            mint_db_path.display()
+        )),
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // Respect RUST_LOG env var, defaulting to info level with dependency filtering
@@ -206,32 +237,43 @@ async fn main() -> Result<()> {
 
     // The mint database and the epoch store are created together (genesis
     // below), so a deliberate fresh start is "neither exists" — `just clean
-    // cashu` removes both. Any other combination means one was lost or
-    // restored without the other; re-genesising over it would silently
-    // discard epoch history, so refuse instead of guessing.
+    // cashu` removes both. (store exists, db missing) is always a mismatch:
+    // refuse before setup_mint creates anything. (db exists, store missing)
+    // is ambiguous — it is also what a first start leaves behind if genesis
+    // fails before the store's first write (e.g. bitcoind unreachable) — so
+    // it is resolved below, after setup_mint, by whether the database is
+    // actually empty.
     let db_exists = mint_db_path.exists();
     let store_exists = store_path.exists();
-    let fresh_start = match (db_exists, store_exists) {
-        (false, false) => true,
-        (true, true) => false,
-        (true, false) => {
-            return Err(anyhow::anyhow!(
-                "mint database {} exists but epoch store {} does not; restore epochs.json, or run `just clean cashu` for a deliberate clean slate",
-                mint_db_path.display(),
-                store_path.display()
-            ));
-        }
-        (false, true) => {
-            return Err(anyhow::anyhow!(
-                "epoch store {} exists but mint database {} does not; the store names keysets a fresh database would not have — restore the database, or run `just clean cashu` for a deliberate clean slate",
-                store_path.display(),
-                mint_db_path.display()
-            ));
-        }
-    };
+    if store_exists && !db_exists {
+        // This combination always refuses regardless of db_is_empty; bail
+        // before setup_mint creates a database that would make it stale.
+        fresh_start_decision(db_exists, store_exists, false, &mint_db_path, &store_path)?;
+    }
 
     tracing::info!("Using database path: {}", db_path);
     let mint = setup_mint(mint_config.cdk_settings.clone(), db_path.clone()).await?;
+
+    let db_is_empty = if db_exists && !store_exists {
+        let no_keysets = mint.keysets().keysets.is_empty();
+        let no_quotes = mint
+            .mint_quotes()
+            .await
+            .map_err(|e| anyhow::anyhow!("checking mint quotes: {e}"))?
+            .is_empty();
+        no_keysets && no_quotes
+    } else {
+        false
+    };
+    let fresh_start =
+        fresh_start_decision(db_exists, store_exists, db_is_empty, &mint_db_path, &store_path)?;
+    if db_exists && !store_exists {
+        tracing::info!(
+            db = %mint_db_path.display(),
+            "mint database exists but holds no keysets or quotes and no epoch store exists; \
+             treating as a fresh start (likely a failed first boot before genesis could persist)"
+        );
+    }
 
     let epoch_settings = EpochSettings {
         pool_pubkey,
@@ -298,6 +340,60 @@ async fn main() -> Result<()> {
 mod tests {
     use super::*;
     use std::str::FromStr;
+
+    fn p(s: &str) -> std::path::PathBuf {
+        std::path::PathBuf::from(s)
+    }
+
+    #[test]
+    fn neither_exists_is_a_fresh_start() {
+        assert_eq!(
+            fresh_start_decision(false, false, false, &p("db"), &p("store")).unwrap(),
+            true
+        );
+        // db_is_empty is irrelevant here.
+        assert_eq!(
+            fresh_start_decision(false, false, true, &p("db"), &p("store")).unwrap(),
+            true
+        );
+    }
+
+    #[test]
+    fn both_exist_is_a_resume() {
+        assert_eq!(
+            fresh_start_decision(true, true, false, &p("db"), &p("store")).unwrap(),
+            false
+        );
+        assert_eq!(
+            fresh_start_decision(true, true, true, &p("db"), &p("store")).unwrap(),
+            false
+        );
+    }
+
+    #[test]
+    fn db_without_store_is_a_fresh_start_only_if_the_db_is_empty() {
+        assert_eq!(
+            fresh_start_decision(true, false, true, &p("db"), &p("store")).unwrap(),
+            true,
+            "an empty database with no store is a failed first start, safe to re-genesis"
+        );
+        let err = fresh_start_decision(true, false, false, &p("the-db"), &p("the-store"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("the-db"), "{err}");
+        assert!(err.contains("the-store"), "{err}");
+    }
+
+    #[test]
+    fn store_without_db_is_always_refused() {
+        for db_is_empty in [false, true] {
+            let err = fresh_start_decision(false, true, db_is_empty, &p("the-db"), &p("the-store"))
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains("the-db"), "{err}");
+            assert!(err.contains("the-store"), "{err}");
+        }
+    }
 
     /// The dev config's `receive_address` is a placeholder no wallet
     /// controls: the P2WPKH regtest address of the secp256k1 generator
