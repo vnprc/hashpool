@@ -49,9 +49,9 @@ struct BitcoinRpcConfig {
 use lib::epoch::{admin_router, EpochManager, EpochSettings};
 use lib::{connect_to_pool_sv2, setup_mint};
 
-/// Blocks every `POST /v1/mint/quote/<method>` (404): bulk-pay would mint
-/// whatever quote it created for free at finality, and this mint's only
-/// real quote-creation path is the SV2 message from the pool, never HTTP.
+/// Blocks `POST /v1/mint/quote/ehash` (404): bulk-pay would mint any quote
+/// it created for free at finality, and this mint's only real ehash
+/// quote-creation path is the SV2 message from the pool, never HTTP.
 async fn block_ehash_quote_creation(
     req: axum::extract::Request,
     next: axum::middleware::Next,
@@ -66,19 +66,25 @@ async fn block_ehash_quote_creation(
 }
 
 /// The raw path cannot be compared directly: axum decodes `{method}` and
-/// cdk lowercases it, so this percent-decodes and lowercases first.
+/// cdk lowercases it. The match must be exactly `v1/mint/quote/ehash` —
+/// not just the `v1/mint/quote` prefix — because `/v1/mint/quote/pubkey`
+/// (the NUT-XX pubkey lookup) and `/v1/mint/quote/<method>/check` (the
+/// NUT-29 batch status check) share that prefix and must keep working.
 fn is_http_quote_creation(method: &hyper::Method, raw_path: &str) -> bool {
     if method != hyper::Method::POST {
         return false;
     }
     let decoded = percent_encoding::percent_decode_str(raw_path).decode_utf8_lossy();
-    let mut segments = decoded
+    let segments: Vec<String> = decoded
         .split('/')
         .filter(|s| !s.is_empty())
-        .map(|s| s.to_lowercase());
-    segments.next().as_deref() == Some("v1")
-        && segments.next().as_deref() == Some("mint")
-        && segments.next().as_deref() == Some("quote")
+        .map(|s| s.to_lowercase())
+        .collect();
+    segments.len() == 4
+        && segments[0] == "v1"
+        && segments[1] == "mint"
+        && segments[2] == "quote"
+        && segments[3] == "ehash"
 }
 
 #[tokio::main]
@@ -284,16 +290,19 @@ mod tests {
     }
 
     #[test]
-    fn blocks_every_post_quote_creation_path_regardless_of_method_name_or_encoding() {
+    fn blocks_post_ehash_quote_creation_regardless_of_encoding() {
         blocked("/v1/mint/quote/ehash");
         blocked("/v1/mint/quote/%65hash");
         blocked("/v1/mint/quote/EHASH");
         blocked("/v1//mint/quote/ehash/");
-        blocked("/v1/mint/quote/bolt11");
     }
 
     #[test]
-    fn allows_everything_that_is_not_quote_creation() {
+    fn allows_everything_that_is_not_ehash_quote_creation() {
+        // The NUT-XX pubkey lookup and the NUT-29 batch check share the
+        // `/v1/mint/quote` prefix and must keep working.
+        allowed(&hyper::Method::POST, "/v1/mint/quote/pubkey");
+        allowed(&hyper::Method::POST, "/v1/mint/quote/ehash/check");
         allowed(&hyper::Method::GET, "/v1/mint/quote/ehash/abc");
         allowed(&hyper::Method::POST, "/v1/mint/ehash");
         allowed(&hyper::Method::POST, "/v1/mint/ehash/batch");
