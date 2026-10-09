@@ -471,34 +471,55 @@ impl EpochManager {
         };
         let cap = self.recent_cap();
 
-        let previous = self
-            .with_store_tx(|store, tx| {
-                let record = record.clone();
-                let watermark = watermark.clone();
-                Box::pin(async move {
-                    // Re-checked here, under the lock this transaction holds,
-                    // right before appending: the manual lever's own earlier
-                    // (dropped) pre-check could otherwise race a reward.
-                    let previous = store.current().cloned();
-                    if state == EpochState::Final {
-                        if let Some(prev) = &previous {
-                            if prev.state == EpochState::Provisional {
-                                return Err(anyhow::Error::new(ProvisionalCurrent));
-                            }
-                        }
-                    }
+        // Manual lock/tx/commit pattern (not `with_store_tx`): `current`
+        // must publish while the store lock is still held, so a concurrent
+        // open (the manual lever racing the watcher, say) cannot commit its
+        // store write and publish `current` in the opposite order from
+        // another open's — `with_store_tx` releases the store lock before
+        // its caller can touch `current`, which is exactly the window that
+        // would allow that.
+        let mut store_guard = self.store.lock().await;
+        let mut current = self.current.write().await;
 
-                    store.append(tx, record).await?;
-                    if let Some(w) = watermark {
-                        store.set_watermark(tx, w, cap).await?;
-                    }
+        // Re-checked here, under both locks, right before appending: the
+        // manual lever's own earlier (dropped) pre-check could otherwise
+        // race a reward.
+        let previous = store_guard.current().cloned();
+        if state == EpochState::Final {
+            if let Some(prev) = &previous {
+                if prev.state == EpochState::Provisional {
+                    return Err(anyhow::Error::new(ProvisionalCurrent));
+                }
+            }
+        }
 
-                    Ok(previous)
-                })
-            })
-            .await?;
+        let mut store = store_guard.clone();
+        let mut tx = self
+            .mint
+            .localstore()
+            .begin_transaction()
+            .await
+            .map_err(|e| anyhow!("begin_transaction: {e}"))?;
 
-        *self.current.write().await = record.clone();
+        let work = async {
+            store.append(&mut tx, record.clone()).await?;
+            if let Some(w) = watermark.clone() {
+                store.set_watermark(&mut tx, w, cap).await?;
+            }
+            Ok::<(), anyhow::Error>(())
+        }
+        .await;
+        if let Err(e) = work {
+            let _ = tx.rollback().await;
+            return Err(e);
+        }
+
+        tx.commit().await.map_err(|e| anyhow!("commit: {e}"))?;
+
+        *store_guard = store;
+        *current = record.clone();
+        drop(current);
+        drop(store_guard);
 
         // Retire (not deregister) the previous epoch's quote-creation entry
         // last: deregister also drops the processor map entry, stranding its
