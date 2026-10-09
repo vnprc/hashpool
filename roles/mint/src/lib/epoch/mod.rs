@@ -132,6 +132,20 @@ impl EpochManager {
         let amounts: Vec<u64> = (0..NUM_KEYS).map(|i| 2_u64.pow(i)).collect();
 
         if let Some(store) = store_opt {
+            // The genesis path refuses outright on this file (below); on
+            // resume, the KV records already loaded are authoritative, so
+            // just warn that the stale file is ignored and can be deleted.
+            if let Some(dir) = settings.mint_db_path.parent() {
+                let legacy = dir.join("epochs.json");
+                if legacy.exists() {
+                    warn!(
+                        path = %legacy.display(),
+                        "stale epochs.json from an older version found beside the mint database; \
+                         it is ignored (epoch records now live in the mint database) and can be deleted"
+                    );
+                }
+            }
+
             let current = store
                 .current()
                 .cloned()
