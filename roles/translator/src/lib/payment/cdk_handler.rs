@@ -1,13 +1,16 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use cdk::{nuts::PaymentMethod, wallet::Wallet};
+use cdk::wallet::Wallet;
 use mint_quote_sv2::{from_bytes, MintQuoteFailure, MintQuoteNotification};
 use tracing::{info, warn};
 
 use super::custom_handler::CustomMiningMessageHandler;
 
 pub struct CdkQuoteNotificationHandler {
+    // Unused while SV2 quote-id fetch stays disabled: discovery is sweep-only
+    // via Wallet::fetch_mint_quotes_by_pubkey.
+    #[allow(dead_code)]
     wallet: Arc<Wallet>,
 }
 
@@ -44,13 +47,7 @@ impl CustomMiningMessageHandler for CdkQuoteNotificationHandler {
                     "Received MintQuoteNotification: quote_id={}, amount={}",
                     quote_id, amount
                 );
-                self.wallet
-                    .fetch_mint_quote(
-                        &quote_id,
-                        Some(PaymentMethod::Custom("ehash".to_string())),
-                    )
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Failed to fetch mint quote: {e}"))?;
+                // Discovery is sweep-only; the SV2 quote-id fetch is deliberately not used.
             }
             mint_quote_sv2::MESSAGE_TYPE_MINT_QUOTE_FAILURE => {
                 let mut payload_buf = payload.to_vec();
