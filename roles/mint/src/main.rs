@@ -65,11 +65,8 @@ async fn block_ehash_quote_creation(
     next.run(req).await
 }
 
-/// `method` is any POST under `/v1/mint/quote/`, after percent-decoding and
-/// case-folding the path: axum decodes the `{method}` segment before cdk
-/// ever sees it, and cdk lowercases custom method names, so comparing the
-/// raw path (as a first version of this middleware did) let
-/// `%65hash`/`EHASH` through.
+/// The raw path cannot be compared directly: axum decodes `{method}` and
+/// cdk lowercases it, so this percent-decodes and lowercases first.
 fn is_http_quote_creation(method: &hyper::Method, raw_path: &str) -> bool {
     if method != hyper::Method::POST {
         return false;

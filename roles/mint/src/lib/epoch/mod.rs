@@ -51,10 +51,9 @@ fn is_invariant_violation(e: &anyhow::Error) -> bool {
     e.downcast_ref::<InvariantViolation>().is_some()
 }
 
-/// Refusal marker: a `Final` epoch (genesis/manual) was attempted while the
-/// current epoch is still provisional. Lets the manual lever answer 409
-/// without its own racing pre-check — `open_epoch` decides under the store
-/// lock, atomically with the rest of the open.
+/// Refusal marker: a `Final` open was attempted while current is
+/// provisional. Decided inside `open_epoch` under the store lock, so the
+/// manual lever needs no separate (racing) pre-check.
 #[derive(Debug)]
 pub struct ProvisionalCurrent;
 
@@ -233,11 +232,9 @@ impl EpochManager {
         Ok(manager)
     }
 
-    /// Read guard over the current epoch: the unit new quotes are stamped
-    /// with, and whether that epoch's boundary is final. The caller must
-    /// hold the guard across both "which unit" and "pay now or not" so a
-    /// rotation between the two cannot strand a final-epoch quote unpaid,
-    /// or create a quote in a unit mid-dissolve.
+    /// Contract: hold the returned guard across both "which unit" and "pay
+    /// now or not" — releasing it between the two can strand a final-epoch
+    /// quote unpaid, or create one in a unit mid-dissolve.
     pub async fn current_epoch(&self) -> RwLockReadGuard<'_, EpochRecord> {
         self.current.read().await
     }
@@ -426,10 +423,8 @@ impl EpochManager {
         Ok(record)
     }
 
-    /// Spawns the chain-watching loop: one tick, then sleep `poll_interval`,
-    /// forever. A transient tick error is logged and the loop continues; an
-    /// invariant violation is logged and the loop exits (the mint keeps
-    /// serving everything else).
+    /// A transient tick error logs and retries; an invariant violation logs
+    /// and stops the watcher (the mint keeps serving everything else).
     pub fn spawn_watcher(self: &Arc<Self>) {
         let manager = self.clone();
         tokio::spawn(async move {
@@ -451,11 +446,7 @@ impl EpochManager {
 
     async fn tick(&self) -> Result<()> {
         self.init_watermark_if_absent().await?;
-        // One tip for the whole tick: resync, the forward walk, and the
-        // finality pass all reason about the same chain-height snapshot, and
-        // nothing below asks the node for a height above it (a transient
-        // shortening, e.g. a reorg to a shorter tip, must never turn into a
-        // "Result not found" tick error).
+        // Shared tip: nothing below asks the node for a height above it.
         let tip = rpc_block_count(&self.rpc).await?;
         self.resync(tip).await?;
         self.walk_forward(tip).await?;
@@ -479,19 +470,10 @@ impl EpochManager {
         store.set_watermark(ScannedBlock { height: tip, hash }, self.recent_cap())
     }
 
-    /// Walks `recent` newest to oldest (the watermark is `recent`'s last
-    /// entry, so it is checked first) for the first entry the node still
-    /// agrees with, and rolls the watermark back to it. Stops at the first
-    /// canonical entry instead of checking every one — at depth 60 that is
-    /// one RPC call per tick in the steady state, not sixty. An entry above
-    /// `tip` cannot exist on the node yet (a transient shortening of the
-    /// chain, not necessarily a reorg of our boundary) and is skipped
-    /// without an RPC call; `getblockhash` for a pruned-away height returns
-    /// "Result not found", which must never become a tick error. If no
-    /// retained entry at or below `tip` agrees, the retained window itself
-    /// is behind a reorg; fall back to the node's hash one below the oldest
-    /// retained height. Mirrors `rollback_point`, which pins the same
-    /// tip-bounded, newest-first semantics as a pure, tested function.
+    /// Rolls the watermark back to the newest retained entry the node still
+    /// agrees with (an entry above `tip` is never canonical and costs no
+    /// RPC call). Falls back to the node's hash one below the oldest
+    /// retained height if no retained entry agrees.
     async fn resync(&self, tip: u64) -> Result<()> {
         let recent = {
             let store = self.store.lock().await;
@@ -505,18 +487,11 @@ impl EpochManager {
             store.watermark().cloned()
         };
 
-        let mut found: Option<ScannedBlock> = None;
-        for b in recent.iter().rev() {
-            if b.height > tip {
-                tracing::debug!(height = b.height, tip, "retained entry above the tip; skipping");
-                continue;
-            }
+        let found = rollback_point(&recent, tip, |b| async move {
             let hash = self.get_block_hash(b.height).await?;
-            if hash == b.hash {
-                found = Some(b.clone());
-                break;
-            }
-        }
+            Ok(hash == b.hash)
+        })
+        .await?;
 
         match found {
             Some(point) => {
@@ -660,11 +635,8 @@ impl EpochManager {
     /// Marks `unit` final, bulk-pays its quotes, and retires the previous
     /// epoch's quote-creation entry (old quotes still mint; no new ones).
     ///
-    /// Contract: persist the `Final` flip only after `pay_unpaid_quotes`
-    /// has already succeeded. `pay_unpaid_quotes` is idempotent, so on
-    /// error nothing is persisted here, the record stays provisional, and
-    /// the next finality pass simply retries — never a Final record whose
-    /// quotes nothing will ever pay again.
+    /// Contract: persist `Final` only after `pay_unpaid_quotes` succeeds;
+    /// on error nothing is persisted and the next finality pass retries.
     async fn finalize(&self, unit: &str) -> Result<()> {
         let mut store = self.store.lock().await;
         let mut current = self.current.write().await;
@@ -706,14 +678,12 @@ impl EpochManager {
     }
 
     /// Orphans `unit` before finality: re-stamps its never-paid, never-issued
-    /// quotes onto the previous epoch and pays them, then flips the record
-    /// to `Dissolved`. Refuses (invariant violation, nothing mutated) if the
-    /// unit's keyset has issued anything or any of its quotes are owing.
+    /// quotes onto the previous epoch, then flips the record to `Dissolved`.
+    /// Refuses (invariant violation, nothing mutated) if the unit's keyset
+    /// has issued anything or any of its quotes are owing.
     ///
-    /// Contract: same as `finalize` — the re-stamped quotes are paid before
-    /// the record flips to `Dissolved`. A failed pay leaves the record
-    /// provisional; retrying re-stamps 0 rows (already moved) and pays the
-    /// quotes now sitting unpaid in `prev`, so the retry is itself safe.
+    /// Contract: same as `finalize` — pay before persisting the flip; a
+    /// retry after a failed pay re-stamps 0 rows and just pays `prev`.
     async fn dissolve(&self, unit: &str) -> Result<()> {
         let mut store = self.store.lock().await;
         let mut current = self.current.write().await;
@@ -947,24 +917,27 @@ pub fn due_for_finality(
 }
 
 /// The newest entry in `recent`, at or below `tip`, the node still agrees
-/// with, or `None` if no such entry is canonical (a reorg deeper than the
-/// retained window). An entry above `tip` cannot exist on the node's chain
-/// and is never canonical — callers must not spend an RPC call on it.
-/// `resync` mirrors this exact search by hand (see its doc comment) so it
-/// can make the `is_canonical` check lazily, one RPC call at a time, instead
-/// of eagerly checking every entry as this pure version does for testing.
-#[allow(dead_code)]
-pub fn rollback_point(
+/// with, or `None` if no such entry is canonical. An entry above `tip` is
+/// never canonical and `is_canonical` is never called for it.
+pub async fn rollback_point<F, Fut>(
     recent: &[ScannedBlock],
     tip: u64,
-    is_canonical: impl Fn(&ScannedBlock) -> bool,
-) -> Option<ScannedBlock> {
-    recent
-        .iter()
-        .rev()
-        .filter(|b| b.height <= tip)
-        .find(|b| is_canonical(b))
-        .cloned()
+    is_canonical: F,
+) -> Result<Option<ScannedBlock>>
+where
+    F: Fn(ScannedBlock) -> Fut,
+    Fut: std::future::Future<Output = Result<bool>>,
+{
+    for b in recent.iter().rev() {
+        if b.height > tip {
+            tracing::debug!(height = b.height, tip, "retained entry above the tip; skipping");
+            continue;
+        }
+        if is_canonical(b.clone()).await? {
+            return Ok(Some(b.clone()));
+        }
+    }
+    Ok(None)
 }
 
 /// Retires every record whose unit is not in `keep`. All selected
@@ -1686,31 +1659,38 @@ mod tests {
 
     // --- rollback_point ---
 
-    #[test]
-    fn rollback_point_prefers_the_newest_canonical_entry() {
+    #[tokio::test]
+    async fn rollback_point_prefers_the_newest_canonical_entry() {
         let recent = vec![block(100, "h100"), block(101, "h101"), block(102, "h102")];
-        let point = rollback_point(&recent, 102, |b| b.height != 102);
+        let point = rollback_point(&recent, 102, |b| async move { Ok(b.height != 102) })
+            .await
+            .unwrap();
         assert_eq!(point, Some(block(101, "h101")));
     }
 
-    #[test]
-    fn rollback_point_none_when_nothing_is_canonical() {
+    #[tokio::test]
+    async fn rollback_point_none_when_nothing_is_canonical() {
         let recent = vec![block(100, "h100"), block(101, "h101")];
-        assert_eq!(rollback_point(&recent, 101, |_| false), None);
+        let point = rollback_point(&recent, 101, |_| async { Ok(false) })
+            .await
+            .unwrap();
+        assert_eq!(point, None);
     }
 
-    #[test]
-    fn rollback_point_skips_entries_above_the_tip_without_consulting_is_canonical() {
+    #[tokio::test]
+    async fn rollback_point_skips_entries_above_the_tip_without_consulting_is_canonical() {
         let recent: Vec<ScannedBlock> = (10..20).map(|h| block(h, &format!("h{h}"))).collect();
         let tip = 15;
-        let point = rollback_point(&recent, tip, |b| {
+        let point = rollback_point(&recent, tip, |b| async move {
             assert!(
                 b.height <= tip,
                 "must never ask is_canonical about height {} above tip {tip}",
                 b.height
             );
-            true
-        });
+            Ok(true)
+        })
+        .await
+        .unwrap();
         assert_eq!(point, Some(block(15, "h15")), "the newest canonical entry at or below the tip");
     }
 
