@@ -147,15 +147,17 @@ mint_port_open() {
 }
 
 # Assumes no earlier reward in this run shares these three heights (true for
-# a scenario run against a fresh stack, as the brief describes).
+# a scenario run against a fresh stack, as the brief describes). Checks that
+# every wanted height is among the reward records' heights; a string-joined
+# comma pattern is not safe here because adjacent wanted heights each need
+# their own leading and trailing comma, which a single match cannot supply
+# for both at once (",17,37,57,59,62,65," vs. "*,59,*,62,*,65,*").
 three_reward_records_present() {
   local h1="$1" h2="$2" h3="$3"
-  local heights
-  heights=$(epochs '[.records[] | select(.source == "reward")] | map(.height | tostring) | join(",")')
-  case ",$heights," in
-    *",$h1,"*",$h2,"*",$h3,"*) return 0 ;;
-    *) return 1 ;;
-  esac
+  jq -e --argjson want "[$h1, $h2, $h3]" \
+    '[.records[] | select(.source == "reward") | .height] as $have
+     | all($want[]; . as $w | $have | index($w) != null)' \
+    .devenv/state/mint/epochs.json > /dev/null
 }
 
 current_unit() {
@@ -164,7 +166,8 @@ current_unit() {
 
 nut04_has_unit() {
   local unit="$1"
-  curl -s http://localhost:3338/v1/info | jq -r '.nuts.nut04.methods[].unit' | grep -qx "$unit"
+  # The nut key is the numeric string "4", not the name "nut04".
+  curl -s http://localhost:3338/v1/info | jq -r '.nuts."4".methods[].unit' | grep -qx "$unit"
 }
 
 # --- scenarios ---
@@ -301,8 +304,12 @@ scenario_4() {
     fail "scenario 4: the previous unit still has nut04 settings" "present" "absent"
   fi
 
+  # Strip ANSI colour codes first (tracing's pretty output puts them between
+  # the field name and its value), then treat "the line says epoch
+  # dissolved" and "the line names this unit" as two separate greps rather
+  # than one combined "unit=<value>" pattern that colour codes can break.
   local dissolve_lines
-  dissolve_lines=$(log_since "$offset" | grep -c "epoch dissolved.*unit=$unit" || true)
+  dissolve_lines=$(log_since "$offset" | sed 's/\x1b\[[0-9;]*m//g' | grep "epoch dissolved" | grep -c "$unit" || true)
   if [ "$dissolve_lines" -ge 1 ]; then
     pass "scenario 4: the mint log records the dissolve of $unit"
   else
