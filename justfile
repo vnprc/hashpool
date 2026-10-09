@@ -96,6 +96,15 @@ db TYPE="":
         exit 1; \
     fi
 
+# rotate the epoch via the admin lever, reading admin_listen from the dev
+# mint config so the port is never hardcoded here; refuses with 409 while
+# the current epoch is provisional (manual rotation only opens Final epochs).
+rotate-epoch:
+    @ADDR=$(grep -m1 '^admin_listen' config/mint.config.toml | sed -E 's/^admin_listen *= *"([^"]*)".*/\1/'); \
+    ADDR="${ADDR:-127.0.0.1:3339}"; \
+    curl -sS -X POST "http://$ADDR/rotate-epoch"; \
+    echo
+
 # CDK configuration - update these when CDK version changes
 CDK_REPO := "ssh://git@forge.anarch.diy:2222/vnprc/cdk"
 CDK_COMMIT := "874a1bf38b4b6df34b54178b2550899cc8c1dbfa"
