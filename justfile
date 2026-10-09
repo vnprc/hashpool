@@ -100,10 +100,10 @@ db TYPE="":
 # mint config so the port is never hardcoded here; refuses with 409 while
 # the current epoch is provisional (manual rotation only opens Final epochs).
 rotate-epoch:
-    @ADDR=$(grep -m1 '^admin_listen' config/mint.config.toml | sed -E 's/^admin_listen *= *"([^"]*)".*/\1/'); \
+    @ADDR=$(grep -m1 -E '^[[:space:]]*admin_listen[[:space:]]*=' config/mint.config.toml | sed -E "s/^[[:space:]]*admin_listen[[:space:]]*=[[:space:]]*[\"']([^\"']*)[\"'].*/\1/"); \
     ADDR="${ADDR:-127.0.0.1:3339}"; \
-    curl -sS -X POST "http://$ADDR/rotate-epoch"; \
-    echo
+    curl -sS --fail-with-body -X POST "http://$ADDR/rotate-epoch"; \
+    status=$?; echo; exit $status
 
 # CDK configuration - update these when CDK version changes
 CDK_REPO := "ssh://git@forge.anarch.diy:2222/vnprc/cdk"
