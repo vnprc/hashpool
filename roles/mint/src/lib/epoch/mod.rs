@@ -574,9 +574,8 @@ impl EpochManager {
         Ok(())
     }
 
-    /// A store written before this change has no watermark; start scanning
-    /// from the current tip (rewards below it will never be scanned). Only
-    /// fires for old stores — genesis sets its own watermark.
+    /// An absent watermark starts the scan at the current tip (rewards
+    /// below it are never scanned); genesis always sets its own.
     async fn init_watermark_if_absent(&self) -> Result<()> {
         let has_watermark = {
             let store = self.store.lock().await;
@@ -897,15 +896,8 @@ impl EpochManager {
     /// Contract: same as `finalize` — pay before persisting the flip; a
     /// retry after a failed pay re-stamps 0 rows and just pays `prev`.
     ///
-    /// Does not use `with_store_tx`: the raw-SQL re-stamp and the
-    /// pre-transaction invariant reads (`total_issued`, `mint_quotes`) each
-    /// need their own connection, and sqlite allows only one writer at a
-    /// time — opening our own KV transaction before they run would have
-    /// them contend with it for that single writer (seen as "database is
-    /// locked" / pool-timeout errors when this was tried the other way).
-    /// Running them first, while still holding `store` and `current`, keeps
-    /// the same race-closing guarantee `with_store_tx` gives its callers
-    /// without the contention.
+    /// Does not use `with_store_tx`: sqlite allows one writer, so the
+    /// raw-SQL re-stamp cannot overlap our own open transaction.
     async fn dissolve(&self, unit: &str) -> Result<()> {
         let unit = unit.to_string();
         let mut store_guard = self.store.lock().await;

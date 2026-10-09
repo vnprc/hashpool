@@ -189,8 +189,6 @@ async fn main() -> Result<()> {
     };
     let admin_listen = epoch_settings.admin_listen.clone();
     let epochs = EpochManager::load_or_genesis(mint.clone(), epoch_settings).await?;
-    // Resume (register-then-retire, above) completes before the watcher
-    // starts and before the listeners bind below.
     epochs.spawn_watcher();
 
     // Manual rotation lever on a loopback-only listener.
