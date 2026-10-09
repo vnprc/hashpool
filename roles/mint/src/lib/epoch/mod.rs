@@ -1381,8 +1381,9 @@ mod tests {
     use super::*;
     use cdk::mint::MintBuilder;
 
-    // secp256k1 generator point: a well-known valid compressed pubkey.
-    const POOL_PUBKEY: &str = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+    // Dev placeholder pool identity (sha256("hashpool dev pool identity")'s
+    // pubkey, see naming.rs) — not G, which validate_pool_pubkey now refuses.
+    const POOL_PUBKEY: &str = "034dcb73610a1af09a68b17e69d4e2ac8e1a05536264c2a805f027839ffd7de66a";
 
     static TEST_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 

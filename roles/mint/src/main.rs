@@ -1,7 +1,7 @@
 #![allow(special_module_name)]
 mod lib;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use cdk_axum::cache::HttpCache;
 use cdk_mintd::config;
 use serde::{Deserialize, Serialize};
@@ -175,9 +175,13 @@ async fn main() -> Result<()> {
 
     let mint_db_path = lib::resolve_and_prepare_db_path(&db_path);
     let epoch_settings = EpochSettings {
-        pool_pubkey: hashpool_cfg.pool_pubkey.clone().ok_or_else(|| {
-            anyhow::anyhow!("[hashpool_mint] pool_pubkey is required (namespaces epoch units)")
-        })?,
+        pool_pubkey: {
+            let pool_pubkey = hashpool_cfg.pool_pubkey.clone().ok_or_else(|| {
+                anyhow::anyhow!("[hashpool_mint] pool_pubkey is required (namespaces epoch units)")
+            })?;
+            lib::epoch::naming::validate_pool_pubkey(&pool_pubkey)
+                .with_context(|| format!("loading {mint_config_path}"))?
+        },
         rpc_url: rpc_cfg.url,
         rpc_user: rpc_cfg.user,
         rpc_pass: rpc_cfg.pass,
