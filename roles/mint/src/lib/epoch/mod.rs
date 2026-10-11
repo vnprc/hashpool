@@ -1,6 +1,7 @@
 //! Mining epoch mechanics: per-epoch currency units named by block height,
 //! opened and closed by the mint. See docs/EPOCH_DESIGN.md.
 
+pub mod admin;
 pub mod naming;
 pub mod store;
 
