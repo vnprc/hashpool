@@ -47,6 +47,42 @@ struct BitcoinRpcConfig {
 use lib::epoch::{admin_router, EpochManager, EpochSettings};
 use lib::{connect_to_pool_sv2, setup_mint};
 
+/// Blocks `POST /v1/mint/quote/ehash` (404): bulk-pay would mint any quote
+/// it created for free at finality, and this mint's only real ehash
+/// quote-creation path is the SV2 message from the pool, never HTTP.
+async fn block_ehash_quote_creation(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    if is_http_quote_creation(req.method(), req.uri().path()) {
+        return axum::response::Response::builder()
+            .status(axum::http::StatusCode::NOT_FOUND)
+            .body(axum::body::Body::empty())
+            .expect("static response is well-formed");
+    }
+    next.run(req).await
+}
+
+/// Must match exactly `v1/mint/quote/ehash` on the decoded, lowercased path,
+/// not just the `v1/mint/quote` prefix: `/v1/mint/quote/pubkey` and
+/// `/v1/mint/quote/<method>/check` share that prefix and must keep working.
+fn is_http_quote_creation(method: &hyper::Method, raw_path: &str) -> bool {
+    if method != hyper::Method::POST {
+        return false;
+    }
+    let decoded = percent_encoding::percent_decode_str(raw_path).decode_utf8_lossy();
+    let segments: Vec<String> = decoded
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_lowercase())
+        .collect();
+    segments.len() == 4
+        && segments[0] == "v1"
+        && segments[1] == "mint"
+        && segments[2] == "quote"
+        && segments[3] == "ehash"
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // Respect RUST_LOG env var, defaulting to info level with dependency filtering
@@ -165,7 +201,8 @@ async fn main() -> Result<()> {
 
     // Setup HTTP cache and router
     let cache: HttpCache = HttpCache::from_config(mint_config.cdk_settings.info.http_cache).await?;
-    let router = cdk_axum::create_mint_router_with_custom_cache(mint.clone(), cache, vec!["ehash".to_string()], true).await?;
+    let router = cdk_axum::create_mint_router_with_custom_cache(mint.clone(), cache, vec!["ehash".to_string()], true).await?
+        .layer(axum::middleware::from_fn(block_ehash_quote_creation));
 
     // Start SV2 connection to pool if enabled
     if let Some(ref sv2_config) = global_config.sv2_messaging {
@@ -217,5 +254,39 @@ mod tests {
         let expected = bitcoin::Address::p2wpkh(&compressed, bitcoin::Network::Regtest).to_string();
 
         assert_eq!(configured, expected);
+    }
+
+    fn blocked(raw_path: &str) {
+        assert!(
+            is_http_quote_creation(&hyper::Method::POST, raw_path),
+            "{raw_path} must be blocked"
+        );
+    }
+
+    fn allowed(method: &hyper::Method, raw_path: &str) {
+        assert!(
+            !is_http_quote_creation(method, raw_path),
+            "{method} {raw_path} must be allowed through"
+        );
+    }
+
+    #[test]
+    fn blocks_post_ehash_quote_creation_regardless_of_encoding() {
+        blocked("/v1/mint/quote/ehash");
+        blocked("/v1/mint/quote/%65hash");
+        blocked("/v1/mint/quote/EHASH");
+        blocked("/v1//mint/quote/ehash/");
+    }
+
+    #[test]
+    fn allows_everything_that_is_not_ehash_quote_creation() {
+        allowed(&hyper::Method::POST, "/v1/mint/quote/pubkey");
+        allowed(&hyper::Method::POST, "/v1/mint/quote/bolt11");
+        allowed(&hyper::Method::POST, "/v1/mint/quote/bolt12");
+        allowed(&hyper::Method::POST, "/v1/mint/quote/ehash/check");
+        allowed(&hyper::Method::GET, "/v1/mint/quote/ehash/abc");
+        allowed(&hyper::Method::POST, "/v1/mint/ehash");
+        allowed(&hyper::Method::POST, "/v1/mint/ehash/batch");
+        allowed(&hyper::Method::POST, "/v1/swap");
     }
 }
