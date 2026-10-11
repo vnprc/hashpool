@@ -1,7 +1,7 @@
 #![allow(special_module_name)]
 mod lib;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use cdk_axum::cache::HttpCache;
 use cdk_mintd::config;
 use serde::{Deserialize, Serialize};
@@ -133,12 +133,9 @@ async fn main() -> Result<()> {
             "Database path must be specified either via CDK_MINT_DB_PATH environment variable or [hashpool_mint] db_path config"
         ))?;
 
-    tracing::info!("Using database path: {}", db_path);
-    let mint = setup_mint(mint_config.cdk_settings.clone(), db_path.clone()).await?;
-
-    // Epoch mechanics: load the persisted current epoch or open genesis at the
-    // current chain height. Fails loud if the pool identity or bitcoind RPC
-    // config is missing. See docs/EPOCH_DESIGN.md.
+    // Epoch mechanics config: validated up front, before setup_mint creates
+    // the mint database below, so a bad setting fails before any file is
+    // created. See docs/EPOCH_DESIGN.md.
     let hashpool_cfg = mint_config.hashpool_mint.clone().ok_or_else(|| {
         anyhow::anyhow!("[hashpool_mint] config section is required for epoch mechanics")
     })?;
@@ -173,9 +170,13 @@ async fn main() -> Result<()> {
 
     let mint_db_path = lib::resolve_and_prepare_db_path(&db_path);
     let epoch_settings = EpochSettings {
-        pool_pubkey: hashpool_cfg.pool_pubkey.clone().ok_or_else(|| {
-            anyhow::anyhow!("[hashpool_mint] pool_pubkey is required (namespaces epoch units)")
-        })?,
+        pool_pubkey: {
+            let pool_pubkey = hashpool_cfg.pool_pubkey.clone().ok_or_else(|| {
+                anyhow::anyhow!("[hashpool_mint] pool_pubkey is required (namespaces epoch units)")
+            })?;
+            lib::epoch::naming::validate_pool_pubkey(&pool_pubkey)
+                .with_context(|| format!("loading {mint_config_path}"))?
+        },
         rpc_url: rpc_cfg.url,
         rpc_user: rpc_cfg.user,
         rpc_pass: rpc_cfg.pass,
@@ -202,6 +203,10 @@ async fn main() -> Result<()> {
         poll_interval: std::time::Duration::from_secs(poll_interval_secs),
         mint_db_path,
     };
+
+    tracing::info!("Using database path: {}", db_path);
+    let mint = setup_mint(mint_config.cdk_settings.clone(), db_path.clone()).await?;
+
     let admin_listen = epoch_settings.admin_listen.clone();
     let epochs = EpochManager::load_or_genesis(mint.clone(), epoch_settings).await?;
     epochs.spawn_watcher();
