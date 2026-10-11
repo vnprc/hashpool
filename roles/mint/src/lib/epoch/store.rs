@@ -1,13 +1,22 @@
 use anyhow::{anyhow, Context, Result};
+use cdk_common::database::DynMintDatabase;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+
+/// Transaction type every mutating `EpochStore` method takes: the caller
+/// owns begin/commit, so a hashpool state change can share one database
+/// transaction with the cdk change it pairs with (e.g. paying a quote).
+pub type Tx = cdk_common::database::DynMintTransaction;
+
+const PRIMARY_NAMESPACE: &str = "hashpool";
+const SECONDARY_NAMESPACE: &str = "epochs";
+const RECORDS_KEY: &str = "records";
+const WATCHER_KEY: &str = "watcher";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EpochState {
     /// Boundary block seen but not yet confirmed to depth D. Quotes created
-    /// while provisional are held unpaid. (Unused until the reward trigger
-    /// lands; genesis and manual epochs are final immediately.)
+    /// while provisional are held unpaid.
     Provisional,
     Final,
     /// Boundary orphaned before finality; quotes were re-stamped to the
@@ -27,7 +36,6 @@ pub enum EpochSource {
 pub struct EpochRecord {
     /// Block height that opened the epoch (current tip for genesis/manual).
     pub height: u64,
-    /// Full currency unit string, e.g. `hash_<pool>_<height>`.
     pub unit: String,
     pub keyset_id: String,
     /// Hash of the boundary block; None for genesis/manual epochs.
@@ -39,33 +47,68 @@ pub struct EpochRecord {
     pub opened_at: u64,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
-struct StoreFile {
-    records: Vec<EpochRecord>,
+/// One block the watcher has processed: its height and the hash it had when
+/// processed (not necessarily the hash currently at that height).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScannedBlock {
+    pub height: u64,
+    pub hash: String,
 }
 
-/// File-backed epoch log. Single writer (the mint process); atomic
-/// write-via-rename; the last non-dissolved record is the current epoch.
+/// The `watcher` KV value: the last processed block and the trailing window
+/// used to detect and resync reorgs.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct WatcherState {
+    #[serde(default)]
+    watermark: Option<ScannedBlock>,
+    #[serde(default)]
+    recent: Vec<ScannedBlock>,
+}
+
+/// In-memory epoch log, backed by two keys (`records`, `watcher`) in cdk's
+/// key-value store under primary namespace `hashpool`, secondary `epochs`.
+/// Holds no database handle, so a hashpool state change can commit
+/// atomically with the cdk change it pairs with; see `EpochManager::with_store_tx`.
+#[derive(Debug, Clone, Default)]
 pub struct EpochStore {
-    path: PathBuf,
     records: Vec<EpochRecord>,
+    watermark: Option<ScannedBlock>,
+    recent: Vec<ScannedBlock>,
 }
 
 impl EpochStore {
-    pub fn load(path: &Path) -> Result<Self> {
-        let records = if path.exists() {
-            let raw = std::fs::read_to_string(path)
-                .with_context(|| format!("reading epoch store {}", path.display()))?;
-            serde_json::from_str::<StoreFile>(&raw)
-                .with_context(|| format!("parsing epoch store {}", path.display()))?
-                .records
-        } else {
-            Vec::new()
+    pub fn new_empty() -> Self {
+        Self::default()
+    }
+
+    /// `None` when the `records` key does not exist yet (nothing has ever
+    /// been written — genesis has not run).
+    pub async fn load(db: &DynMintDatabase) -> Result<Option<Self>> {
+        let records_bytes = db
+            .kv_read(PRIMARY_NAMESPACE, SECONDARY_NAMESPACE, RECORDS_KEY)
+            .await
+            .map_err(|e| anyhow!("reading epoch records: {e}"))?;
+        let records_bytes = match records_bytes {
+            Some(b) => b,
+            None => return Ok(None),
         };
-        Ok(Self {
-            path: path.to_path_buf(),
+        let records: Vec<EpochRecord> =
+            serde_json::from_slice(&records_bytes).context("parsing epoch records")?;
+
+        let watcher_bytes = db
+            .kv_read(PRIMARY_NAMESPACE, SECONDARY_NAMESPACE, WATCHER_KEY)
+            .await
+            .map_err(|e| anyhow!("reading watcher state: {e}"))?;
+        let watcher: WatcherState = match watcher_bytes {
+            Some(b) => serde_json::from_slice(&b).context("parsing watcher state")?,
+            None => WatcherState::default(),
+        };
+
+        Ok(Some(Self {
             records,
-        })
+            watermark: watcher.watermark,
+            recent: watcher.recent,
+        }))
     }
 
     pub fn current(&self) -> Option<&EpochRecord> {
@@ -75,7 +118,8 @@ impl EpochStore {
             .find(|r| r.state != EpochState::Dissolved)
     }
 
-    /// Oldest first. A dissolved record must never resolve again.
+    /// Oldest first, by insertion order (not chronology — see
+    /// `chronological`). A dissolved record must never resolve again.
     pub fn non_dissolved(&self) -> Vec<EpochRecord> {
         self.records
             .iter()
@@ -84,40 +128,130 @@ impl EpochStore {
             .collect()
     }
 
+    /// Ordered by `(height, insertion index)`, not insertion order alone: a
+    /// reorg rescan can append a lower height after an already-inserted
+    /// higher one. Oldest-first callers (`previous_non_dissolved`,
+    /// `resumable_chain`, the finality pass) must use this, never `non_dissolved`.
+    pub fn chronological(&self) -> Vec<EpochRecord> {
+        let mut indexed: Vec<(usize, &EpochRecord)> = self
+            .records
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r.state != EpochState::Dissolved)
+            .collect();
+        indexed.sort_by_key(|(idx, r)| (r.height, *idx));
+        indexed.into_iter().map(|(_, r)| r.clone()).collect()
+    }
+
     pub fn unit_taken(&self, unit: &str) -> bool {
         self.records.iter().any(|r| r.unit == unit)
     }
 
-    pub fn append(&mut self, record: EpochRecord) -> Result<()> {
-        self.records.push(record);
-        if let Err(e) = self.persist() {
-            // Keep memory and disk agreeing: a failed persist must not leave a
-            // phantom record that a later successful append would resurrect.
-            self.records.pop();
-            return Err(e);
-        }
-        Ok(())
+    pub fn record(&self, unit: &str) -> Option<EpochRecord> {
+        self.records.iter().find(|r| r.unit == unit).cloned()
     }
 
-    fn persist(&self) -> Result<()> {
-        if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("creating {}", parent.display()))?;
-        }
-        let tmp = self.path.with_extension("json.tmp");
-        let body = serde_json::to_string_pretty(&StoreFile {
-            records: self.records.clone(),
-        })?;
-        std::fs::write(&tmp, body).with_context(|| format!("writing {}", tmp.display()))?;
-        std::fs::rename(&tmp, &self.path)
-            .with_context(|| format!("renaming into {}", self.path.display()))?;
-        Ok(())
+    /// The non-dissolved record with the greatest `(height, insertion
+    /// index)` strictly below `unit`'s own — chronologically previous, not
+    /// positionally previous (see `chronological`).
+    pub fn previous_non_dissolved(&self, unit: &str) -> Option<EpochRecord> {
+        let chrono = self.chronological();
+        let pos = chrono.iter().position(|r| r.unit == unit)?;
+        pos.checked_sub(1).map(|i| chrono[i].clone())
+    }
+
+    pub fn watermark(&self) -> Option<&ScannedBlock> {
+        self.watermark.as_ref()
+    }
+
+    pub fn recent(&self) -> &[ScannedBlock] {
+        &self.recent
     }
 
     /// Number of records already at this height (drives the unit-name suffix).
     pub fn count_at_height(&self, height: u64) -> u32 {
         self.records.iter().filter(|r| r.height == height).count() as u32
     }
+
+    /// `self` changes only after the write succeeds, so a caller that does
+    /// not commit `tx` never has to unwind this method's effect by hand.
+    pub async fn append(&mut self, tx: &mut Tx, record: EpochRecord) -> Result<()> {
+        let mut records = self.records.clone();
+        records.push(record);
+        write_records(tx, &records).await?;
+        self.records = records;
+        Ok(())
+    }
+
+    /// Same write-before-assign rule as `append`.
+    pub async fn update_record(
+        &mut self,
+        tx: &mut Tx,
+        unit: &str,
+        f: impl FnOnce(&mut EpochRecord),
+    ) -> Result<()> {
+        let mut records = self.records.clone();
+        let idx = records
+            .iter()
+            .position(|r| r.unit == unit)
+            .ok_or_else(|| anyhow!("no epoch record for unit {unit}"))?;
+        f(&mut records[idx]);
+        write_records(tx, &records).await?;
+        self.records = records;
+        Ok(())
+    }
+
+    pub async fn set_watermark(
+        &mut self,
+        tx: &mut Tx,
+        block: ScannedBlock,
+        cap: usize,
+    ) -> Result<()> {
+        let mut recent = self.recent.clone();
+        recent.push(block.clone());
+        if recent.len() > cap {
+            let excess = recent.len() - cap;
+            recent.drain(0..excess);
+        }
+        let watermark = Some(block);
+        write_watcher(tx, &watermark, &recent).await?;
+        self.watermark = watermark;
+        self.recent = recent;
+        Ok(())
+    }
+
+    /// Watermark becomes `None` if no entry at or below `height` remains.
+    pub async fn rollback_to(&mut self, tx: &mut Tx, height: u64) -> Result<()> {
+        let mut recent = self.recent.clone();
+        recent.retain(|b| b.height <= height);
+        let watermark = recent.last().cloned();
+        write_watcher(tx, &watermark, &recent).await?;
+        self.watermark = watermark;
+        self.recent = recent;
+        Ok(())
+    }
+}
+
+async fn write_records(tx: &mut Tx, records: &[EpochRecord]) -> Result<()> {
+    let bytes = serde_json::to_vec(records).context("serializing epoch records")?;
+    tx.kv_write(PRIMARY_NAMESPACE, SECONDARY_NAMESPACE, RECORDS_KEY, &bytes)
+        .await
+        .map_err(|e| anyhow!("writing epoch records: {e}"))
+}
+
+async fn write_watcher(
+    tx: &mut Tx,
+    watermark: &Option<ScannedBlock>,
+    recent: &[ScannedBlock],
+) -> Result<()> {
+    let state = WatcherState {
+        watermark: watermark.clone(),
+        recent: recent.to_vec(),
+    };
+    let bytes = serde_json::to_vec(&state).context("serializing watcher state")?;
+    tx.kv_write(PRIMARY_NAMESPACE, SECONDARY_NAMESPACE, WATCHER_KEY, &bytes)
+        .await
+        .map_err(|e| anyhow!("writing watcher state: {e}"))
 }
 
 pub fn unix_now() -> u64 {
@@ -127,14 +261,10 @@ pub fn unix_now() -> u64 {
         .unwrap_or(0)
 }
 
-#[allow(dead_code)]
-fn _err(msg: &str) -> anyhow::Error {
-    anyhow!("{msg}")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     fn record(height: u64, unit: &str, state: EpochState) -> EpochRecord {
         EpochRecord {
@@ -149,48 +279,232 @@ mod tests {
         }
     }
 
-    #[test]
-    fn round_trips_and_tracks_current() {
-        let dir = std::env::temp_dir().join(format!("epoch-store-test-{}", std::process::id()));
-        let path = dir.join("epochs.json");
-        let _ = std::fs::remove_file(&path);
+    fn block(height: u64, hash: &str) -> ScannedBlock {
+        ScannedBlock {
+            height,
+            hash: hash.into(),
+        }
+    }
 
-        let mut store = EpochStore::load(&path).unwrap();
-        assert!(store.current().is_none());
+    async fn test_db() -> DynMintDatabase {
+        Arc::new(cdk_sqlite::mint::memory::empty().await.unwrap())
+    }
 
-        store.append(record(100, "hash_ab_100", EpochState::Final)).unwrap();
-        store.append(record(105, "hash_ab_105", EpochState::Final)).unwrap();
+    #[tokio::test]
+    async fn round_trips_through_a_committed_transaction() {
+        let db = test_db().await;
+        let mut store = EpochStore::new_empty();
+
+        let mut tx = db.begin_transaction().await.unwrap();
+        store
+            .append(&mut tx, record(100, "hash_ab_100", EpochState::Final))
+            .await
+            .unwrap();
+        store
+            .append(&mut tx, record(105, "hash_ab_105", EpochState::Final))
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
         assert_eq!(store.current().unwrap().unit, "hash_ab_105");
         assert!(store.unit_taken("hash_ab_100"));
         assert_eq!(store.count_at_height(105), 1);
 
-        // Reload from disk: same view.
-        let reloaded = EpochStore::load(&path).unwrap();
+        let reloaded = EpochStore::load(&db).await.unwrap().unwrap();
         assert_eq!(reloaded.current().unwrap().unit, "hash_ab_105");
-
-        // A dissolved record is never current.
-        let mut store = reloaded;
-        store.append(record(106, "hash_ab_106", EpochState::Dissolved)).unwrap();
-        assert_eq!(store.current().unwrap().unit, "hash_ab_105");
-
-        let _ = std::fs::remove_file(&path);
     }
 
-    #[test]
-    fn non_dissolved_excludes_dissolved_records_only() {
-        let dir = std::env::temp_dir().join(format!("epoch-store-test-nd-{}", std::process::id()));
-        let path = dir.join("epochs.json");
-        let _ = std::fs::remove_file(&path);
+    #[tokio::test]
+    async fn load_returns_none_on_an_empty_database() {
+        let db = test_db().await;
+        assert!(EpochStore::load(&db).await.unwrap().is_none());
+    }
 
-        let mut store = EpochStore::load(&path).unwrap();
-        store.append(record(100, "hash_ab_100", EpochState::Final)).unwrap();
-        store.append(record(105, "hash_ab_105", EpochState::Dissolved)).unwrap();
-        store.append(record(110, "hash_ab_110", EpochState::Final)).unwrap();
+    #[tokio::test]
+    async fn an_uncommitted_transaction_is_not_visible_to_a_fresh_load() {
+        let db = test_db().await;
+        let mut store = EpochStore::new_empty();
+
+        let mut tx = db.begin_transaction().await.unwrap();
+        store
+            .append(&mut tx, record(100, "hash_ab_100", EpochState::Final))
+            .await
+            .unwrap();
+        drop(tx); // never committed
+
+        let reloaded = EpochStore::load(&db).await.unwrap();
+        assert!(
+            reloaded.is_none(),
+            "an uncommitted write must not be visible to a fresh load"
+        );
+    }
+
+    #[tokio::test]
+    async fn load_defaults_watermark_and_recent_when_the_watcher_key_is_absent() {
+        let db = test_db().await;
+        let mut tx = db.begin_transaction().await.unwrap();
+        let bytes = serde_json::to_vec(&vec![record(100, "a", EpochState::Final)]).unwrap();
+        tx.kv_write(PRIMARY_NAMESPACE, SECONDARY_NAMESPACE, RECORDS_KEY, &bytes)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        let loaded = EpochStore::load(&db).await.unwrap().unwrap();
+        assert!(loaded.watermark().is_none());
+        assert!(loaded.recent().is_empty());
+    }
+
+    #[tokio::test]
+    async fn non_dissolved_excludes_dissolved_records_only() {
+        let db = test_db().await;
+        let mut store = EpochStore::new_empty();
+        let mut tx = db.begin_transaction().await.unwrap();
+        store
+            .append(&mut tx, record(100, "hash_ab_100", EpochState::Final))
+            .await
+            .unwrap();
+        store
+            .append(&mut tx, record(105, "hash_ab_105", EpochState::Dissolved))
+            .await
+            .unwrap();
+        store
+            .append(&mut tx, record(110, "hash_ab_110", EpochState::Final))
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
 
         let non_dissolved = store.non_dissolved();
         let units: Vec<&str> = non_dissolved.iter().map(|r| r.unit.as_str()).collect();
         assert_eq!(units, vec!["hash_ab_100", "hash_ab_110"]);
+    }
 
-        let _ = std::fs::remove_file(&path);
+    #[tokio::test]
+    async fn previous_non_dissolved_skips_dissolved_records() {
+        let db = test_db().await;
+        let mut store = EpochStore::new_empty();
+        let mut tx = db.begin_transaction().await.unwrap();
+        store.append(&mut tx, record(100, "a", EpochState::Final)).await.unwrap();
+        store.append(&mut tx, record(105, "b", EpochState::Dissolved)).await.unwrap();
+        store.append(&mut tx, record(110, "c", EpochState::Provisional)).await.unwrap();
+        tx.commit().await.unwrap();
+
+        assert_eq!(store.previous_non_dissolved("c").unwrap().unit, "a");
+        assert!(store.previous_non_dissolved("a").is_none());
+    }
+
+    #[tokio::test]
+    async fn chronological_and_previous_non_dissolved_use_height_not_insertion_order() {
+        let db = test_db().await;
+        let mut store = EpochStore::new_empty();
+        let mut tx = db.begin_transaction().await.unwrap();
+        store.append(&mut tx, record(0, "genesis", EpochState::Final)).await.unwrap();
+        store.append(&mut tx, record(100, "h100", EpochState::Provisional)).await.unwrap();
+        store.append(&mut tx, record(110, "h110", EpochState::Provisional)).await.unwrap();
+        store.append(&mut tx, record(95, "h95", EpochState::Provisional)).await.unwrap();
+        tx.commit().await.unwrap();
+
+        let chrono: Vec<String> = store.chronological().into_iter().map(|r| r.unit).collect();
+        assert_eq!(chrono, vec!["genesis", "h95", "h100", "h110"]);
+
+        assert_eq!(store.previous_non_dissolved("h95").unwrap().unit, "genesis");
+        assert_eq!(store.previous_non_dissolved("h100").unwrap().unit, "h95");
+        assert_eq!(store.previous_non_dissolved("h110").unwrap().unit, "h100");
+    }
+
+    #[tokio::test]
+    async fn previous_non_dissolved_skips_a_dissolved_record_in_chronological_order() {
+        let db = test_db().await;
+        let mut store = EpochStore::new_empty();
+        let mut tx = db.begin_transaction().await.unwrap();
+        store.append(&mut tx, record(0, "genesis", EpochState::Final)).await.unwrap();
+        store.append(&mut tx, record(100, "h100", EpochState::Dissolved)).await.unwrap();
+        store.append(&mut tx, record(110, "h110", EpochState::Provisional)).await.unwrap();
+        store.append(&mut tx, record(95, "h95", EpochState::Provisional)).await.unwrap();
+        tx.commit().await.unwrap();
+
+        // h100 is dissolved, so h110's chronological predecessor is h95.
+        assert_eq!(store.previous_non_dissolved("h110").unwrap().unit, "h95");
+    }
+
+    #[tokio::test]
+    async fn update_record_changes_the_record_and_persists() {
+        let db = test_db().await;
+        let mut store = EpochStore::new_empty();
+
+        let mut tx = db.begin_transaction().await.unwrap();
+        store
+            .append(&mut tx, record(100, "a", EpochState::Provisional))
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        let mut tx = db.begin_transaction().await.unwrap();
+        store
+            .update_record(&mut tx, "a", |r| r.state = EpochState::Final)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        assert_eq!(store.record("a").unwrap().state, EpochState::Final);
+
+        let reloaded = EpochStore::load(&db).await.unwrap().unwrap();
+        assert_eq!(reloaded.record("a").unwrap().state, EpochState::Final);
+    }
+
+    #[tokio::test]
+    async fn watermark_and_recent_round_trip_through_a_transaction() {
+        let db = test_db().await;
+        let mut store = EpochStore::new_empty();
+        assert!(store.watermark().is_none());
+        assert!(store.recent().is_empty());
+
+        let mut tx = db.begin_transaction().await.unwrap();
+        // A watermark write never precedes genesis in real usage.
+        store.append(&mut tx, record(1, "a", EpochState::Final)).await.unwrap();
+        store.set_watermark(&mut tx, block(100, "h100"), 16).await.unwrap();
+        store.set_watermark(&mut tx, block(101, "h101"), 16).await.unwrap();
+        tx.commit().await.unwrap();
+
+        let reloaded = EpochStore::load(&db).await.unwrap().unwrap();
+        assert_eq!(reloaded.watermark(), Some(&block(101, "h101")));
+        assert_eq!(reloaded.recent(), &[block(100, "h100"), block(101, "h101")]);
+    }
+
+    #[tokio::test]
+    async fn set_watermark_trims_to_the_cap() {
+        let db = test_db().await;
+        let mut store = EpochStore::new_empty();
+        for h in 0..5u64 {
+            let mut tx = db.begin_transaction().await.unwrap();
+            store
+                .set_watermark(&mut tx, block(h, &format!("h{h}")), 3)
+                .await
+                .unwrap();
+            tx.commit().await.unwrap();
+        }
+
+        assert_eq!(
+            store.recent(),
+            &[block(2, "h2"), block(3, "h3"), block(4, "h4")]
+        );
+        assert_eq!(store.watermark(), Some(&block(4, "h4")));
+    }
+
+    #[tokio::test]
+    async fn rollback_to_truncates_recent_and_moves_the_watermark_back() {
+        let db = test_db().await;
+        let mut store = EpochStore::new_empty();
+        for (h, hash) in [(100u64, "h100"), (101, "h101"), (102, "h102")] {
+            let mut tx = db.begin_transaction().await.unwrap();
+            store.set_watermark(&mut tx, block(h, hash), 16).await.unwrap();
+            tx.commit().await.unwrap();
+        }
+
+        let mut tx = db.begin_transaction().await.unwrap();
+        store.rollback_to(&mut tx, 101).await.unwrap();
+        tx.commit().await.unwrap();
+
+        assert_eq!(store.recent(), &[block(100, "h100"), block(101, "h101")]);
+        assert_eq!(store.watermark(), Some(&block(101, "h101")));
     }
 }

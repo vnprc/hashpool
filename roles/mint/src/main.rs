@@ -25,11 +25,16 @@ struct HashpoolMintConfig {
     /// Pool identity: compressed secp256k1 pubkey (hex) namespacing epoch
     /// units (`hash_<pool>_<height>`). Required.
     pool_pubkey: Option<String>,
-    /// Epoch record store; defaults to `epochs.json` beside the mint database.
-    epoch_store_path: Option<String>,
     /// Loopback listener for the manual rotation lever. Default 127.0.0.1:3339.
     admin_listen: Option<String>,
     bitcoin_rpc: Option<BitcoinRpcConfig>,
+    /// Coinbase address the watcher matches (compared as a script, never as
+    /// this string). Required: the mint refuses to start without it.
+    receive_address: Option<String>,
+    /// Default 6.
+    confirmation_depth: Option<u32>,
+    /// Default 5.
+    poll_interval_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,20 +106,37 @@ async fn main() -> Result<()> {
     let rpc_cfg = hashpool_cfg.bitcoin_rpc.clone().ok_or_else(|| {
         anyhow::anyhow!("[hashpool_mint.bitcoin_rpc] url/user/pass are required (epoch genesis and rotation read the chain height)")
     })?;
+    let receive_address = hashpool_cfg.receive_address.clone().ok_or_else(|| {
+        anyhow::anyhow!(
+            "[hashpool_mint] receive_address is required (coinbase script the watcher matches)"
+        )
+    })?;
+    let receive_script = receive_address
+        .parse::<bitcoin::Address<bitcoin::address::NetworkUnchecked>>()
+        .map_err(|e| anyhow::anyhow!("invalid [hashpool_mint] receive_address: {e}"))?
+        .assume_checked()
+        .script_pubkey();
+    info!(
+        script = %hex::encode(receive_script.as_bytes()),
+        "mint receive script"
+    );
+
+    let confirmation_depth = hashpool_cfg.confirmation_depth.unwrap_or(6);
+    anyhow::ensure!(
+        confirmation_depth >= 1,
+        "[hashpool_mint] confirmation_depth must be >= 1"
+    );
+    let poll_interval_secs = hashpool_cfg.poll_interval_secs.unwrap_or(5);
+    anyhow::ensure!(
+        poll_interval_secs >= 1,
+        "[hashpool_mint] poll_interval_secs must be >= 1"
+    );
+
+    let mint_db_path = lib::resolve_and_prepare_db_path(&db_path);
     let epoch_settings = EpochSettings {
         pool_pubkey: hashpool_cfg.pool_pubkey.clone().ok_or_else(|| {
             anyhow::anyhow!("[hashpool_mint] pool_pubkey is required (namespaces epoch units)")
         })?,
-        store_path: hashpool_cfg
-            .epoch_store_path
-            .clone()
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| {
-                lib::resolve_and_prepare_db_path(&db_path)
-                    .parent()
-                    .expect("db path has a parent")
-                    .join("epochs.json")
-            }),
         rpc_url: rpc_cfg.url,
         rpc_user: rpc_cfg.user,
         rpc_pass: rpc_cfg.pass,
@@ -122,9 +144,14 @@ async fn main() -> Result<()> {
             .admin_listen
             .clone()
             .unwrap_or_else(|| "127.0.0.1:3339".to_string()),
+        receive_script,
+        confirmation_depth,
+        poll_interval: std::time::Duration::from_secs(poll_interval_secs),
+        mint_db_path,
     };
     let admin_listen = epoch_settings.admin_listen.clone();
     let epochs = EpochManager::load_or_genesis(mint.clone(), epoch_settings).await?;
+    epochs.spawn_watcher();
 
     // Manual rotation lever on a loopback-only listener.
     let admin = admin_router(epochs.clone());
@@ -162,4 +189,33 @@ async fn main() -> Result<()> {
     axum::serve(listener, router).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    /// Pins the dev config's placeholder address against its known derivation.
+    #[test]
+    fn dev_config_receive_address_is_the_generator_point_p2wpkh_address() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../config/mint.config.toml");
+        let contents = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+        let config: MintConfig = toml::from_str(&contents).unwrap();
+        let configured = config
+            .hashpool_mint
+            .expect("[hashpool_mint] section must be present")
+            .receive_address
+            .expect("receive_address must be present");
+
+        let generator_point =
+            "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+        let pubkey = bitcoin::secp256k1::PublicKey::from_str(generator_point).unwrap();
+        let compressed = bitcoin::CompressedPublicKey(pubkey);
+        let expected = bitcoin::Address::p2wpkh(&compressed, bitcoin::Network::Regtest).to_string();
+
+        assert_eq!(configured, expected);
+    }
 }

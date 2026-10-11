@@ -3,7 +3,7 @@ use binary_sv2::Str0255;
 use cdk::mint::{Mint, MintQuoteRequest, MintQuoteResponse as CdkMintQuoteResponse};
 use cdk::{
     cdk_payment::{PaymentIdentifier, WaitPaymentResponse},
-    nuts::PaymentMethod,
+    nuts::{CurrencyUnit, PaymentMethod},
     Amount,
 };
 use codec_sv2::StandardEitherFrame;
@@ -21,6 +21,7 @@ use tracing::info;
 use codec_sv2::StandardSv2Frame;
 use ehash::calculate_difficulty;
 
+use super::super::epoch::store::EpochState;
 use super::super::epoch::EpochManager;
 
 /// Type alias for frames used in mint/pool communication
@@ -58,11 +59,12 @@ pub async fn process_mint_quote_message(
                 .to_cdk_request()
                 .map_err(|e| anyhow::anyhow!("Failed to convert MintQuoteRequest: {e}"))?;
 
-            // Stamp the current mining epoch's unit; the wire request's unit
-            // string is legacy and ignored (the mint owns epoch identity). One
-            // snapshot read so a rotation between quote creation and the pay
-            // decision cannot strand a final-epoch quote unpaid.
-            let (epoch_unit, epoch_final) = epochs.current_snapshot();
+            // The wire request's unit is legacy and ignored (the mint owns
+            // epoch identity). Guard held across quote creation and the pay
+            // decision below: see `current_epoch`'s contract.
+            let current_epoch = epochs.current_epoch().await;
+            let epoch_unit = CurrencyUnit::Custom(current_epoch.unit.clone().into());
+            let epoch_final = current_epoch.state == EpochState::Final;
             cdk_custom_request.unit = epoch_unit.clone();
 
             let mint_quote_request = MintQuoteRequest::Custom {
@@ -87,11 +89,8 @@ pub async fn process_mint_quote_message(
                         quote_id_str, share_hash, amount,
                     );
 
-                    // The share is the payment, but it clears only once the
-                    // epoch boundary is settled: quotes in a final epoch pay at
-                    // creation (the historical behavior); quotes in a
-                    // provisional epoch stay unpaid — invisible to sweeping and
-                    // unmintable — until the boundary confirms and the bulk-pay
+                    // Final epoch: pay at creation. Provisional: stays unpaid
+                    // (unmintable) until the boundary confirms and bulk-pay
                     // runs. See docs/EPOCH_DESIGN.md.
                     let header_hash_hex = hex::encode(share_hash.as_bytes());
                     if epoch_final {
@@ -109,6 +108,7 @@ pub async fn process_mint_quote_message(
                             quote_id_str
                         );
                     }
+                    drop(current_epoch);
 
                     let sv2_response = mint_quote_response_from_cdk(share_hash, custom_response)
                         .map_err(|e| {
@@ -120,6 +120,7 @@ pub async fn process_mint_quote_message(
                     Ok(())
                 }
                 Err(e) => {
+                    drop(current_epoch);
                     let amount_exponent = if amount > 0 {
                         Some(amount.trailing_zeros())
                     } else {
